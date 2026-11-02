@@ -112,10 +112,10 @@ export default function ChannelSidebar({
                     <div className="flex items-center gap-1.5 flex-shrink-0">
                       {watchSessions && watchSessions[vc.id]?.active && (
                         <span
-                          className="text-[10px] bg-rose-500/20 text-rose-300 border border-rose-500/40 px-1.5 py-0.2 rounded-full font-bold flex items-center gap-1 animate-pulse"
-                          title={`Közös Mozi folyamatban (${watchSessions[vc.id].title || 'Mozi'})`}
+                          className="text-[10px] bg-red-500/20 text-red-300 border border-red-500/40 px-1.5 py-0.2 rounded-full font-bold flex items-center gap-1 animate-pulse"
+                          title={`Közös YouTube folyamatban (${watchSessions[vc.id].title || 'YouTube'})`}
                         >
-                          <span>🍿</span>
+                          <span>🔴</span>
                         </span>
                       )}
                       {casinoSessions && casinoSessions[vc.id]?.active && (

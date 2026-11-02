@@ -72,7 +72,7 @@ export default function App() {
   // 3D Velvet Room Kaszinó állapotok: channelId -> session
   const [casinoSessions, setCasinoSessions] = useState({});
 
-  // Watch Together (YouTube & CineHD Mozi) állapotok: channelId -> state
+  // Watch Together (YouTube Közös Videónézés) állapotok: channelId -> state
   const [watchSessions, setWatchSessions] = useState({});
 
   // Referenciák
@@ -262,7 +262,7 @@ export default function App() {
       });
     });
 
-    // Watch Together (YouTube & CineHD Mozi) események
+    // Watch Together (YouTube Közös Videónézés) események
     socket.on('watch:session-updated', ({ channelId, state }) => {
       setWatchSessions((prev) => {
         const next = { ...prev };
@@ -710,11 +710,12 @@ export default function App() {
     }
   };
 
-  const handleSendMessage = (text) => {
+  const handleSendMessage = (text, attachments = []) => {
     if (socketRef.current && activeTextChannel) {
       socketRef.current.emit('chat:message', {
         channelId: activeTextChannel,
-        text
+        text,
+        attachments
       });
     }
   };

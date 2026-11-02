@@ -192,16 +192,16 @@ export default function VoiceRoomView({
             onClick={() => setSubView('watch')}
             className={`px-3 py-1 rounded text-xs font-semibold flex items-center gap-1.5 transition ${
               subView === 'watch'
-                ? 'bg-gradient-to-r from-rose-600 to-indigo-600 text-white shadow'
+                ? 'bg-gradient-to-r from-red-600 to-rose-600 text-white shadow'
                 : watchState?.active
-                ? 'text-rose-300 hover:text-rose-200 bg-rose-500/10 border border-rose-500/30'
+                ? 'text-red-300 hover:text-red-200 bg-red-500/10 border border-red-500/30'
                 : 'text-discord-textMuted hover:text-white'
             }`}
           >
-            <span className="text-xs">🍿</span>
-            <span>Közös Mozi</span>
+            <span className="text-xs">🔴</span>
+            <span>YouTube</span>
             {watchState?.active && (
-              <span className="w-2 h-2 rounded-full bg-rose-400 animate-ping"></span>
+              <span className="w-2 h-2 rounded-full bg-red-400 animate-ping"></span>
             )}
           </button>
         </div>
@@ -216,20 +216,20 @@ export default function VoiceRoomView({
         </button>
       </div>
 
-      {/* Watch Party (Mozi) aktív értesítés ha másik nézetben vagyunk */}
+      {/* Watch Party aktív értesítés ha másik nézetben vagyunk */}
       {watchState?.active && subView !== 'watch' && (
-        <div className="bg-gradient-to-r from-[#2c1032] via-[#1d0d2b] to-[#120820] border-b border-rose-500/40 px-4 py-2 flex items-center justify-between shadow-md text-xs text-rose-200 flex-shrink-0">
+        <div className="bg-gradient-to-r from-[#2c1015] via-[#1d0d12] to-[#12080a] border-b border-red-500/40 px-4 py-2 flex items-center justify-between shadow-md text-xs text-red-200 flex-shrink-0">
           <div className="flex items-center gap-2 truncate">
-            <span className="text-base animate-bounce">🍿</span>
+            <span className="text-base animate-bounce">🔴</span>
             <span className="truncate">
-              <strong className="text-rose-300">{watchState.startedBy || 'Valaki'}</strong> elindította a közös mozizást: <span className="font-semibold text-white">{watchState.title || watchState.url}</span>!
+              <strong className="text-red-300">{watchState.startedBy || 'Valaki'}</strong> elindította a közös YouTube videót: <span className="font-semibold text-white">{watchState.title || watchState.url}</span>!
             </span>
           </div>
           <button
             onClick={() => setSubView('watch')}
-            className="px-3 py-1 rounded-lg bg-gradient-to-r from-rose-600 to-indigo-600 hover:from-rose-500 hover:to-indigo-500 text-white font-extrabold text-xs shadow transition transform active:scale-95 flex-shrink-0 ml-2"
+            className="px-3 py-1 rounded-lg bg-gradient-to-r from-red-600 to-rose-600 hover:from-red-500 hover:to-rose-500 text-white font-extrabold text-xs shadow transition transform active:scale-95 flex-shrink-0 ml-2"
           >
-            Csatlakozás a Mozihoz 🎬
+            Megnyitás ▶️
           </button>
         </div>
       )}
@@ -559,20 +559,20 @@ export default function VoiceRoomView({
           <span>{casinoSession?.active ? 'Kaszinó (Élő)' : 'Kaszinó'}</span>
         </button>
 
-        {/* Watch Together (Közös Mozi) button */}
+        {/* Watch Together (YouTube) button */}
         <button
           onClick={() => setSubView(subView === 'watch' ? 'stage' : 'watch')}
-          title={watchState?.active ? 'Közös Mozi megnyitása' : 'Közös Mozi (YouTube & CineHD) indítása'}
+          title={watchState?.active ? 'Közös YouTube megnyitása' : 'Közös YouTube videó indítása'}
           className={`flex items-center gap-2 px-4 py-2.5 rounded-full font-semibold text-sm transition shadow ${
             subView === 'watch'
-              ? 'bg-gradient-to-r from-rose-600 to-indigo-600 text-white shadow-lg shadow-rose-600/30'
+              ? 'bg-gradient-to-r from-red-600 to-rose-600 text-white shadow-lg shadow-red-600/30'
               : watchState?.active
-              ? 'bg-rose-600/20 border border-rose-500/50 text-rose-300 hover:bg-rose-600/30 animate-pulse'
+              ? 'bg-red-600/20 border border-red-500/50 text-red-300 hover:bg-red-600/30 animate-pulse'
               : 'bg-discord-dark hover:bg-discord-hover text-discord-textHeader'
           }`}
         >
-          <span className="text-base">🍿</span>
-          <span>{watchState?.active ? 'Mozi (Élő)' : 'Mozi'}</span>
+          <span className="text-base">🔴</span>
+          <span>{watchState?.active ? 'YouTube (Élő)' : 'YouTube'}</span>
         </button>
 
         {/* Speed Test button */}
