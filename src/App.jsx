@@ -72,6 +72,9 @@ export default function App() {
   // 3D Velvet Room Kaszinó állapotok: channelId -> session
   const [casinoSessions, setCasinoSessions] = useState({});
 
+  // Watch Together (YouTube & CineHD Mozi) állapotok: channelId -> state
+  const [watchSessions, setWatchSessions] = useState({});
+
   // Referenciák
   const socketRef = useRef(null);
   const localStreamRef = useRef(null);
@@ -112,6 +115,7 @@ export default function App() {
       if (data.voiceStates) setVoiceStates(data.voiceStates);
       if (data.onlineUsers) setOnlineUsers(data.onlineUsers);
       if (data.casinoSessions) setCasinoSessions(data.casinoSessions);
+      if (data.watchSessions) setWatchSessions(data.watchSessions);
     });
 
     socket.on('users:updated', (users) => {
@@ -256,6 +260,25 @@ export default function App() {
         }
         return next;
       });
+    });
+
+    // Watch Together (YouTube & CineHD Mozi) események
+    socket.on('watch:session-updated', ({ channelId, state }) => {
+      setWatchSessions((prev) => {
+        const next = { ...prev };
+        if (state) next[channelId] = state;
+        else delete next[channelId];
+        return next;
+      });
+    });
+
+    socket.on('watch:state', (state) => {
+      if (state && state.channelId) {
+        setWatchSessions((prev) => ({
+          ...prev,
+          [state.channelId]: state
+        }));
+      }
     });
 
     socket.on('webrtc:signal', async ({ senderPeerId, signal }) => {
@@ -856,6 +879,7 @@ export default function App() {
           onToggleScreenShare={handleToggleScreenShare}
           onOpenVoiceView={() => setViewMode('voice')}
           casinoSessions={casinoSessions}
+          watchSessions={watchSessions}
           onLogout={handleLogout}
         />
       )}
@@ -882,6 +906,7 @@ export default function App() {
           casinoSession={casinoSessions[activeVoiceChannel]}
           onStartCasino={() => handleStartCasino(activeVoiceChannel)}
           onStopCasino={() => handleStopCasino(activeVoiceChannel)}
+          watchState={watchSessions[activeVoiceChannel]}
           onToggleMute={handleToggleMute}
           onToggleDeafen={handleToggleDeafen}
           onToggleScreenShare={handleToggleScreenShare}

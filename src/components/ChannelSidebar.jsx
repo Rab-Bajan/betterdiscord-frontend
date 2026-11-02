@@ -30,6 +30,7 @@ export default function ChannelSidebar({
   onToggleScreenShare,
   onOpenVoiceView,
   casinoSessions = {},
+  watchSessions = {},
   onLogout
 }) {
   const currentVoiceObj = voiceChannels.find(vc => vc.id === activeVoiceChannel);
@@ -109,6 +110,14 @@ export default function ChannelSidebar({
                       <span className="truncate">{vc.name}</span>
                     </div>
                     <div className="flex items-center gap-1.5 flex-shrink-0">
+                      {watchSessions && watchSessions[vc.id]?.active && (
+                        <span
+                          className="text-[10px] bg-rose-500/20 text-rose-300 border border-rose-500/40 px-1.5 py-0.2 rounded-full font-bold flex items-center gap-1 animate-pulse"
+                          title={`Közös Mozi folyamatban (${watchSessions[vc.id].title || 'Mozi'})`}
+                        >
+                          <span>🍿</span>
+                        </span>
+                      )}
                       {casinoSessions && casinoSessions[vc.id]?.active && (
                         <span
                           className="text-[10px] bg-amber-500/20 text-amber-300 border border-amber-500/40 px-1.5 py-0.2 rounded-full font-bold flex items-center gap-1 animate-pulse"

@@ -19,6 +19,7 @@ import {
 import WhiteboardView from './WhiteboardView';
 import CodeEditorView from './CodeEditorView';
 import CasinoView from './CasinoView';
+import WatchPartyView from './WatchPartyView';
 
 function VideoRenderer({ stream, isMuted = false, className = '' }) {
   const videoRef = useRef(null);
@@ -63,6 +64,7 @@ export default function VoiceRoomView({
   casinoSession,
   onStartCasino,
   onStopCasino,
+  watchState,
   onToggleMute,
   onToggleDeafen,
   onToggleScreenShare,
@@ -186,6 +188,22 @@ export default function VoiceRoomView({
               <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse"></span>
             )}
           </button>
+          <button
+            onClick={() => setSubView('watch')}
+            className={`px-3 py-1 rounded text-xs font-semibold flex items-center gap-1.5 transition ${
+              subView === 'watch'
+                ? 'bg-gradient-to-r from-rose-600 to-indigo-600 text-white shadow'
+                : watchState?.active
+                ? 'text-rose-300 hover:text-rose-200 bg-rose-500/10 border border-rose-500/30'
+                : 'text-discord-textMuted hover:text-white'
+            }`}
+          >
+            <span className="text-xs">🍿</span>
+            <span>Közös Mozi</span>
+            {watchState?.active && (
+              <span className="w-2 h-2 rounded-full bg-rose-400 animate-ping"></span>
+            )}
+          </button>
         </div>
 
         <button
@@ -197,6 +215,24 @@ export default function VoiceRoomView({
           <span className="hidden sm:inline">Csevegés nézet</span>
         </button>
       </div>
+
+      {/* Watch Party (Mozi) aktív értesítés ha másik nézetben vagyunk */}
+      {watchState?.active && subView !== 'watch' && (
+        <div className="bg-gradient-to-r from-[#2c1032] via-[#1d0d2b] to-[#120820] border-b border-rose-500/40 px-4 py-2 flex items-center justify-between shadow-md text-xs text-rose-200 flex-shrink-0">
+          <div className="flex items-center gap-2 truncate">
+            <span className="text-base animate-bounce">🍿</span>
+            <span className="truncate">
+              <strong className="text-rose-300">{watchState.startedBy || 'Valaki'}</strong> elindította a közös mozizást: <span className="font-semibold text-white">{watchState.title || watchState.url}</span>!
+            </span>
+          </div>
+          <button
+            onClick={() => setSubView('watch')}
+            className="px-3 py-1 rounded-lg bg-gradient-to-r from-rose-600 to-indigo-600 hover:from-rose-500 hover:to-indigo-500 text-white font-extrabold text-xs shadow transition transform active:scale-95 flex-shrink-0 ml-2"
+          >
+            Csatlakozás a Mozihoz 🎬
+          </button>
+        </div>
+      )}
 
       {/* Kaszinó session aktív értesítés ha másik nézetben vagyunk */}
       {casinoSession?.active && subView !== 'casino' && (
@@ -217,7 +253,17 @@ export default function VoiceRoomView({
       )}
 
       {/* Main Content Area */}
-      {subView === 'casino' ? (
+      {subView === 'watch' ? (
+        /* KÖZÖS MOZI & YOUTUBE (WATCH TOGETHER) NÉZET */
+        <WatchPartyView
+          channelId={channel?.id}
+          channelName={channel?.name}
+          currentUser={currentUser}
+          socket={socket}
+          watchState={watchState}
+          onClose={() => setSubView('stage')}
+        />
+      ) : subView === 'casino' ? (
         /* VELVET ROOM 3D KASZINÓ NÉZET */
         <CasinoView
           channelId={channel?.id}
@@ -511,6 +557,22 @@ export default function VoiceRoomView({
         >
           <span className="text-base">🎰</span>
           <span>{casinoSession?.active ? 'Kaszinó (Élő)' : 'Kaszinó'}</span>
+        </button>
+
+        {/* Watch Together (Közös Mozi) button */}
+        <button
+          onClick={() => setSubView(subView === 'watch' ? 'stage' : 'watch')}
+          title={watchState?.active ? 'Közös Mozi megnyitása' : 'Közös Mozi (YouTube & CineHD) indítása'}
+          className={`flex items-center gap-2 px-4 py-2.5 rounded-full font-semibold text-sm transition shadow ${
+            subView === 'watch'
+              ? 'bg-gradient-to-r from-rose-600 to-indigo-600 text-white shadow-lg shadow-rose-600/30'
+              : watchState?.active
+              ? 'bg-rose-600/20 border border-rose-500/50 text-rose-300 hover:bg-rose-600/30 animate-pulse'
+              : 'bg-discord-dark hover:bg-discord-hover text-discord-textHeader'
+          }`}
+        >
+          <span className="text-base">🍿</span>
+          <span>{watchState?.active ? 'Mozi (Élő)' : 'Mozi'}</span>
         </button>
 
         {/* Speed Test button */}
