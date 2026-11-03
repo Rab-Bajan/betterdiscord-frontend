@@ -66,7 +66,9 @@ export default function ChatArea({
   onJoinVoiceChannel,
   activeVoiceChannel,
   onOpenSpeedTest,
-  onOpenMobileSidebar
+  onOpenMobileSidebar,
+  isDm = false,
+  dmPartner = null
 }) {
   const [inputText, setInputText] = useState('');
   const [showEmojiPicker, setShowEmojiPicker] = useState(false);
@@ -264,14 +266,41 @@ export default function ChatArea({
               <Menu className="w-4 h-4" />
             </button>
           )}
-          <Hash className="w-5 h-5 flex-shrink-0" style={{ color: '#7655F5' }} />
-          <span className="font-bold truncate text-sm sm:text-base" style={{ color: '#F4F3FF' }}>{channel ? channel.name : 'Csatorna'}</span>
-          {channel?.description && (
-            <>
-              <div className="w-[1px] h-4 mx-2 hidden sm:block" style={{ background: 'rgba(125, 105, 255, 0.2)' }} />
-              <span className="text-xs truncate hidden sm:block" style={{ color: '#999BBE' }}>
-                {channel.description}
+
+          {isDm && dmPartner ? (
+            <div className="flex items-center gap-2.5 truncate">
+              <div className="relative flex-shrink-0">
+                <div
+                  className="w-7 h-7 rounded-full flex items-center justify-center text-xs text-white font-bold overflow-hidden shadow"
+                  style={{ backgroundColor: dmPartner.avatarColor || '#7655F5' }}
+                >
+                  {dmPartner.avatarUrl ? (
+                    <img src={dmPartner.avatarUrl} alt={dmPartner.username} className="w-full h-full object-cover" />
+                  ) : (
+                    dmPartner.username.charAt(0).toUpperCase()
+                  )}
+                </div>
+                <div className="absolute -bottom-0.5 -right-0.5 w-2 h-2 rounded-full border border-[#101329] bg-[#28C997]" />
+              </div>
+              <span className="font-bold truncate text-sm sm:text-base" style={{ color: '#F4F3FF' }}>
+                @{dmPartner.username}
               </span>
+              <span className="text-[10px] px-2 py-0.5 rounded-full font-bold bg-[#7655F5]/20 text-[#7655F5] border border-[#7655F5]/30 hidden sm:inline">
+                Privát Üzenet
+              </span>
+            </div>
+          ) : (
+            <>
+              <Hash className="w-5 h-5 flex-shrink-0" style={{ color: '#7655F5' }} />
+              <span className="font-bold truncate text-sm sm:text-base" style={{ color: '#F4F3FF' }}>{channel ? channel.name : 'Csatorna'}</span>
+              {channel?.description && (
+                <>
+                  <div className="w-[1px] h-4 mx-2 hidden sm:block" style={{ background: 'rgba(125, 105, 255, 0.2)' }} />
+                  <span className="text-xs truncate hidden sm:block" style={{ color: '#999BBE' }}>
+                    {channel.description}
+                  </span>
+                </>
+              )}
             </>
           )}
         </div>
@@ -323,61 +352,72 @@ export default function ChatArea({
         {/* Welcome block */}
         <div className="pt-6 pb-4" style={{ borderBottom: '1px solid rgba(125, 105, 255, 0.12)' }}>
           <div className="w-14 h-14 rounded-2xl flex items-center justify-center mb-3 shadow-lg" style={{ background: 'rgba(118, 85, 245, 0.15)', border: '1px solid rgba(118, 85, 245, 0.3)', color: '#7655F5' }}>
-            <Hash className="w-7 h-7" />
+            {isDm ? <span className="text-2xl">💬</span> : <Hash className="w-7 h-7" />}
           </div>
           <h1 className="text-2xl font-bold" style={{ color: '#F4F3FF' }}>
-            Üdv a #{channel ? channel.name : 'csatornában'}!
+            {isDm ? `Beszélgetés vele: @${dmPartner?.username || 'Partner'}` : `Üdv a #${channel ? channel.name : 'csatornában'}!`}
           </h1>
           <p className="text-sm mt-1" style={{ color: '#999BBE' }}>
-            Ez a #{channel ? channel.name : 'csatorna'} kezdete. Küldj üzenetet vagy húzz ide fájlokat a megosztáshoz!
+            {isDm 
+              ? `Ez a közvetlen, privát beszélgetésed vele: @${dmPartner?.username}. Az itt küldött üzeneteket és csatolmányokat csak ti ketten látjátok.`
+              : `Ez a #${channel ? channel.name : 'csatorna'} kezdete. Küldj üzenetet vagy húzz ide fájlokat a megosztáshoz!`}
           </p>
         </div>
 
         {/* Message list */}
-        {messages.map((msg) => (
-          <div
-            key={msg.id}
-            className="flex items-start gap-4 px-3 py-2 rounded-xl group transition-all"
-            style={{
-              background: msg.isSystem ? 'rgba(118, 85, 245, 0.08)' : 'transparent',
-              borderLeft: msg.isSystem ? '3px solid #7655F5' : '3px solid transparent',
-            }}
-            onMouseOver={e => { if (!msg.isSystem) e.currentTarget.style.background = 'rgba(125, 105, 255, 0.04)'; }}
-            onMouseOut={e => { if (!msg.isSystem) e.currentTarget.style.background = 'transparent'; }}
-          >
-            {/* Avatar */}
-            <div
-              className="w-10 h-10 rounded-2xl flex items-center justify-center text-white font-bold text-sm flex-shrink-0 shadow-md mt-0.5"
-              style={{ backgroundColor: msg.avatarColor || '#7655F5' }}
-            >
-              {msg.username.charAt(0).toUpperCase()}
-            </div>
+        {messages.map((msg) => {
+          const authorName = msg.username || msg.senderUsername || (msg.isSystem ? 'Rendszer' : 'Felhasználó');
+          const authorAvatarColor = msg.avatarColor || msg.senderAvatarColor || '#7655F5';
+          const authorAvatarUrl = msg.avatarUrl || msg.senderAvatarUrl || null;
 
-            {/* Message Content */}
-            <div className="flex-1 min-w-0">
-              <div className="flex items-baseline gap-2">
-                <span
-                  className="font-semibold text-sm hover:underline cursor-pointer"
-                  style={{ color: msg.avatarColor || '#F4F3FF' }}
-                >
-                  {msg.username}
-                </span>
-                {msg.isSystem && (
-                  <span className="text-[10px] font-bold px-1.5 py-0.5 rounded text-white uppercase tracking-wider" style={{ background: '#7655F5' }}>
-                    Rendszer
-                  </span>
+          return (
+            <div
+              key={msg.id}
+              className="flex items-start gap-4 px-3 py-2 rounded-xl group transition-all"
+              style={{
+                background: msg.isSystem ? 'rgba(118, 85, 245, 0.08)' : 'transparent',
+                borderLeft: msg.isSystem ? '3px solid #7655F5' : '3px solid transparent',
+              }}
+              onMouseOver={e => { if (!msg.isSystem) e.currentTarget.style.background = 'rgba(125, 105, 255, 0.04)'; }}
+              onMouseOut={e => { if (!msg.isSystem) e.currentTarget.style.background = 'transparent'; }}
+            >
+              {/* Avatar */}
+              <div
+                className="w-10 h-10 rounded-2xl flex items-center justify-center text-white font-bold text-sm flex-shrink-0 shadow-md mt-0.5 overflow-hidden"
+                style={{ backgroundColor: authorAvatarColor }}
+              >
+                {authorAvatarUrl ? (
+                  <img src={authorAvatarUrl} alt={authorName} className="w-full h-full object-cover" />
+                ) : (
+                  (authorName.charAt(0) || '?').toUpperCase()
                 )}
-                <span className="text-[11px]" style={{ color: '#999BBE' }}>{msg.timestamp}</span>
               </div>
 
-              {/* Szöveges tartalom ha van */}
-              {msg.text && (
-                <p className="text-sm mt-0.5 whitespace-pre-wrap break-words leading-relaxed select-text" style={{ color: '#F4F3FF' }}>
-                  {msg.text}
-                </p>
-              )}
+              {/* Message Content */}
+              <div className="flex-1 min-w-0">
+                <div className="flex items-baseline gap-2">
+                  <span
+                    className="font-semibold text-sm hover:underline cursor-pointer"
+                    style={{ color: authorAvatarColor }}
+                  >
+                    {authorName}
+                  </span>
+                  {msg.isSystem && (
+                    <span className="text-[10px] font-bold px-1.5 py-0.5 rounded text-white uppercase tracking-wider" style={{ background: '#7655F5' }}>
+                      Rendszer
+                    </span>
+                  )}
+                  <span className="text-[11px]" style={{ color: '#999BBE' }}>{msg.timestamp}</span>
+                </div>
 
-              {/* CSATOLT FÁJLOK MEGJELENÍTÉSE */}
+                {/* Szöveges tartalom ha van */}
+                {msg.text && (
+                  <p className="text-sm mt-0.5 whitespace-pre-wrap break-words leading-relaxed select-text" style={{ color: '#F4F3FF' }}>
+                    {msg.text}
+                  </p>
+                )}
+
+                {/* CSATOLT FÁJLOK MEGJELENÍTÉSE */}
               {msg.attachments && msg.attachments.length > 0 && (
                 <div className="mt-2 space-y-2 max-w-xl">
                   {msg.attachments.map((att) => {
@@ -499,7 +539,8 @@ export default function ChatArea({
               )}
             </div>
           </div>
-        ))}
+          );
+        })}
 
         <div ref={messagesEndRef} />
       </div>
@@ -598,6 +639,8 @@ export default function ChatArea({
             placeholder={
               pendingAttachments.length > 0
                 ? 'Írj megjegyzést a csatolt fájlhoz (vagy Enter a küldéshez)...'
+                : isDm && dmPartner
+                ? `Privát üzenet neki: @${dmPartner.username} (Húzz ide fájlt is)...`
                 : `Üzenet ide: #${channel ? channel.name : 'csatorna'} (Húzz ide fájlt is)...`
             }
             className="flex-1 bg-transparent outline-none text-sm min-w-0"

@@ -1,10 +1,12 @@
 import React from 'react';
-import { Volume2, MicOff, Headphones, Tv, Activity, X } from 'lucide-react';
+import { Volume2, MicOff, Headphones, Tv, Activity, X, MessageSquare, User, Settings } from 'lucide-react';
 
 export default function UserListSidebar({
   users = [],
   currentUserId,
   onOpenSpeedTest,
+  onStartDm,
+  onOpenProfile,
   onClose
 }) {
   const inVoiceUsers = users.filter((u) => !!u.voiceChannel);
@@ -17,8 +19,11 @@ export default function UserListSidebar({
     return (
       <div
         key={u.id}
-        onClick={() => onOpenSpeedTest && onOpenSpeedTest()}
-        title={hasSpeed ? `Ping: ${u.speedTest.ping}ms • DL: ${u.speedTest.download} Mbps • UL: ${u.speedTest.upload} Mbps` : 'Kattints a sebességteszthez'}
+        onClick={() => {
+          if (isSelf && onOpenProfile) onOpenProfile();
+          else if (!isSelf && onStartDm) onStartDm(u);
+        }}
+        title={isSelf ? 'Kattints a profilod szerkesztéséhez' : `Kattints a privát üzenethez vele: ${u.username}`}
         className="flex items-center justify-between px-2.5 py-2 rounded-xl group transition-all cursor-pointer"
         onMouseOver={e => e.currentTarget.style.background = 'rgba(125, 105, 255, 0.08)'}
         onMouseOut={e => e.currentTarget.style.background = 'transparent'}
@@ -27,35 +32,67 @@ export default function UserListSidebar({
           {/* Avatar with online dot */}
           <div className="relative flex-shrink-0">
             <div
-              className="w-8 h-8 rounded-full flex items-center justify-center text-white text-xs font-bold shadow-md"
+              className="w-8 h-8 rounded-full flex items-center justify-center text-white text-xs font-bold shadow-md overflow-hidden"
               style={{ backgroundColor: u.avatarColor || '#7655F5' }}
             >
-              {u.username.charAt(0).toUpperCase()}
+              {u.avatarUrl ? (
+                <img src={u.avatarUrl} alt={u.username} className="w-full h-full object-cover" />
+              ) : (
+                u.username.charAt(0).toUpperCase()
+              )}
             </div>
             <div className="absolute -bottom-0.5 -right-0.5 w-2.5 h-2.5 rounded-full border-2" style={{ background: '#28C997', borderColor: '#101329' }} />
           </div>
 
           <div className="truncate">
             <div
-              className="text-sm font-medium truncate"
+              className="text-sm font-medium truncate flex items-center gap-1.5"
               style={{ color: u.avatarColor || '#F4F3FF' }}
             >
-              {u.username}
+              <span className="truncate">{u.username}</span>
+              {isSelf && (
+                <span className="text-[9px] px-1 py-0.2 rounded font-bold" style={{ background: 'rgba(118, 85, 245, 0.25)', color: '#7655F5' }}>
+                  Te
+                </span>
+              )}
             </div>
             <div className="text-[10px] leading-tight flex items-center gap-1" style={{ color: '#999BBE' }}>
-              {isSelf && <span>Te</span>}
+              {isSelf ? (
+                <span className="text-[#7655F5] hover:underline flex items-center gap-0.5">
+                  <Settings className="w-2.5 h-2.5" /> Profil beállítások
+                </span>
+              ) : (
+                <span>Online</span>
+              )}
               {hasSpeed && (
-                <span className="flex items-center gap-0.5 font-medium" style={{ color: '#28C997' }}>
+                <span className="flex items-center gap-0.5 font-medium ml-1" style={{ color: '#28C997' }}>
                   <Activity className="w-2.5 h-2.5" />
-                  {u.speedTest.ping}ms • {u.speedTest.download}M
+                  {u.speedTest.ping}ms
                 </span>
               )}
             </div>
           </div>
         </div>
 
-        {/* Status icons if in voice */}
-        <div className="flex items-center gap-1.5 flex-shrink-0" style={{ color: '#999BBE' }}>
+        {/* Action icons / Status icons */}
+        <div className="flex items-center gap-1 flex-shrink-0" style={{ color: '#999BBE' }}>
+          {/* Privát üzenet indító gomb másoknál */}
+          {!isSelf && onStartDm && (
+            <button
+              type="button"
+              onClick={(e) => {
+                e.stopPropagation();
+                onStartDm(u);
+              }}
+              title={`Privát üzenet küldése neki: ${u.username}`}
+              className="p-1 rounded-lg text-[#999BBE] hover:text-[#7655F5] opacity-0 group-hover:opacity-100 transition-all cursor-pointer"
+              onMouseOver={e => e.currentTarget.style.background = 'rgba(118, 85, 245, 0.15)'}
+              onMouseOut={e => e.currentTarget.style.background = 'transparent'}
+            >
+              <MessageSquare className="w-3.5 h-3.5" />
+            </button>
+          )}
+
           {u.voiceChannel && (
             <>
               {u.isScreenSharing && (
@@ -69,22 +106,6 @@ export default function UserListSidebar({
               {u.isDeafened && <Headphones className="w-3.5 h-3.5" style={{ color: '#E94B64' }} title="Süketítve" />}
             </>
           )}
-
-          {/* Hover speedtest button */}
-          <button
-            type="button"
-            onClick={(e) => {
-              e.stopPropagation();
-              onOpenSpeedTest && onOpenSpeedTest();
-            }}
-            title="Net Sebességteszt megnyitása"
-            className="opacity-0 group-hover:opacity-100 p-1 rounded-lg transition-all"
-            style={{ color: '#7655F5' }}
-            onMouseOver={e => e.currentTarget.style.background = 'rgba(118, 85, 245, 0.15)'}
-            onMouseOut={e => e.currentTarget.style.background = 'transparent'}
-          >
-            <Activity className="w-3.5 h-3.5" />
-          </button>
         </div>
       </div>
     );

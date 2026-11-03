@@ -9,6 +9,7 @@ import {
   ChevronDown,
   Settings,
   Radio,
+  MessageSquare,
   X
 } from 'lucide-react';
 import VoiceConnectedBar from './VoiceConnectedBar';
@@ -32,6 +33,11 @@ export default function ChannelSidebar({
   onOpenVoiceView,
   casinoSessions = {},
   watchSessions = {},
+  chessSessions = {},
+  dmPartners = [],
+  activeDmPartnerId = null,
+  onSelectDmPartner,
+  onOpenProfile,
   onLogout,
   onCloseMobile
 }) {
@@ -152,6 +158,15 @@ export default function ChannelSidebar({
                           <span>🎰</span>
                         </span>
                       )}
+                      {chessSessions && chessSessions[vc.id]?.active && (
+                        <span
+                          className="text-[10px] px-1.5 py-0.5 rounded-full font-bold flex items-center gap-1 animate-pulse"
+                          style={{ background: 'rgba(118, 85, 245, 0.2)', color: '#7655F5', border: '1px solid rgba(118, 85, 245, 0.4)' }}
+                          title={`1v1 Sakk folyamatban (${chessSessions[vc.id].startedBy})`}
+                        >
+                          <span>♟️</span>
+                        </span>
+                      )}
                       {participants.length > 0 && (
                         <span className="text-xs px-1.5 py-0.5 rounded-full font-medium" style={{ background: 'rgba(125, 105, 255, 0.15)', color: '#999BBE' }}>
                           {participants.length}
@@ -209,6 +224,62 @@ export default function ChannelSidebar({
               );
             })}
           </div>
+
+          {/* Direct Messages (Privát Üzenetek) Szekció */}
+          {dmPartners && dmPartners.length > 0 && (
+            <div className="mt-5">
+              <div className="px-2 mb-2 flex items-center justify-between text-xs font-bold uppercase tracking-wider" style={{ color: '#999BBE' }}>
+                <div className="flex items-center gap-1.5">
+                  <MessageSquare className="w-3.5 h-3.5 text-[#7655F5]" />
+                  <span>Közvetlen Üzenetek</span>
+                </div>
+                <span className="text-[10px] px-1.5 py-0.2 rounded-full bg-[#1B2040] text-[#999BBE]">
+                  {dmPartners.length}
+                </span>
+              </div>
+
+              <div className="space-y-1">
+                {dmPartners.map((partner) => {
+                  const isSelected = activeDmPartnerId === partner.id;
+                  return (
+                    <button
+                      key={partner.id}
+                      onClick={() => onSelectDmPartner && onSelectDmPartner(partner)}
+                      className="w-full flex items-center justify-between px-3 py-2 rounded-xl text-xs font-semibold transition-all text-left cursor-pointer group"
+                      style={{
+                        background: isSelected ? 'linear-gradient(135deg, rgba(118, 85, 245, 0.25), rgba(83, 108, 255, 0.25))' : 'transparent',
+                        color: isSelected ? '#F4F3FF' : '#999BBE',
+                        border: isSelected ? '1px solid rgba(118, 85, 245, 0.35)' : '1px solid transparent'
+                      }}
+                      onMouseOver={e => { if (!isSelected) { e.currentTarget.style.background = 'rgba(125, 105, 255, 0.08)'; e.currentTarget.style.color = '#F4F3FF'; } }}
+                      onMouseOut={e => { if (!isSelected) { e.currentTarget.style.background = 'transparent'; e.currentTarget.style.color = '#999BBE'; } }}
+                    >
+                      <div className="flex items-center gap-2.5 truncate">
+                        <div className="relative flex-shrink-0">
+                          <div
+                            className="w-6 h-6 rounded-full flex items-center justify-center text-[10px] text-white font-bold shadow overflow-hidden"
+                            style={{ backgroundColor: partner.avatarColor || '#7655F5' }}
+                          >
+                            {partner.avatarUrl ? (
+                              <img src={partner.avatarUrl} alt={partner.username} className="w-full h-full object-cover" />
+                            ) : (
+                              partner.username.charAt(0).toUpperCase()
+                            )}
+                          </div>
+                          <div className="absolute -bottom-0.5 -right-0.5 w-2 h-2 rounded-full border border-[#101329] bg-[#28C997]" />
+                        </div>
+                        <span className="truncate font-medium">{partner.username}</span>
+                      </div>
+
+                      {partner.hasUnread && (
+                        <span className="w-2 h-2 rounded-full bg-[#E94B64] animate-pulse flex-shrink-0" />
+                      )}
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+          )}
         </div>
       </div>
 
@@ -225,16 +296,24 @@ export default function ChannelSidebar({
 
       {/* Bottom User Bar */}
       <div className="px-3 py-3 flex items-center justify-between" style={{ borderTop: '1px solid rgba(125, 105, 255, 0.12)', background: '#0D1024' }}>
-        <div className="flex items-center gap-2.5 truncate mr-1">
+        <div 
+          onClick={onOpenProfile}
+          title="Kattints a profilod szerkesztéséhez"
+          className="flex items-center gap-2.5 truncate mr-1 cursor-pointer group"
+        >
           <div
-            className="w-9 h-9 rounded-full flex items-center justify-center text-white text-sm font-bold flex-shrink-0 relative"
+            className="w-9 h-9 rounded-full flex items-center justify-center text-white text-sm font-bold flex-shrink-0 relative overflow-hidden transition-transform group-hover:scale-105"
             style={{ backgroundColor: user.avatarColor }}
           >
-            {user.username.charAt(0).toUpperCase()}
+            {user.avatarUrl ? (
+              <img src={user.avatarUrl} alt={user.username} className="w-full h-full object-cover" />
+            ) : (
+              user.username.charAt(0).toUpperCase()
+            )}
             <div className="absolute -bottom-0.5 -right-0.5 w-3 h-3 rounded-full border-2" style={{ background: '#28C997', borderColor: '#0D1024' }} />
           </div>
           <div className="truncate">
-            <div className="text-sm font-semibold truncate leading-tight" style={{ color: '#F4F3FF' }}>
+            <div className="text-sm font-semibold truncate leading-tight group-hover:text-[#7655F5] transition" style={{ color: '#F4F3FF' }}>
               {user.username}
             </div>
             <div className="text-[11px] leading-tight" style={{ color: '#28C997' }}>
@@ -243,12 +322,12 @@ export default function ChannelSidebar({
           </div>
         </div>
 
-        {/* User Controls: Mic, Headphones, Logout */}
+        {/* User Controls: Mic, Headphones, Settings, Logout */}
         <div className="flex items-center gap-0.5">
           <button
             onClick={onToggleMute}
             title={isMuted ? 'Mikrofon bekapcsolása' : 'Mikrofon némítása'}
-            className="w-7 h-7 rounded-lg flex items-center justify-center transition-all"
+            className="w-7 h-7 rounded-lg flex items-center justify-center transition-all cursor-pointer"
             style={{ color: isMuted ? '#E94B64' : '#999BBE' }}
             onMouseOver={e => e.currentTarget.style.background = 'rgba(125, 105, 255, 0.15)'}
             onMouseOut={e => e.currentTarget.style.background = 'transparent'}
@@ -259,7 +338,7 @@ export default function ChannelSidebar({
           <button
             onClick={onToggleDeafen}
             title={isDeafened ? 'Süketítés feloldása' : 'Süketítés (hangok némítása)'}
-            className="w-7 h-7 rounded-lg flex items-center justify-center transition-all"
+            className="w-7 h-7 rounded-lg flex items-center justify-center transition-all cursor-pointer"
             style={{ color: isDeafened ? '#E94B64' : '#999BBE' }}
             onMouseOver={e => e.currentTarget.style.background = 'rgba(125, 105, 255, 0.15)'}
             onMouseOut={e => e.currentTarget.style.background = 'transparent'}
@@ -268,9 +347,20 @@ export default function ChannelSidebar({
           </button>
 
           <button
+            onClick={onOpenProfile}
+            title="Profil beállítások / Szerkesztés"
+            className="w-7 h-7 rounded-lg flex items-center justify-center transition-all cursor-pointer"
+            style={{ color: '#999BBE' }}
+            onMouseOver={e => { e.currentTarget.style.background = 'rgba(125, 105, 255, 0.15)'; e.currentTarget.style.color = '#7655F5'; }}
+            onMouseOut={e => { e.currentTarget.style.background = 'transparent'; e.currentTarget.style.color = '#999BBE'; }}
+          >
+            <Settings className="w-4 h-4" />
+          </button>
+
+          <button
             onClick={onLogout}
             title="Kijelentkezés"
-            className="w-7 h-7 rounded-lg flex items-center justify-center transition-all"
+            className="w-7 h-7 rounded-lg flex items-center justify-center transition-all cursor-pointer"
             style={{ color: '#999BBE' }}
             onMouseOver={e => { e.currentTarget.style.background = 'rgba(125, 105, 255, 0.15)'; e.currentTarget.style.color = '#E94B64'; }}
             onMouseOut={e => { e.currentTarget.style.background = 'transparent'; e.currentTarget.style.color = '#999BBE'; }}

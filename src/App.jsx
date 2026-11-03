@@ -6,17 +6,21 @@ import ChatArea from './components/ChatArea';
 import VoiceRoomView from './components/VoiceRoomView';
 import UserListSidebar from './components/UserListSidebar';
 import LoginModal from './components/LoginModal';
+import EditProfileModal from './components/EditProfileModal';
 import WhiteboardView from './components/WhiteboardView';
 import SpeedTestModal from './components/SpeedTestModal';
 import {
   playJoinSound,
   playLeaveSound,
   playMuteSound,
-  playMessageSound
+  playMessageSound,
+  playPrivateMessageSound
 } from './sounds';
 import { Activity, X, Volume2 } from 'lucide-react';
 
-const SOCKET_URL = window.location.origin;
+const SOCKET_URL = window.location.port === '3000'
+  ? `https://${window.location.hostname}:5000`
+  : window.location.origin;
 
 const RTC_CONFIG = {
   iceServers: [
@@ -84,6 +88,19 @@ export default function App() {
   // Watch Together (YouTube Közös Videónézés) állapotok: channelId -> state
   const [watchSessions, setWatchSessions] = useState({});
 
+  // 1v1 Sakk és Spectator állapotok: channelId -> state
+  const [chessSessions, setChessSessions] = useState({});
+
+  // Authentikáció és Profil Szerkesztés
+  const [authError, setAuthError] = useState(null);
+  const [isProfileModalOpen, setIsProfileModalOpen] = useState(false);
+  const [profileError, setProfileError] = useState(null);
+
+  // Közvetlen Üzenetek (Direct Messages - DM)
+  const [activeDmPartner, setActiveDmPartner] = useState(null);
+  const [dmMessages, setDmMessages] = useState({}); // dmKey -> Array of messages
+  const [dmPartners, setDmPartners] = useState([]); // Array of { id, username, avatarColor, avatarUrl, hasUnread }
+
   // Referenciák
   const socketRef = useRef(null);
   const localStreamRef = useRef(null);
@@ -96,6 +113,12 @@ export default function App() {
   const analyserRef = useRef(null);
   const speakingIntervalRef = useRef(null);
   const isSpeakingRef = useRef(false);
+
+  const currentUserRef = useRef(currentUser);
+  currentUserRef.current = currentUser;
+
+  const activeDmPartnerRef = useRef(activeDmPartner);
+  activeDmPartnerRef.current = activeDmPartner;
 
   const activeVoiceChannelRef = useRef(null);
   activeVoiceChannelRef.current = activeVoiceChannel;
@@ -176,6 +199,16 @@ export default function App() {
     });
     socketRef.current = socket;
 
+    // Automatikus belépés mentett token alapján
+    socket.on('connect', () => {
+      try {
+        const savedToken = localStorage.getItem('sharkvoic_token');
+        if (savedToken) {
+          socket.emit('auth:verify-token', { token: savedToken });
+        }
+      } catch (e) {}
+    });
+
     socket.on('init:data', (data) => {
       setCurrentUser(data.self);
       if (data.textChannels) setTextChannels(data.textChannels);
@@ -185,6 +218,10 @@ export default function App() {
       if (data.onlineUsers) setOnlineUsers(data.onlineUsers);
       if (data.casinoSessions) setCasinoSessions(data.casinoSessions);
       if (data.watchSessions) setWatchSessions(data.watchSessions);
+      if (data.chessSessions) setChessSessions(data.chessSessions);
+
+      // Korábbi DM beszélgetések lekérése
+      socket.emit('dm:get-conversations');
     });
 
     socket.on('users:updated', (users) => {
@@ -361,6 +398,129 @@ export default function App() {
           ...prev,
           [state.channelId]: state
         }));
+      }
+    });
+
+    // 1v1 Sakk és Spectator események
+    socket.on('chess:session-updated', ({ channelId, state }) => {
+      setChessSessions((prev) => {
+        const next = { ...prev };
+        if (state) next[channelId] = state;
+        else delete next[channelId];
+        return next;
+      });
+    });
+
+    socket.on('chess:state', (state) => {
+      if (state && state.channelId) {
+        setChessSessions((prev) => ({
+          ...prev,
+          [state.channelId]: state
+        }));
+      }
+    });
+
+    // Authentikáció események
+    socket.on('auth:success', ({ user, token }) => {
+      setCurrentUser(user);
+      setIsLoggedIn(true);
+      setAuthError(null);
+      if (token) {
+        try {
+          localStorage.setItem('sharkvoic_token', token);
+        } catch (e) {}
+      }
+    });
+
+    socket.on('auth:error', ({ error }) => {
+      setAuthError(error);
+    });
+
+    socket.on('auth:token-invalid', () => {
+      try {
+        localStorage.removeItem('sharkvoic_token');
+      } catch (e) {}
+      setIsLoggedIn(false);
+    });
+
+    socket.on('user:profile-updated', (user) => {
+      setCurrentUser((prev) => ({ ...prev, ...user }));
+      setIsProfileModalOpen(false);
+      setProfileError(null);
+      try {
+        localStorage.setItem('sharkvoic_user', JSON.stringify(user));
+      } catch (e) {}
+    });
+
+    socket.on('profile:error', ({ error }) => {
+      setProfileError(error);
+    });
+
+    // Privát Üzenetek (Direct Messages) események
+    socket.on('dm:new-message', (dmMsg) => {
+      const myId = currentUserRef.current?.id;
+      const isFromMe = dmMsg.senderId === myId;
+      const partner = isFromMe
+        ? { id: dmMsg.recipientId, username: dmMsg.recipientUsername, avatarColor: dmMsg.recipientAvatarColor, avatarUrl: dmMsg.recipientAvatarUrl }
+        : { id: dmMsg.senderId, username: dmMsg.senderUsername, avatarColor: dmMsg.senderAvatarColor, avatarUrl: dmMsg.senderAvatarUrl };
+
+      // DM üzenetek mentése
+      setDmMessages((prev) => {
+        const key = dmMsg.dmKey;
+        const list = prev[key] || [];
+        return {
+          ...prev,
+          [key]: [...list, dmMsg]
+        };
+      });
+
+      // DM partnerek listájának frissítése
+      setDmPartners((prev) => {
+        const exists = prev.find(p => p.username.toLowerCase() === partner.username.toLowerCase());
+        const isCurrentActive = activeDmPartnerRef.current?.username.toLowerCase() === partner.username.toLowerCase();
+        const hasUnread = !isFromMe && !isCurrentActive;
+
+        if (exists) {
+          return prev.map(p => p.username.toLowerCase() === partner.username.toLowerCase()
+            ? { ...p, ...partner, hasUnread: hasUnread || p.hasUnread }
+            : p
+          );
+        } else {
+          return [...prev, { ...partner, hasUnread }];
+        }
+      });
+
+      // Különálló HANGEFFEKT privát üzenethez!
+      if (!isFromMe) {
+        playPrivateMessageSound();
+      }
+    });
+
+    socket.on('dm:history', ({ partnerId, partnerUsername, dmKey, messages }) => {
+      const key = dmKey || (currentUserRef.current && partnerUsername ? [currentUserRef.current.username.toLowerCase(), partnerUsername.toLowerCase()].sort().join('::') : null);
+      if (key) {
+        setDmMessages((prev) => ({
+          ...prev,
+          [key]: messages || []
+        }));
+      }
+    });
+
+    socket.on('dm:conversations', (convs) => {
+      if (Array.isArray(convs)) {
+        setDmPartners((prev) => {
+          // Összefésülés a meglévőkkel
+          const map = new Map();
+          convs.forEach(c => map.set(c.username.toLowerCase(), c));
+          prev.forEach(p => {
+            if (map.has(p.username.toLowerCase())) {
+              map.set(p.username.toLowerCase(), { ...map.get(p.username.toLowerCase()), ...p });
+            } else {
+              map.set(p.username.toLowerCase(), p);
+            }
+          });
+          return Array.from(map.values());
+        });
       }
     });
 
@@ -894,6 +1054,52 @@ export default function App() {
     }
   };
 
+  // 1v1 SAKK KEZELŐK
+  const handleStartChess = (channelId, colorPreference = 'white') => {
+    const targetChannel = channelId || activeVoiceChannel;
+    if (socketRef.current && targetChannel) {
+      socketRef.current.emit('chess:start', {
+        channelId: targetChannel,
+        colorPreference
+      });
+    }
+  };
+
+  const handleJoinChess = (channelId) => {
+    const targetChannel = channelId || activeVoiceChannel;
+    if (socketRef.current && targetChannel) {
+      socketRef.current.emit('chess:join', { channelId: targetChannel });
+    }
+  };
+
+  const handleMoveChess = (channelId, from, to, promotion = 'q') => {
+    const targetChannel = channelId || activeVoiceChannel;
+    if (socketRef.current && targetChannel) {
+      socketRef.current.emit('chess:move', { channelId: targetChannel, from, to, promotion });
+    }
+  };
+
+  const handleResignChess = (channelId) => {
+    const targetChannel = channelId || activeVoiceChannel;
+    if (socketRef.current && targetChannel) {
+      socketRef.current.emit('chess:resign', { channelId: targetChannel });
+    }
+  };
+
+  const handleRematchChess = (channelId) => {
+    const targetChannel = channelId || activeVoiceChannel;
+    if (socketRef.current && targetChannel) {
+      socketRef.current.emit('chess:rematch', { channelId: targetChannel });
+    }
+  };
+
+  const handleStopChess = (channelId) => {
+    const targetChannel = channelId || activeVoiceChannel;
+    if (socketRef.current && targetChannel) {
+      socketRef.current.emit('chess:stop', { channelId: targetChannel });
+    }
+  };
+
   // SEBESSÉGTESZT KEZELŐK
   const handleRequestUserSpeedTest = (targetUserId, targetUsername) => {
     if (socketRef.current) {
@@ -911,12 +1117,64 @@ export default function App() {
     }
   };
 
-  // Csatorna és Hang kezelők
-  const handleLogin = ({ username, avatarColor }) => {
-    if (socketRef.current) {
+  // Authentikáció kezelők
+  const handleLogin = ({ type, username, password, avatarColor }) => {
+    setAuthError(null);
+    if (!socketRef.current) return;
+
+    if (type === 'register') {
+      socketRef.current.emit('auth:register', { username, password, avatarColor });
+    } else if (type === 'login') {
+      socketRef.current.emit('auth:login', { username, password });
+    } else {
+      // Guest
       socketRef.current.emit('user:join', { username, avatarColor });
       setIsLoggedIn(true);
     }
+  };
+
+  const handleUpdateProfile = ({ username, avatarColor, avatarUrl }) => {
+    setProfileError(null);
+    if (socketRef.current) {
+      socketRef.current.emit('user:update-profile', { username, avatarColor, avatarUrl });
+    }
+  };
+
+  // Privát Üzenet kezelők (Direct Messages)
+  const handleStartDm = (partner) => {
+    if (!partner) return;
+    setActiveDmPartner(partner);
+    setViewMode('chat'); // Biztosítjuk, hogy a csevegés nézet legyen aktív
+
+    // Olvasatlanság törlése
+    setDmPartners((prev) => {
+      const exists = prev.find(p => p.username.toLowerCase() === partner.username.toLowerCase());
+      if (exists) {
+        return prev.map(p => p.username.toLowerCase() === partner.username.toLowerCase()
+          ? { ...p, hasUnread: false }
+          : p
+        );
+      } else {
+        return [...prev, { ...partner, hasUnread: false }];
+      }
+    });
+
+    if (socketRef.current) {
+      socketRef.current.emit('dm:get-history', {
+        targetUserId: partner.id,
+        targetUsername: partner.username
+      });
+    }
+  };
+
+  const handleSendDmMessage = (text, attachments = []) => {
+    if (!socketRef.current || !activeDmPartner) return;
+    socketRef.current.emit('dm:send-message', {
+      targetUserId: activeDmPartner.id,
+      targetUsername: activeDmPartner.username,
+      text,
+      attachments
+    });
   };
 
   const handleSendMessage = (text, attachments = []) => {
@@ -1075,6 +1333,14 @@ export default function App() {
   };
 
   const handleLogout = () => {
+    try {
+      const savedToken = localStorage.getItem('sharkvoic_token');
+      if (socketRef.current && savedToken) {
+        socketRef.current.emit('auth:logout', { token: savedToken });
+      }
+      localStorage.removeItem('sharkvoic_token');
+    } catch (e) {}
+
     if (activeVoiceChannel) {
       handleLeaveVoiceChannel();
     }
@@ -1106,7 +1372,17 @@ export default function App() {
 
       <div className="flex flex-1 w-full overflow-hidden relative">
         {/* Login Modal */}
-        {!isLoggedIn && <LoginModal onLogin={handleLogin} />}
+        {!isLoggedIn && <LoginModal onLogin={handleLogin} authError={authError} />}
+
+        {/* Profil Szerkesztése Modal */}
+        {isProfileModalOpen && (
+          <EditProfileModal
+            currentUser={currentUser}
+            onSave={handleUpdateProfile}
+            onClose={() => setIsProfileModalOpen(false)}
+            error={profileError}
+          />
+        )}
 
       {/* Mobil Backdrop a bal oldali ChannelSidebar-hoz */}
       {mobileSidebarOpen && (
@@ -1125,9 +1401,10 @@ export default function App() {
             user={currentUser}
             textChannels={textChannels}
             voiceChannels={voiceChannels}
-            activeTextChannel={activeTextChannel}
+            activeTextChannel={activeDmPartner ? null : activeTextChannel}
             onSelectTextChannel={(id) => {
               setActiveTextChannel(id);
+              setActiveDmPartner(null);
               setViewMode('chat');
               setMobileSidebarOpen(false);
             }}
@@ -1150,6 +1427,11 @@ export default function App() {
             }}
             casinoSessions={casinoSessions}
             watchSessions={watchSessions}
+            chessSessions={chessSessions}
+            dmPartners={dmPartners}
+            activeDmPartnerId={activeDmPartner?.id}
+            onSelectDmPartner={(partner) => handleStartDm(partner)}
+            onOpenProfile={() => setIsProfileModalOpen(true)}
             onLogout={handleLogout}
             onCloseMobile={() => setMobileSidebarOpen(false)}
           />
@@ -1179,6 +1461,13 @@ export default function App() {
           onStartCasino={() => handleStartCasino(activeVoiceChannel)}
           onStopCasino={() => handleStopCasino(activeVoiceChannel)}
           watchState={watchSessions[activeVoiceChannel]}
+          chessSession={chessSessions[activeVoiceChannel]}
+          onStartChess={(color) => handleStartChess(activeVoiceChannel, color)}
+          onJoinChess={() => handleJoinChess(activeVoiceChannel)}
+          onMoveChess={(move) => handleMoveChess(activeVoiceChannel, move.from, move.to, move.promotion)}
+          onResignChess={() => handleResignChess(activeVoiceChannel)}
+          onRematchChess={() => handleRematchChess(activeVoiceChannel)}
+          onStopChess={() => handleStopChess(activeVoiceChannel)}
           onToggleMute={handleToggleMute}
           onToggleDeafen={handleToggleDeafen}
           onToggleScreenShare={handleToggleScreenShare}
@@ -1189,9 +1478,15 @@ export default function App() {
         />
       ) : (
         <ChatArea
-          channel={currentChannelObj}
-          messages={messages[activeTextChannel] || []}
-          onSendMessage={handleSendMessage}
+          isDm={!!activeDmPartner}
+          dmPartner={activeDmPartner}
+          channel={activeDmPartner ? null : currentChannelObj}
+          messages={
+            activeDmPartner && currentUser
+              ? (dmMessages[[currentUser.username.toLowerCase(), activeDmPartner.username.toLowerCase()].sort().join('::')] || [])
+              : (messages[activeTextChannel] || [])
+          }
+          onSendMessage={activeDmPartner ? handleSendDmMessage : handleSendMessage}
           onToggleUserList={() => setShowUserList(!showUserList)}
           showUserList={showUserList}
           onJoinVoiceChannel={handleJoinVoiceChannel}
@@ -1212,6 +1507,8 @@ export default function App() {
             <UserListSidebar
               users={onlineUsers}
               currentUserId={currentUser?.id}
+              onStartDm={(partner) => handleStartDm(partner)}
+              onOpenProfile={() => setIsProfileModalOpen(true)}
               onOpenSpeedTest={() => setIsSpeedTestOpen(true)}
               onClose={() => setShowUserList(false)}
             />

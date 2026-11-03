@@ -21,6 +21,7 @@ import WhiteboardView from './WhiteboardView';
 import CodeEditorView from './CodeEditorView';
 import CasinoView from './CasinoView';
 import WatchPartyView from './WatchPartyView';
+import ChessView from './ChessView';
 
 function VideoRenderer({ stream, isMuted = false, className = '' }) {
   const videoRef = useRef(null);
@@ -66,6 +67,13 @@ export default function VoiceRoomView({
   onStartCasino,
   onStopCasino,
   watchState,
+  chessSession,
+  onStartChess,
+  onJoinChess,
+  onMoveChess,
+  onResignChess,
+  onRematchChess,
+  onStopChess,
   onToggleMute,
   onToggleDeafen,
   onToggleScreenShare,
@@ -242,6 +250,25 @@ export default function VoiceRoomView({
               <span className="w-2 h-2 rounded-full animate-ping" style={{ background: '#E94B64' }}></span>
             )}
           </button>
+          <button
+            onClick={() => setSubView('chess')}
+            className="px-3 py-1.5 rounded-lg text-xs font-semibold flex items-center gap-1.5 transition-all flex-shrink-0"
+            style={{
+              background: subView === 'chess'
+                ? 'linear-gradient(135deg, #7655F5, #536CFF)'
+                : chessSession?.active
+                ? 'rgba(118, 85, 245, 0.15)'
+                : 'transparent',
+              color: subView === 'chess' ? 'white' : chessSession?.active ? '#7655F5' : '#999BBE',
+              border: chessSession?.active && subView !== 'chess' ? '1px solid rgba(118, 85, 245, 0.3)' : 'none',
+            }}
+          >
+            <span className="text-xs">♟️</span>
+            <span>Sakk</span>
+            {chessSession?.active && (
+              <span className="w-2 h-2 rounded-full animate-pulse" style={{ background: '#28C997' }}></span>
+            )}
+          </button>
         </div>
 
         <button
@@ -295,8 +322,41 @@ export default function VoiceRoomView({
         </div>
       )}
 
+      {/* Sakk parti aktív értesítés ha másik nézetben vagyunk */}
+      {chessSession?.active && subView !== 'chess' && (
+        <div className="px-3 py-2 flex items-center justify-between text-xs flex-shrink-0 gap-2 min-w-0" style={{ background: 'linear-gradient(90deg, rgba(30, 24, 75, 0.9), rgba(20, 16, 55, 0.9))', borderBottom: '1px solid rgba(118, 85, 245, 0.3)' }}>
+          <div className="flex items-center gap-2 truncate min-w-0" style={{ color: '#c7d2fe' }}>
+            <span className="text-base animate-bounce flex-shrink-0">♟️</span>
+            <span className="truncate">
+              <strong style={{ color: '#7655F5' }}>{chessSession.startedBy}</strong> elindított egy Sakk partit!
+            </span>
+          </div>
+          <button
+            onClick={() => setSubView('chess')}
+            className="px-2.5 py-1 rounded-lg text-white font-extrabold text-xs shadow transition transform active:scale-95 flex-shrink-0 whitespace-nowrap"
+            style={{ background: 'linear-gradient(135deg, #7655F5, #536CFF)' }}
+          >
+            Csatlakozás / Nézés ♟️
+          </button>
+        </div>
+      )}
+
       {/* Main Content Area */}
-      {subView === 'watch' ? (
+      {subView === 'chess' ? (
+        <ChessView
+          session={chessSession}
+          currentUser={currentUser}
+          channelId={channel?.id}
+          channelName={channel?.name}
+          onStart={onStartChess}
+          onJoin={onJoinChess}
+          onMove={onMoveChess}
+          onResign={onResignChess}
+          onRematch={onRematchChess}
+          onStop={onStopChess}
+          onClose={() => setSubView('stage')}
+        />
+      ) : subView === 'watch' ? (
         <WatchPartyView
           channelId={channel?.id}
           channelName={channel?.name}
@@ -642,7 +702,7 @@ export default function VoiceRoomView({
         <button
           onClick={() => setSubView(subView === 'watch' ? 'stage' : 'watch')}
           title={watchState?.active ? 'Közös YouTube megnyitása' : 'Közös YouTube videó indítása'}
-          className="flex items-center gap-1.5 sm:gap-2 px-2.5 sm:px-4 py-2 sm:py-2.5 rounded-xl font-semibold text-xs sm:text-sm transition-all shadow flex-shrink-0"
+          className="flex items-center gap-1.5 sm:gap-2 px-2.5 sm:px-4 py-2 sm:py-2.5 rounded-xl font-semibold text-xs sm:text-sm transition-all shadow flex-shrink-0 cursor-pointer"
           style={{
             background: subView === 'watch'
               ? 'linear-gradient(135deg, #dc2626, #e11d48)'
@@ -662,6 +722,32 @@ export default function VoiceRoomView({
         >
           <span className="text-base">🔴</span>
           <span className="hidden md:inline">{watchState?.active ? 'YouTube (Élő)' : 'YouTube'}</span>
+        </button>
+
+        {/* 1v1 Sakk és Spectator gomb */}
+        <button
+          onClick={() => setSubView(subView === 'chess' ? 'stage' : 'chess')}
+          title={chessSession?.active ? 'Sakk aréna megnyitása' : '1v1 Sakk parti indítása'}
+          className="flex items-center gap-1.5 sm:gap-2 px-2.5 sm:px-4 py-2 sm:py-2.5 rounded-xl font-semibold text-xs sm:text-sm transition-all shadow flex-shrink-0 cursor-pointer"
+          style={{
+            background: subView === 'chess'
+              ? 'linear-gradient(135deg, #7655F5, #536CFF)'
+              : chessSession?.active
+              ? 'rgba(118, 85, 245, 0.15)'
+              : '#1B2040',
+            border: chessSession?.active && subView !== 'chess'
+              ? '1px solid rgba(118, 85, 245, 0.4)'
+              : subView !== 'chess'
+              ? '1px solid rgba(125, 105, 255, 0.2)'
+              : 'none',
+            color: subView === 'chess' ? 'white' : chessSession?.active ? '#7655F5' : '#F4F3FF',
+            animation: chessSession?.active && subView !== 'chess' ? 'pulse 2s infinite' : 'none',
+          }}
+          onMouseOver={e => { if (subView !== 'chess' && !chessSession?.active) e.currentTarget.style.background = '#242b50'; }}
+          onMouseOut={e => { if (subView !== 'chess' && !chessSession?.active) e.currentTarget.style.background = '#1B2040'; }}
+        >
+          <span className="text-base">♟️</span>
+          <span className="hidden md:inline">{chessSession?.active ? 'Sakk (Élő)' : 'Sakk'}</span>
         </button>
 
         {/* Speed Test button */}
