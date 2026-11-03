@@ -14,7 +14,7 @@ import {
   playMuteSound,
   playMessageSound
 } from './sounds';
-import { Activity, X } from 'lucide-react';
+import { Activity, X, Volume2 } from 'lucide-react';
 
 const SOCKET_URL = window.location.origin;
 
@@ -22,8 +22,15 @@ const RTC_CONFIG = {
   iceServers: [
     { urls: 'stun:stun.l.google.com:19302' },
     { urls: 'stun:stun1.l.google.com:19302' },
-    { urls: 'stun:stun2.l.google.com:19302' }
-  ]
+    { urls: 'stun:stun2.l.google.com:19302' },
+    { urls: 'stun:stun3.l.google.com:19302' },
+    { urls: 'stun:stun4.l.google.com:19302' },
+    { urls: 'stun:stun.cloudflare.com:3478' },
+    { urls: 'stun:stun.services.mozilla.com' }
+  ],
+  iceCandidatePoolSize: 10,
+  bundlePolicy: 'max-bundle',
+  rtcpMuxPolicy: 'require'
 };
 
 export default function App() {
@@ -52,6 +59,7 @@ export default function App() {
 
   const [isMuted, setIsMuted] = useState(false);
   const [isDeafened, setIsDeafened] = useState(false);
+  const [autoplayBlocked, setAutoplayBlocked] = useState(false);
 
   // Képernyőmegosztás állapotok
   const [isScreenSharing, setIsScreenSharing] = useState(false);
@@ -79,7 +87,8 @@ export default function App() {
   const socketRef = useRef(null);
   const localStreamRef = useRef(null);
   const screenStreamRef = useRef(null);
-  const peersRef = useRef(new Map()); // peerId -> { pc, audioEl }
+  const peersRef = useRef(new Map()); // peerId -> { pc, audioEl, candidateQueue, remoteStream }
+  const pendingIceCandidatesRef = useRef(new Map()); // peerId -> Array of candidate
   const screenSendersRef = useRef(new Map()); // peerId -> RTCRtpSender
   const audioContainerRef = useRef(null);
   const audioContextRef = useRef(null);
@@ -87,16 +96,75 @@ export default function App() {
   const speakingIntervalRef = useRef(null);
   const isSpeakingRef = useRef(false);
 
-  // Audio konténer
+  const activeVoiceChannelRef = useRef(null);
+  activeVoiceChannelRef.current = activeVoiceChannel;
+
+  const isDeafenedRef = useRef(isDeafened);
+  isDeafenedRef.current = isDeafened;
+
+  const isMutedRef = useRef(isMuted);
+  isMutedRef.current = isMuted;
+
+  // Globális audio feloldó (Autoplay Policy kezelése böngészőkben)
+  const unlockAllAudio = () => {
+    if (audioContextRef.current && audioContextRef.current.state === 'suspended') {
+      audioContextRef.current.resume().catch(() => {});
+    }
+
+    let allOk = true;
+    peersRef.current.forEach(({ audioEl }, peerId) => {
+      if (audioEl) {
+        audioEl.muted = isDeafenedRef.current;
+        const p = audioEl.play();
+        if (p !== undefined) {
+          p.catch((err) => {
+            console.warn(`[WebRTC] Audio play warning (${peerId}):`, err);
+            allOk = false;
+          });
+        }
+      }
+    });
+
+    if (allOk) {
+      setAutoplayBlocked(false);
+    }
+  };
+
   useEffect(() => {
-    const div = document.createElement('div');
-    div.id = 'webrtc-audio-container';
-    div.style.display = 'none';
-    document.body.appendChild(div);
+    const handleUserInteraction = () => {
+      unlockAllAudio();
+    };
+
+    window.addEventListener('click', handleUserInteraction);
+    window.addEventListener('keydown', handleUserInteraction);
+    window.addEventListener('touchstart', handleUserInteraction);
+
+    return () => {
+      window.removeEventListener('click', handleUserInteraction);
+      window.removeEventListener('keydown', handleUserInteraction);
+      window.removeEventListener('touchstart', handleUserInteraction);
+    };
+  }, []);
+
+  // Audio konténer (nem display:none a böngészős hangfelfüggesztés elkerülésére!)
+  useEffect(() => {
+    let div = document.getElementById('webrtc-audio-container');
+    if (!div) {
+      div = document.createElement('div');
+      div.id = 'webrtc-audio-container';
+      div.style.position = 'fixed';
+      div.style.top = '-9999px';
+      div.style.left = '-9999px';
+      div.style.width = '1px';
+      div.style.height = '1px';
+      div.style.opacity = '0';
+      div.style.pointerEvents = 'none';
+      document.body.appendChild(div);
+    }
     audioContainerRef.current = div;
 
     return () => {
-      div.remove();
+      div?.remove();
     };
   }, []);
 
@@ -144,12 +212,26 @@ export default function App() {
     socket.on('voice:joined', async ({ channelId, peers }) => {
       console.log(`[WebRTC] Beléptünk a(z) ${channelId} szobába, meglévő partnerek:`, peers);
       for (const peer of peers) {
-        await initiatePeerConnection(peer.id);
+        try {
+          await initiatePeerConnection(peer.id);
+        } catch (e) {
+          console.error(`[WebRTC] Hiba kapcsolat kezdeményezésekor (${peer.id}):`, e);
+        }
       }
     });
 
     socket.on('voice:peer-joined', ({ peerId, user }) => {
       console.log(`[WebRTC] Új partner csatlakozott a szobához:`, user);
+      // Biztonsági tartalék: ha 3.5 másodpercen belül nem épül ki a kapcsolat az új partnertől, mi indítjuk
+      setTimeout(() => {
+        if (
+          activeVoiceChannelRef.current &&
+          (!peersRef.current.has(peerId) || peersRef.current.get(peerId)?.pc?.connectionState === 'new')
+        ) {
+          console.log(`[WebRTC] Backup kapcsolat indítása partner felé (${peerId})...`);
+          initiatePeerConnection(peerId);
+        }
+      }, 3500);
     });
 
     socket.on('voice:peer-left', ({ peerId }) => {
@@ -300,67 +382,202 @@ export default function App() {
     };
   }, []);
 
-  // WebRTC Kapcsolat kezdeményezése egy peer felé
-  const initiatePeerConnection = async (peerId) => {
-    try {
-      const pc = new RTCPeerConnection(RTC_CONFIG);
-      const audioEl = document.createElement('audio');
-      audioEl.autoplay = true;
-      audioEl.muted = isDeafened;
-      audioContainerRef.current?.appendChild(audioEl);
-
-      peersRef.current.set(peerId, { pc, audioEl });
-
-      // Mikrofon hang hozzáadása
-      if (localStreamRef.current) {
-        localStreamRef.current.getTracks().forEach((track) => {
-          pc.addTrack(track, localStreamRef.current);
-        });
+  // Peer kapcsolat teljes és tiszta lezárása
+  const cleanupPeer = (peerId) => {
+    const peerData = peersRef.current.get(peerId);
+    if (peerData) {
+      console.log(`[WebRTC] Peer lezárása és takarítása: ${peerId}`);
+      try {
+        if (peerData.pc) {
+          peerData.pc.onicecandidate = null;
+          peerData.pc.ontrack = null;
+          peerData.pc.oniceconnectionstatechange = null;
+          peerData.pc.onconnectionstatechange = null;
+          peerData.pc.close();
+        }
+      } catch (e) {}
+      if (peerData.audioEl) {
+        try {
+          peerData.audioEl.srcObject = null;
+          peerData.audioEl.pause();
+          peerData.audioEl.remove();
+        } catch (e) {}
       }
+      peersRef.current.delete(peerId);
+    }
+    pendingIceCandidatesRef.current.delete(peerId);
+    screenSendersRef.current.delete(peerId);
+  };
 
-      // Képernyőmegosztás videó sáv hozzáadása ha épp aktív
-      if (screenStreamRef.current) {
-        screenStreamRef.current.getVideoTracks().forEach((track) => {
+  // Új RTCPeerConnection létrehozása és eseménykezelők bekötése
+  const createPeerConnection = (peerId) => {
+    cleanupPeer(peerId);
+
+    const pc = new RTCPeerConnection(RTC_CONFIG);
+    const audioEl = document.createElement('audio');
+    audioEl.autoplay = true;
+    audioEl.playsInline = true;
+    audioEl.muted = isDeafenedRef.current;
+    audioEl.setAttribute('data-peer-id', peerId);
+    audioContainerRef.current?.appendChild(audioEl);
+
+    const peerData = {
+      pc,
+      audioEl,
+      candidateQueue: [],
+      remoteStream: null
+    };
+    peersRef.current.set(peerId, peerData);
+
+    // 1. Helyi mikrofon audio sáv hozzáadása
+    if (localStreamRef.current && localStreamRef.current.getAudioTracks().length > 0) {
+      localStreamRef.current.getAudioTracks().forEach((track) => {
+        try {
+          pc.addTrack(track, localStreamRef.current);
+          console.log(`[WebRTC] Mikrofon track hozzáadva (${peerId})`);
+        } catch (e) {
+          console.warn('[WebRTC] addTrack hiba:', e);
+        }
+      });
+    } else {
+      // Ha nincs mikrofonunk vagy még nem engedélyezett, akkor is kötelező a fogadó transzceiver
+      try {
+        pc.addTransceiver('audio', { direction: 'recvonly' });
+        console.log(`[WebRTC] Audio recvonly transzceiver hozzáadva (${peerId})`);
+      } catch (e) {
+        console.warn('[WebRTC] addTransceiver hiba:', e);
+      }
+    }
+
+    // 2. Képernyőmegosztás videó sáv hozzáadása ha épp aktív
+    if (screenStreamRef.current) {
+      screenStreamRef.current.getVideoTracks().forEach((track) => {
+        try {
           const sender = pc.addTrack(track, screenStreamRef.current);
           screenSendersRef.current.set(peerId, sender);
+        } catch (e) {
+          console.warn('[WebRTC] Screen track hozzáadási hiba:', e);
+        }
+      });
+    }
+
+    // 3. Bejövő sávok (hang / videó) kezelése
+    pc.ontrack = (event) => {
+      console.log(`[WebRTC] ontrack esemény érkezett peer-től (${peerId}), kind: ${event.track.kind}`);
+
+      if (event.track.kind === 'audio') {
+        const stream = (event.streams && event.streams[0])
+          ? event.streams[0]
+          : new MediaStream([event.track]);
+
+        peerData.remoteStream = stream;
+        audioEl.srcObject = stream;
+
+        const playAudio = () => {
+          audioEl.muted = isDeafenedRef.current;
+          audioEl.play().catch((err) => {
+            console.warn(`[WebRTC] Bejövő hang automatikus lejátszása blokkolva (${peerId}):`, err);
+            setAutoplayBlocked(true);
+          });
+        };
+
+        playAudio();
+
+        event.track.onunmute = () => {
+          console.log(`[WebRTC] Audio sáv aktívvá vált (onunmute) (${peerId})`);
+          playAudio();
+        };
+      } else if (event.track.kind === 'video') {
+        console.log(`[WebRTC] Video stream (Képernyőmegosztás) érkezett peer-től (${peerId})`);
+        const stream = (event.streams && event.streams[0])
+          ? event.streams[0]
+          : new MediaStream([event.track]);
+
+        setRemoteScreenStreams((prev) => new Map(prev).set(peerId, stream));
+
+        event.track.onended = () => {
+          setRemoteScreenStreams((prev) => {
+            const updated = new Map(prev);
+            updated.delete(peerId);
+            return updated;
+          });
+        };
+      }
+    };
+
+    // 4. ICE candidate generálás és továbbítás
+    pc.onicecandidate = (event) => {
+      if (event.candidate && socketRef.current) {
+        socketRef.current.emit('webrtc:signal', {
+          targetPeerId: peerId,
+          signal: {
+            type: 'ice-candidate',
+            candidate: event.candidate
+          }
         });
       }
+    };
 
-      pc.ontrack = (event) => {
-        if (event.track.kind === 'audio') {
-          console.log(`[WebRTC] Audio stream érkezett peer-től (${peerId})`);
-          if (audioEl.srcObject !== event.streams[0]) {
-            audioEl.srcObject = event.streams[0];
-            audioEl.play().catch(e => console.warn('Audio play warning:', e));
-          }
-        } else if (event.track.kind === 'video') {
-          console.log(`[WebRTC] Video stream (Képernyőmegosztás) érkezett peer-től (${peerId})`);
-          const stream = event.streams[0] || new MediaStream([event.track]);
-          setRemoteScreenStreams((prev) => new Map(prev).set(peerId, stream));
+    // 5. Kapcsolati állapotok monitorozása és újraindítás hiba esetén
+    pc.oniceconnectionstatechange = () => {
+      console.log(`[WebRTC] ICE Connection State (${peerId}): ${pc.iceConnectionState}`);
+      if (pc.iceConnectionState === 'failed') {
+        console.warn(`[WebRTC] ICE állapot sikertelen (${peerId}), ICE újraindítás próbálkozás...`);
+        handleIceRestart(peerId);
+      }
+    };
 
-          event.track.onended = () => {
-            setRemoteScreenStreams((prev) => {
-              const updated = new Map(prev);
-              updated.delete(peerId);
-              return updated;
-            });
-          };
+    pc.onconnectionstatechange = () => {
+      console.log(`[WebRTC] Connection State (${peerId}): ${pc.connectionState}`);
+      if (pc.connectionState === 'connected') {
+        if (audioEl && audioEl.srcObject) {
+          audioEl.muted = isDeafenedRef.current;
+          audioEl.play().catch(() => setAutoplayBlocked(true));
         }
-      };
+      }
+    };
 
-      pc.onicecandidate = (event) => {
-        if (event.candidate && socketRef.current) {
-          socketRef.current.emit('webrtc:signal', {
-            targetPeerId: peerId,
-            signal: {
-              type: 'ice-candidate',
-              candidate: event.candidate
-            }
-          });
+    return peerData;
+  };
+
+  // Várakozó ICE candidate-ek kiürítése a remote description beállítása után
+  const drainIceCandidateQueue = async (peerId, pc) => {
+    const peerData = peersRef.current.get(peerId);
+    const candidates = [];
+
+    if (peerData && peerData.candidateQueue && peerData.candidateQueue.length > 0) {
+      candidates.push(...peerData.candidateQueue);
+      peerData.candidateQueue = [];
+    }
+
+    if (pendingIceCandidatesRef.current.has(peerId)) {
+      candidates.push(...pendingIceCandidatesRef.current.get(peerId));
+      pendingIceCandidatesRef.current.delete(peerId);
+    }
+
+    if (candidates.length > 0) {
+      console.log(`[WebRTC] ${candidates.length} db tárolt ICE candidate hozzáadása (${peerId})...`);
+      for (const cand of candidates) {
+        try {
+          await pc.addIceCandidate(new RTCIceCandidate(cand));
+        } catch (e) {
+          console.warn(`[WebRTC] Hiba tárolt candidate hozzáadásakor (${peerId}):`, e);
         }
-      };
+      }
+    }
+  };
 
-      const offer = await pc.createOffer();
+  // WebRTC Kapcsolat kezdeményezése egy peer felé (Offer küldés)
+  const initiatePeerConnection = async (peerId) => {
+    try {
+      console.log(`[WebRTC] Kapcsolat kezdeményezése (${peerId})...`);
+      const peerData = createPeerConnection(peerId);
+      const { pc } = peerData;
+
+      const offer = await pc.createOffer({
+        offerToReceiveAudio: true,
+        offerToReceiveVideo: true
+      });
       await pc.setLocalDescription(offer);
 
       socketRef.current?.emit('webrtc:signal', {
@@ -375,72 +592,20 @@ export default function App() {
     }
   };
 
-  // Érkező Offer kezelése
+  // Érkező Offer kezelése (Answer küldés)
   const handleReceiveOffer = async (senderPeerId, sdp) => {
     try {
+      console.log(`[WebRTC] Offer érkezett peer-től (${senderPeerId})`);
       let peerData = peersRef.current.get(senderPeerId);
-      let pc;
-      let audioEl;
 
-      if (!peerData) {
-        pc = new RTCPeerConnection(RTC_CONFIG);
-        audioEl = document.createElement('audio');
-        audioEl.autoplay = true;
-        audioEl.muted = isDeafened;
-        audioContainerRef.current?.appendChild(audioEl);
-
-        peersRef.current.set(senderPeerId, { pc, audioEl });
-
-        if (localStreamRef.current) {
-          localStreamRef.current.getTracks().forEach((track) => {
-            pc.addTrack(track, localStreamRef.current);
-          });
-        }
-
-        if (screenStreamRef.current) {
-          screenStreamRef.current.getVideoTracks().forEach((track) => {
-            const sender = pc.addTrack(track, screenStreamRef.current);
-            screenSendersRef.current.set(senderPeerId, sender);
-          });
-        }
-
-        pc.ontrack = (event) => {
-          if (event.track.kind === 'audio') {
-            if (audioEl.srcObject !== event.streams[0]) {
-              audioEl.srcObject = event.streams[0];
-              audioEl.play().catch(e => console.warn('Audio play warning:', e));
-            }
-          } else if (event.track.kind === 'video') {
-            console.log(`[WebRTC] Video stream (Képernyőmegosztás) érkezett offer-ben (${senderPeerId})`);
-            const stream = event.streams[0] || new MediaStream([event.track]);
-            setRemoteScreenStreams((prev) => new Map(prev).set(senderPeerId, stream));
-
-            event.track.onended = () => {
-              setRemoteScreenStreams((prev) => {
-                const updated = new Map(prev);
-                updated.delete(senderPeerId);
-                return updated;
-              });
-            };
-          }
-        };
-
-        pc.onicecandidate = (event) => {
-          if (event.candidate && socketRef.current) {
-            socketRef.current.emit('webrtc:signal', {
-              targetPeerId: senderPeerId,
-              signal: {
-                type: 'ice-candidate',
-                candidate: event.candidate
-              }
-            });
-          }
-        };
-      } else {
-        pc = peerData.pc;
+      if (!peerData || !peerData.pc || peerData.pc.signalingState === 'closed') {
+        peerData = createPeerConnection(senderPeerId);
       }
 
+      const { pc } = peerData;
       await pc.setRemoteDescription(new RTCSessionDescription(sdp));
+      await drainIceCandidateQueue(senderPeerId, pc);
+
       const answer = await pc.createAnswer();
       await pc.setLocalDescription(answer);
 
@@ -456,31 +621,70 @@ export default function App() {
     }
   };
 
+  // Érkező Answer kezelése
   const handleReceiveAnswer = async (senderPeerId, sdp) => {
-    const peerData = peersRef.current.get(senderPeerId);
-    if (peerData && peerData.pc) {
-      await peerData.pc.setRemoteDescription(new RTCSessionDescription(sdp));
-    }
-  };
-
-  const handleReceiveIceCandidate = async (senderPeerId, candidate) => {
-    const peerData = peersRef.current.get(senderPeerId);
-    if (peerData && peerData.pc) {
-      await peerData.pc.addIceCandidate(new RTCIceCandidate(candidate));
-    }
-  };
-
-  const cleanupPeer = (peerId) => {
-    const peerData = peersRef.current.get(peerId);
-    if (peerData) {
-      try {
-        peerData.pc.close();
-      } catch (e) {}
-      if (peerData.audioEl) {
-        peerData.audioEl.srcObject = null;
-        peerData.audioEl.remove();
+    try {
+      console.log(`[WebRTC] Answer érkezett peer-től (${senderPeerId})`);
+      const peerData = peersRef.current.get(senderPeerId);
+      if (!peerData || !peerData.pc) {
+        console.warn(`[WebRTC] Answer érkezett de nincs peerData (${senderPeerId})`);
+        return;
       }
-      peersRef.current.delete(peerId);
+
+      const { pc } = peerData;
+      if (pc.signalingState === 'have-local-offer') {
+        await pc.setRemoteDescription(new RTCSessionDescription(sdp));
+        await drainIceCandidateQueue(senderPeerId, pc);
+      } else {
+        console.warn(`[WebRTC] Answer érkezett váratlan állapotban: ${pc.signalingState} (${senderPeerId})`);
+      }
+    } catch (err) {
+      console.error(`[WebRTC] Hiba answer fogadásakor (${senderPeerId}):`, err);
+    }
+  };
+
+  // Érkező ICE candidate kezelése (várakozási sorral a versenyhelyzet elkerülésére!)
+  const handleReceiveIceCandidate = async (senderPeerId, candidate) => {
+    if (!candidate) return;
+    try {
+      const peerData = peersRef.current.get(senderPeerId);
+      if (peerData && peerData.pc && peerData.pc.remoteDescription && peerData.pc.remoteDescription.type) {
+        await peerData.pc.addIceCandidate(new RTCIceCandidate(candidate));
+      } else {
+        if (peerData) {
+          peerData.candidateQueue.push(candidate);
+        } else {
+          if (!pendingIceCandidatesRef.current.has(senderPeerId)) {
+            pendingIceCandidatesRef.current.set(senderPeerId, []);
+          }
+          pendingIceCandidatesRef.current.get(senderPeerId).push(candidate);
+        }
+        console.log(`[WebRTC] ICE candidate sorba állítva (${senderPeerId})`);
+      }
+    } catch (err) {
+      console.warn(`[WebRTC] Hiba candidate hozzáadásakor (${senderPeerId}):`, err);
+    }
+  };
+
+  // ICE újraindítás hálózati megszakadás esetén
+  const handleIceRestart = async (peerId) => {
+    try {
+      const peerData = peersRef.current.get(peerId);
+      if (!peerData || !peerData.pc || peerData.pc.signalingState === 'closed') return;
+
+      console.log(`[WebRTC] ICE újraindítás kezdeményezése (${peerId})...`);
+      const offer = await peerData.pc.createOffer({ iceRestart: true });
+      await peerData.pc.setLocalDescription(offer);
+
+      socketRef.current?.emit('webrtc:signal', {
+        targetPeerId: peerId,
+        signal: {
+          type: 'offer',
+          sdp: offer
+        }
+      });
+    } catch (err) {
+      console.warn(`[WebRTC] ICE restart hiba (${peerId}):`, err);
     }
   };
 
@@ -490,6 +694,10 @@ export default function App() {
       const AudioContextClass = window.AudioContext || window.webkitAudioContext;
       const audioCtx = new AudioContextClass();
       audioContextRef.current = audioCtx;
+
+      if (audioCtx.state === 'suspended') {
+        audioCtx.resume().catch(() => {});
+      }
 
       const analyser = audioCtx.createAnalyser();
       analyser.fftSize = 512;
@@ -516,7 +724,7 @@ export default function App() {
         }
         const average = sum / bufferLength;
 
-        const isCurrentlySpeaking = average > 18 && !isMuted;
+        const isCurrentlySpeaking = average > 14 && !isMutedRef.current;
 
         if (isCurrentlySpeaking) {
           speakingCounter = 4;
@@ -722,18 +930,43 @@ export default function App() {
 
   const handleJoinVoiceChannel = async (channelId) => {
     try {
+      if (activeVoiceChannel === channelId) return;
+
       playJoinSound();
+
+      // Ha már másik hangcsatornában voltunk, tisztítsuk meg a korábbi kapcsolatokat
+      if (activeVoiceChannel) {
+        peersRef.current.forEach(({ pc, audioEl }) => {
+          try { pc.close(); } catch (e) {}
+          if (audioEl) {
+            audioEl.srcObject = null;
+            audioEl.remove();
+          }
+        });
+        peersRef.current.clear();
+        pendingIceCandidatesRef.current.clear();
+      }
 
       if (!localStreamRef.current) {
         try {
-          const stream = await navigator.mediaDevices.getUserMedia({
-            audio: {
-              echoCancellation: true,
-              noiseSuppression: true,
-              autoGainControl: true
-            },
-            video: false
-          });
+          let stream;
+          try {
+            stream = await navigator.mediaDevices.getUserMedia({
+              audio: {
+                echoCancellation: true,
+                noiseSuppression: true,
+                autoGainControl: true
+              },
+              video: false
+            });
+          } catch (constraintErr) {
+            console.warn('Fejlett audio beállítások sikertelenek, próbálkozás alap mikrofonnal...', constraintErr);
+            stream = await navigator.mediaDevices.getUserMedia({
+              audio: true,
+              video: false
+            });
+          }
+
           localStreamRef.current = stream;
 
           stream.getAudioTracks().forEach((track) => {
@@ -748,6 +981,9 @@ export default function App() {
 
       socketRef.current?.emit('voice:join', { channelId });
       setActiveVoiceChannel(channelId);
+
+      // Feloldjuk az audio kontextust
+      unlockAllAudio();
     } catch (err) {
       console.error('Hangcsatorna csatlakozási hiba:', err);
     }
@@ -773,6 +1009,7 @@ export default function App() {
       }
     });
     peersRef.current.clear();
+    pendingIceCandidatesRef.current.clear();
     screenSendersRef.current.clear();
     setRemoteScreenStreams(new Map());
     setWhiteboards([]);
@@ -850,9 +1087,24 @@ export default function App() {
   const currentVoiceParticipants = activeVoiceChannel ? (voiceStates[activeVoiceChannel] || []) : [];
 
   return (
-    <div className="flex h-screen w-screen overflow-hidden bg-discord-darkest text-discord-textNormal">
-      {/* Login Modal */}
-      {!isLoggedIn && <LoginModal onLogin={handleLogin} />}
+    <div className="flex flex-col h-screen w-screen overflow-hidden bg-discord-darkest text-discord-textNormal">
+      {/* Autoplay unblock banner ha a böngésző letiltotta a hangot */}
+      {autoplayBlocked && (
+        <div
+          onClick={unlockAllAudio}
+          className="bg-discord-primary hover:bg-discord-primaryHover text-white px-4 py-2 flex items-center justify-between text-xs font-bold cursor-pointer transition shadow-md z-50 flex-shrink-0 animate-bounce select-none"
+        >
+          <div className="flex items-center gap-2">
+            <Volume2 className="w-4 h-4" />
+            <span>A böngésződ blokkolta a hangot. Kattints ide (vagy bárhová az ablakban) az élő hang engedélyezéséhez!</span>
+          </div>
+          <span className="bg-white/20 px-2.5 py-1 rounded text-[11px] font-bold">Hang Bekapcsolása 🔊</span>
+        </div>
+      )}
+
+      <div className="flex flex-1 w-full overflow-hidden">
+        {/* Login Modal */}
+        {!isLoggedIn && <LoginModal onLogin={handleLogin} />}
 
       {/* 1. Leftmost Server Sidebar */}
       <ServerSidebar />
@@ -981,6 +1233,7 @@ export default function App() {
           </div>
         </div>
       )}
+      </div>
     </div>
   );
 }
