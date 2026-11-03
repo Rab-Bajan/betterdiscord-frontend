@@ -55,7 +55,8 @@ export default function App() {
   const [voiceStates, setVoiceStates] = useState({});
 
   const [viewMode, setViewMode] = useState('chat'); // 'chat' | 'voice'
-  const [showUserList, setShowUserList] = useState(true);
+  const [showUserList, setShowUserList] = useState(typeof window !== 'undefined' ? window.innerWidth >= 1024 : false);
+  const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false);
 
   const [isMuted, setIsMuted] = useState(false);
   const [isDeafened, setIsDeafened] = useState(false);
@@ -1087,12 +1088,13 @@ export default function App() {
   const currentVoiceParticipants = activeVoiceChannel ? (voiceStates[activeVoiceChannel] || []) : [];
 
   return (
-    <div className="flex flex-col h-screen w-screen overflow-hidden bg-discord-darkest text-discord-textNormal">
+    <div className="flex flex-col h-screen w-screen overflow-hidden select-none" style={{ background: '#090A18', color: '#F4F3FF' }}>
       {/* Autoplay unblock banner ha a böngésző letiltotta a hangot */}
       {autoplayBlocked && (
         <div
           onClick={unlockAllAudio}
-          className="bg-discord-primary hover:bg-discord-primaryHover text-white px-4 py-2 flex items-center justify-between text-xs font-bold cursor-pointer transition shadow-md z-50 flex-shrink-0 animate-bounce select-none"
+          className="px-4 py-2 flex items-center justify-between text-xs font-bold cursor-pointer transition shadow-md z-50 flex-shrink-0 animate-bounce select-none text-white"
+          style={{ background: 'linear-gradient(135deg, #7655F5, #536CFF)' }}
         >
           <div className="flex items-center gap-2">
             <Volume2 className="w-4 h-4" />
@@ -1102,39 +1104,56 @@ export default function App() {
         </div>
       )}
 
-      <div className="flex flex-1 w-full overflow-hidden">
+      <div className="flex flex-1 w-full overflow-hidden relative">
         {/* Login Modal */}
         {!isLoggedIn && <LoginModal onLogin={handleLogin} />}
 
-      {/* 1. Leftmost Server Sidebar */}
-      <ServerSidebar />
-
-      {/* 2. Channel Sidebar */}
-      {currentUser && (
-        <ChannelSidebar
-          user={currentUser}
-          textChannels={textChannels}
-          voiceChannels={voiceChannels}
-          activeTextChannel={activeTextChannel}
-          onSelectTextChannel={(id) => {
-            setActiveTextChannel(id);
-            setViewMode('chat');
-          }}
-          activeVoiceChannel={activeVoiceChannel}
-          onJoinVoiceChannel={handleJoinVoiceChannel}
-          onLeaveVoiceChannel={handleLeaveVoiceChannel}
-          voiceStates={voiceStates}
-          isMuted={isMuted}
-          isDeafened={isDeafened}
-          onToggleMute={handleToggleMute}
-          onToggleDeafen={handleToggleDeafen}
-          isScreenSharing={isScreenSharing}
-          onToggleScreenShare={handleToggleScreenShare}
-          onOpenVoiceView={() => setViewMode('voice')}
-          casinoSessions={casinoSessions}
-          watchSessions={watchSessions}
-          onLogout={handleLogout}
+      {/* Mobil Backdrop a bal oldali ChannelSidebar-hoz */}
+      {mobileSidebarOpen && (
+        <div
+          onClick={() => setMobileSidebarOpen(false)}
+          className="fixed inset-0 bg-black/60 backdrop-blur-sm z-30 md:hidden transition-opacity animate-in fade-in"
         />
+      )}
+
+      {/* 2. Channel Sidebar (Slide-over mobilon, normál oszlop asztali nézetben) */}
+      {currentUser && (
+        <div className={`fixed inset-y-0 left-0 z-40 transform transition-transform duration-200 ease-in-out md:relative md:translate-x-0 ${
+          mobileSidebarOpen ? 'translate-x-0' : '-translate-x-full md:translate-x-0'
+        }`}>
+          <ChannelSidebar
+            user={currentUser}
+            textChannels={textChannels}
+            voiceChannels={voiceChannels}
+            activeTextChannel={activeTextChannel}
+            onSelectTextChannel={(id) => {
+              setActiveTextChannel(id);
+              setViewMode('chat');
+              setMobileSidebarOpen(false);
+            }}
+            activeVoiceChannel={activeVoiceChannel}
+            onJoinVoiceChannel={(id) => {
+              handleJoinVoiceChannel(id);
+              setMobileSidebarOpen(false);
+            }}
+            onLeaveVoiceChannel={handleLeaveVoiceChannel}
+            voiceStates={voiceStates}
+            isMuted={isMuted}
+            isDeafened={isDeafened}
+            onToggleMute={handleToggleMute}
+            onToggleDeafen={handleToggleDeafen}
+            isScreenSharing={isScreenSharing}
+            onToggleScreenShare={handleToggleScreenShare}
+            onOpenVoiceView={() => {
+              setViewMode('voice');
+              setMobileSidebarOpen(false);
+            }}
+            casinoSessions={casinoSessions}
+            watchSessions={watchSessions}
+            onLogout={handleLogout}
+            onCloseMobile={() => setMobileSidebarOpen(false)}
+          />
+        </div>
       )}
 
       {/* 3. Center Main View: Voice Room vagy Chat Area */}
@@ -1166,6 +1185,7 @@ export default function App() {
           onOpenSpeedTest={() => setIsSpeedTestOpen(true)}
           onDisconnect={handleLeaveVoiceChannel}
           onClose={() => setViewMode('chat')}
+          onOpenMobileSidebar={() => setMobileSidebarOpen(true)}
         />
       ) : (
         <ChatArea
@@ -1177,16 +1197,26 @@ export default function App() {
           onJoinVoiceChannel={handleJoinVoiceChannel}
           activeVoiceChannel={activeVoiceChannel}
           onOpenSpeedTest={() => setIsSpeedTestOpen(true)}
+          onOpenMobileSidebar={() => setMobileSidebarOpen(true)}
         />
       )}
 
-      {/* 4. Right User List Sidebar */}
+      {/* 4. Right User List Sidebar (Slide-over mobilon/tableten, normál oszlop asztali nézetben) */}
       {showUserList && (
-        <UserListSidebar
-          users={onlineUsers}
-          currentUserId={currentUser?.id}
-          onOpenSpeedTest={() => setIsSpeedTestOpen(true)}
-        />
+        <>
+          <div
+            onClick={() => setShowUserList(false)}
+            className="fixed inset-0 bg-black/60 backdrop-blur-sm z-30 lg:hidden transition-opacity animate-in fade-in"
+          />
+          <div className="fixed inset-y-0 right-0 z-40 lg:relative lg:translate-x-0 shadow-2xl lg:shadow-none animate-in slide-in-from-right duration-200">
+            <UserListSidebar
+              users={onlineUsers}
+              currentUserId={currentUser?.id}
+              onOpenSpeedTest={() => setIsSpeedTestOpen(true)}
+              onClose={() => setShowUserList(false)}
+            />
+          </div>
+        </>
       )}
 
       {/* 5. Net Sebességteszt Modal */}
@@ -1202,15 +1232,15 @@ export default function App() {
 
       {/* 6. Értesítés, ha valaki sebességtesztet kért tőlünk */}
       {speedTestRequestToast && (
-        <div className="fixed bottom-6 right-6 z-50 bg-discord-darker border-2 border-discord-primary p-4 rounded-xl shadow-2xl flex items-center gap-3 animate-bounce">
-          <div className="w-10 h-10 rounded-full bg-discord-primary/20 text-discord-primary flex items-center justify-center flex-shrink-0">
+        <div className="fixed bottom-6 right-6 z-50 p-4 rounded-2xl shadow-2xl flex items-center gap-3 animate-bounce" style={{ background: '#101329', border: '1px solid #7655F5', boxShadow: '0 8px 30px rgba(118, 85, 245, 0.3)' }}>
+          <div className="w-10 h-10 rounded-xl flex items-center justify-center flex-shrink-0" style={{ background: 'rgba(118, 85, 245, 0.2)', color: '#7655F5' }}>
             <Activity className="w-6 h-6 animate-pulse" />
           </div>
           <div>
-            <div className="text-sm font-bold text-discord-textHeader">
+            <div className="text-sm font-bold" style={{ color: '#F4F3FF' }}>
               {speedTestRequestToast.requesterName} sebességtesztet kért tőled!
             </div>
-            <div className="text-xs text-discord-textMuted">
+            <div className="text-xs" style={{ color: '#999BBE' }}>
               Mérd le a netedet és oszd meg az eredményt!
             </div>
           </div>
@@ -1220,13 +1250,17 @@ export default function App() {
                 setSpeedTestRequestToast(null);
                 setIsSpeedTestOpen(true);
               }}
-              className="px-3 py-1.5 rounded-lg bg-discord-primary hover:bg-discord-primaryHover text-white text-xs font-semibold transition"
+              className="px-3 py-1.5 rounded-xl text-white text-xs font-semibold transition"
+              style={{ background: 'linear-gradient(135deg, #7655F5, #536CFF)' }}
             >
               Mérés Most
             </button>
             <button
               onClick={() => setSpeedTestRequestToast(null)}
-              className="p-1.5 rounded hover:bg-discord-hover text-discord-textMuted hover:text-white transition"
+              className="p-1.5 rounded-lg text-xs transition"
+              style={{ color: '#999BBE' }}
+              onMouseOver={e => e.currentTarget.style.color = '#F4F3FF'}
+              onMouseOut={e => e.currentTarget.style.color = '#999BBE'}
             >
               <X className="w-4 h-4" />
             </button>

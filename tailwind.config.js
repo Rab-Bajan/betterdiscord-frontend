@@ -23,6 +23,19 @@ export default {
           textMuted: '#949ba4',
           textNormal: '#dbdee1',
           textHeader: '#f2f3f5'
+        },
+        shark: {
+          bg: '#090A18',
+          panel: '#101329',
+          card: '#151832',
+          elevated: '#1B2040',
+          purple: '#7655F5',
+          'purple-dim': '#5746C8',
+          blue: '#536CFF',
+          text: '#F4F3FF',
+          muted: '#999BBE',
+          green: '#28C997',
+          red: '#E94B64',
         }
       }
     },

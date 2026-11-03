@@ -87,11 +87,9 @@ export default function SpeedTestModal({
       const dlStart = performance.now();
       const mbToDownload = 4; // 4 MB
 
-      // Időzített gauge animáció letöltés közben
       const speedInterval = setInterval(() => {
         const elapsed = (performance.now() - dlStart) / 1000;
         if (elapsed > 0) {
-          // becsült előrehaladás
           const estProgress = Math.min(30 + Math.floor(elapsed * 25), 65);
           setProgress(estProgress);
         }
@@ -164,7 +162,7 @@ export default function SpeedTestModal({
 
   const handleShare = () => {
     if (testState !== 'completed' || !downloadResult) return;
-    const msg = `⚡ **Net Sebességteszt Eredményem:**\n` +
+    const msg = `⚡ **SharkVoic Sebességteszt Eredményem:**\n` +
       `🏓 Ping: **${pingResult} ms** (Jitter: ${jitterResult} ms)\n` +
       `⬇️ Letöltés: **${downloadResult} Mbps**\n` +
       `⬆️ Feltöltés: **${uploadResult} Mbps**`;
@@ -173,19 +171,19 @@ export default function SpeedTestModal({
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-sm p-4 select-none">
-      <div className="bg-discord-darker border border-discord-dark rounded-2xl shadow-2xl max-w-lg w-full overflow-hidden flex flex-col max-h-[90vh]">
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 select-none" style={{ background: 'rgba(9, 10, 24, 0.85)', backdropFilter: 'blur(12px)' }}>
+      <div className="rounded-2xl shadow-2xl max-w-lg w-full overflow-hidden flex flex-col max-h-[90vh]" style={{ background: '#101329', border: '1px solid rgba(125, 105, 255, 0.25)', boxShadow: '0 12px 40px rgba(0, 0, 0, 0.7)' }}>
         {/* Modal Fejléc */}
-        <div className="h-14 border-b border-discord-dark px-6 flex items-center justify-between bg-discord-darker flex-shrink-0">
-          <div className="flex items-center gap-2.5">
-            <div className="w-8 h-8 rounded-lg bg-discord-primary/20 text-discord-primary flex items-center justify-center">
+        <div className="h-14 px-6 flex items-center justify-between flex-shrink-0" style={{ borderBottom: '1px solid rgba(125, 105, 255, 0.12)', background: '#101329' }}>
+          <div className="flex items-center gap-3">
+            <div className="w-8 h-8 rounded-xl flex items-center justify-center" style={{ background: 'rgba(118, 85, 245, 0.2)', color: '#7655F5' }}>
               <Activity className="w-5 h-5 animate-pulse" />
             </div>
             <div>
-              <h2 className="text-base font-bold text-discord-textHeader leading-tight">
-                Net Sebességteszt (Speed Test)
+              <h2 className="text-base font-bold leading-tight" style={{ color: '#F4F3FF' }}>
+                Net Sebességteszt
               </h2>
-              <p className="text-[11px] text-discord-textMuted leading-tight">
+              <p className="text-[11px] leading-tight" style={{ color: '#999BBE' }}>
                 Ping, Letöltés és Feltöltés valós idejű mérése
               </p>
             </div>
@@ -193,21 +191,24 @@ export default function SpeedTestModal({
 
           <button
             onClick={onClose}
-            className="w-8 h-8 rounded-lg hover:bg-discord-hover text-discord-textMuted hover:text-white flex items-center justify-center transition"
+            className="w-8 h-8 rounded-xl flex items-center justify-center transition-all"
+            style={{ color: '#999BBE' }}
+            onMouseOver={e => { e.currentTarget.style.background = 'rgba(125, 105, 255, 0.15)'; e.currentTarget.style.color = '#F4F3FF'; }}
+            onMouseOut={e => { e.currentTarget.style.background = 'transparent'; e.currentTarget.style.color = '#999BBE'; }}
           >
             <X className="w-5 h-5" />
           </button>
         </div>
 
         {/* Fülek (Tabs) */}
-        <div className="flex border-b border-discord-dark bg-discord-darkest/50 px-6 pt-2 flex-shrink-0 gap-4">
+        <div className="flex px-6 pt-2 flex-shrink-0 gap-4" style={{ background: 'rgba(9, 10, 24, 0.5)', borderBottom: '1px solid rgba(125, 105, 255, 0.12)' }}>
           <button
             onClick={() => setActiveTab('test')}
-            className={`pb-2.5 text-xs font-semibold flex items-center gap-1.5 border-b-2 transition ${
-              activeTab === 'test'
-                ? 'border-discord-primary text-discord-primary'
-                : 'border-transparent text-discord-textMuted hover:text-discord-textHeader'
-            }`}
+            className="pb-2.5 text-xs font-semibold flex items-center gap-1.5 transition-all"
+            style={{
+              borderBottom: activeTab === 'test' ? '2px solid #7655F5' : '2px solid transparent',
+              color: activeTab === 'test' ? '#7655F5' : '#999BBE',
+            }}
           >
             <Gauge className="w-4 h-4" />
             <span>Saját mérés</span>
@@ -215,11 +216,11 @@ export default function SpeedTestModal({
 
           <button
             onClick={() => setActiveTab('users')}
-            className={`pb-2.5 text-xs font-semibold flex items-center gap-1.5 border-b-2 transition ${
-              activeTab === 'users'
-                ? 'border-discord-primary text-discord-primary'
-                : 'border-transparent text-discord-textMuted hover:text-discord-textHeader'
-            }`}
+            className="pb-2.5 text-xs font-semibold flex items-center gap-1.5 transition-all"
+            style={{
+              borderBottom: activeTab === 'users' ? '2px solid #7655F5' : '2px solid transparent',
+              color: activeTab === 'users' ? '#7655F5' : '#999BBE',
+            }}
           >
             <Users className="w-4 h-4" />
             <span>Felhasználók sebessége ({onlineUsers.length})</span>
@@ -238,7 +239,7 @@ export default function SpeedTestModal({
                     cx="96"
                     cy="96"
                     r="80"
-                    stroke="#2b2d31"
+                    stroke="#1B2040"
                     strokeWidth="12"
                     fill="transparent"
                   />
@@ -246,7 +247,7 @@ export default function SpeedTestModal({
                     cx="96"
                     cy="96"
                     r="80"
-                    stroke="#5865F2"
+                    stroke="#7655F5"
                     strokeWidth="12"
                     fill="transparent"
                     strokeDasharray={2 * Math.PI * 80}
@@ -259,15 +260,15 @@ export default function SpeedTestModal({
                 <div className="absolute inset-0 flex flex-col items-center justify-center text-center">
                   {testState === 'idle' ? (
                     <>
-                      <Wifi className="w-10 h-10 text-discord-primary mb-1" />
-                      <span className="text-xs text-discord-textMuted font-medium">Készen áll</span>
+                      <Wifi className="w-10 h-10 mb-1" style={{ color: '#7655F5' }} />
+                      <span className="text-xs font-medium" style={{ color: '#999BBE' }}>Készen áll</span>
                     </>
                   ) : testState === 'completed' ? (
                     <>
                       <span className="text-3xl font-extrabold text-white tracking-tight">
                         {downloadResult}
                       </span>
-                      <span className="text-xs text-discord-green font-bold uppercase tracking-wider">
+                      <span className="text-xs font-bold uppercase tracking-wider" style={{ color: '#28C997' }}>
                         Mbps DL
                       </span>
                     </>
@@ -276,7 +277,7 @@ export default function SpeedTestModal({
                       <span className="text-3xl font-extrabold text-white tracking-tight">
                         {currentSpeed > 0 ? currentSpeed : '...'}
                       </span>
-                      <span className="text-xs text-discord-primary font-bold uppercase tracking-wider animate-pulse">
+                      <span className="text-xs font-bold uppercase tracking-wider animate-pulse" style={{ color: '#7655F5' }}>
                         {testState === 'ping' ? 'Pingelés...' : 'Mbps'}
                       </span>
                     </>
@@ -287,22 +288,22 @@ export default function SpeedTestModal({
               {/* Fázis szöveges jelzése */}
               <div className="h-6 mb-4 flex items-center justify-center">
                 {testState === 'ping' && (
-                  <span className="text-xs font-semibold text-discord-yellow flex items-center gap-1.5 animate-pulse">
+                  <span className="text-xs font-semibold flex items-center gap-1.5 animate-pulse" style={{ color: '#f5b041' }}>
                     <Activity className="w-3.5 h-3.5" /> 1/3: Ping & Jitter mérése...
                   </span>
                 )}
                 {testState === 'download' && (
-                  <span className="text-xs font-semibold text-discord-primary flex items-center gap-1.5 animate-pulse">
+                  <span className="text-xs font-semibold flex items-center gap-1.5 animate-pulse" style={{ color: '#7655F5' }}>
                     <ArrowDown className="w-3.5 h-3.5" /> 2/3: Letöltési sebesség mérése...
                   </span>
                 )}
                 {testState === 'upload' && (
-                  <span className="text-xs font-semibold text-discord-green flex items-center gap-1.5 animate-pulse">
+                  <span className="text-xs font-semibold flex items-center gap-1.5 animate-pulse" style={{ color: '#28C997' }}>
                     <ArrowUp className="w-3.5 h-3.5" /> 3/3: Feltöltési sebesség mérése...
                   </span>
                 )}
                 {testState === 'completed' && (
-                  <span className="text-xs font-semibold text-discord-green flex items-center gap-1.5">
+                  <span className="text-xs font-semibold flex items-center gap-1.5" style={{ color: '#28C997' }}>
                     <CheckCircle2 className="w-3.5 h-3.5" /> Mérés sikeresen befejeződött!
                   </span>
                 )}
@@ -311,48 +312,48 @@ export default function SpeedTestModal({
               {/* 4 Eredmény kártya */}
               <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5 w-full mb-6">
                 {/* Ping */}
-                <div className="bg-discord-darkest border border-discord-dark/60 p-3 rounded-xl flex flex-col items-center">
-                  <span className="text-[10px] font-bold uppercase tracking-wider text-discord-textMuted mb-1 flex items-center gap-1">
+                <div className="p-3 rounded-xl flex flex-col items-center" style={{ background: '#151832', border: '1px solid rgba(125, 105, 255, 0.15)' }}>
+                  <span className="text-[10px] font-bold uppercase tracking-wider mb-1 flex items-center gap-1" style={{ color: '#999BBE' }}>
                     <Activity className="w-3 h-3" /> PING
                   </span>
-                  <span className={`text-base font-bold ${
-                    pingResult !== null
-                      ? pingResult < 40 ? 'text-discord-green' : pingResult < 90 ? 'text-discord-yellow' : 'text-discord-red'
-                      : 'text-discord-textMuted'
-                  }`}>
+                  <span className="text-base font-bold" style={{
+                    color: pingResult !== null
+                      ? pingResult < 40 ? '#28C997' : pingResult < 90 ? '#f5b041' : '#E94B64'
+                      : '#999BBE'
+                  }}>
                     {pingResult !== null ? `${pingResult} ms` : '—'}
                   </span>
                 </div>
 
                 {/* Jitter */}
-                <div className="bg-discord-darkest border border-discord-dark/60 p-3 rounded-xl flex flex-col items-center">
-                  <span className="text-[10px] font-bold uppercase tracking-wider text-discord-textMuted mb-1 flex items-center gap-1">
+                <div className="p-3 rounded-xl flex flex-col items-center" style={{ background: '#151832', border: '1px solid rgba(125, 105, 255, 0.15)' }}>
+                  <span className="text-[10px] font-bold uppercase tracking-wider mb-1 flex items-center gap-1" style={{ color: '#999BBE' }}>
                     <Clock className="w-3 h-3" /> JITTER
                   </span>
-                  <span className="text-base font-bold text-discord-textHeader">
+                  <span className="text-base font-bold text-white">
                     {jitterResult !== null ? `${jitterResult} ms` : '—'}
                   </span>
                 </div>
 
                 {/* Letöltés */}
-                <div className="bg-discord-darkest border border-discord-dark/60 p-3 rounded-xl flex flex-col items-center">
-                  <span className="text-[10px] font-bold uppercase tracking-wider text-discord-textMuted mb-1 flex items-center gap-1">
-                    <ArrowDown className="w-3 h-3 text-discord-primary" /> LETÖLTÉS
+                <div className="p-3 rounded-xl flex flex-col items-center" style={{ background: '#151832', border: '1px solid rgba(125, 105, 255, 0.15)' }}>
+                  <span className="text-[10px] font-bold uppercase tracking-wider mb-1 flex items-center gap-1" style={{ color: '#999BBE' }}>
+                    <ArrowDown className="w-3 h-3" style={{ color: '#7655F5' }} /> LETÖLTÉS
                   </span>
-                  <span className="text-base font-bold text-discord-primary">
+                  <span className="text-base font-bold" style={{ color: '#7655F5' }}>
                     {downloadResult !== null ? `${downloadResult}` : '—'}
-                    {downloadResult !== null && <span className="text-[10px] font-normal text-discord-textMuted ml-0.5">Mbps</span>}
+                    {downloadResult !== null && <span className="text-[10px] font-normal ml-0.5" style={{ color: '#999BBE' }}>Mbps</span>}
                   </span>
                 </div>
 
                 {/* Feltöltés */}
-                <div className="bg-discord-darkest border border-discord-dark/60 p-3 rounded-xl flex flex-col items-center">
-                  <span className="text-[10px] font-bold uppercase tracking-wider text-discord-textMuted mb-1 flex items-center gap-1">
-                    <ArrowUp className="w-3 h-3 text-discord-green" /> FELTÖLTÉS
+                <div className="p-3 rounded-xl flex flex-col items-center" style={{ background: '#151832', border: '1px solid rgba(125, 105, 255, 0.15)' }}>
+                  <span className="text-[10px] font-bold uppercase tracking-wider mb-1 flex items-center gap-1" style={{ color: '#999BBE' }}>
+                    <ArrowUp className="w-3 h-3" style={{ color: '#28C997' }} /> FELTÖLTÉS
                   </span>
-                  <span className="text-base font-bold text-discord-green">
+                  <span className="text-base font-bold" style={{ color: '#28C997' }}>
                     {uploadResult !== null ? `${uploadResult}` : '—'}
-                    {uploadResult !== null && <span className="text-[10px] font-normal text-discord-textMuted ml-0.5">Mbps</span>}
+                    {uploadResult !== null && <span className="text-[10px] font-normal ml-0.5" style={{ color: '#999BBE' }}>Mbps</span>}
                   </span>
                 </div>
               </div>
@@ -363,7 +364,8 @@ export default function SpeedTestModal({
                   type="button"
                   onClick={runSpeedTest}
                   disabled={testState !== 'idle' && testState !== 'completed'}
-                  className="flex-1 py-3 px-4 rounded-xl bg-discord-primary hover:bg-discord-primaryHover disabled:opacity-50 text-white font-semibold text-sm transition shadow-lg flex items-center justify-center gap-2"
+                  className="flex-1 py-3 px-4 rounded-xl text-white font-semibold text-sm transition-all shadow-lg flex items-center justify-center gap-2 disabled:opacity-50"
+                  style={{ background: 'linear-gradient(135deg, #7655F5, #536CFF)', boxShadow: '0 4px 20px rgba(118, 85, 245, 0.35)' }}
                 >
                   {testState === 'completed' ? (
                     <>
@@ -383,9 +385,12 @@ export default function SpeedTestModal({
                     type="button"
                     onClick={handleShare}
                     title="Eredmény megosztása a szöveges csevegőben"
-                    className="py-3 px-4 rounded-xl bg-discord-dark hover:bg-discord-hover text-discord-textHeader font-semibold text-sm transition shadow flex items-center justify-center gap-2 border border-discord-dark/80"
+                    className="py-3 px-4 rounded-xl font-semibold text-sm transition-all shadow flex items-center justify-center gap-2"
+                    style={{ background: '#1B2040', color: '#F4F3FF', border: '1px solid rgba(125, 105, 255, 0.2)' }}
+                    onMouseOver={e => e.currentTarget.style.background = '#242b50'}
+                    onMouseOut={e => e.currentTarget.style.background = '#1B2040'}
                   >
-                    <Share2 className="w-4 h-4 text-discord-yellow" />
+                    <Share2 className="w-4 h-4" style={{ color: '#f5b041' }} />
                     <span className="hidden sm:inline">Megosztás Chatben</span>
                   </button>
                 )}
@@ -394,7 +399,7 @@ export default function SpeedTestModal({
           ) : (
             /* TAB 2: ÖSSZES FELHASZNÁLÓ SEBESSÉGE */
             <div className="space-y-2">
-              <div className="text-xs text-discord-textMuted mb-3">
+              <div className="text-xs mb-3" style={{ color: '#999BBE' }}>
                 Itt láthatod a szerveren tartózkodó többi felhasználó legutóbb mért sebességét, vagy kérhetsz tőlük mérést.
               </div>
 
@@ -405,29 +410,30 @@ export default function SpeedTestModal({
                 return (
                   <div
                     key={u.id}
-                    className="bg-discord-darkest border border-discord-dark/60 rounded-xl p-3 flex items-center justify-between gap-3"
+                    className="rounded-xl p-3 flex items-center justify-between gap-3"
+                    style={{ background: '#151832', border: '1px solid rgba(125, 105, 255, 0.15)' }}
                   >
                     {/* User infó */}
                     <div className="flex items-center gap-2.5 min-w-0">
                       <div
                         className="w-9 h-9 rounded-full flex items-center justify-center text-white text-xs font-bold flex-shrink-0"
-                        style={{ backgroundColor: u.avatarColor || '#5865F2' }}
+                        style={{ backgroundColor: u.avatarColor || '#7655F5' }}
                       >
                         {u.username.charAt(0).toUpperCase()}
                       </div>
                       <div className="min-w-0">
-                        <div className="text-sm font-semibold text-discord-textHeader truncate flex items-center gap-1.5">
+                        <div className="text-sm font-semibold truncate flex items-center gap-1.5" style={{ color: '#F4F3FF' }}>
                           <span>{u.username}</span>
                           {isSelf && (
-                            <span className="text-[10px] text-discord-textMuted bg-discord-dark px-1.5 py-0.2 rounded">
+                            <span className="text-[10px] px-1.5 py-0.5 rounded" style={{ color: '#999BBE', background: '#1B2040' }}>
                               Te
                             </span>
                           )}
                         </div>
-                        <div className="text-[11px] text-discord-textMuted flex items-center gap-2">
+                        <div className="text-[11px] flex items-center gap-2" style={{ color: '#999BBE' }}>
                           {hasResult ? (
                             <>
-                              <span className="flex items-center gap-0.5 text-discord-green font-medium">
+                              <span className="flex items-center gap-0.5 font-medium" style={{ color: '#28C997' }}>
                                 <Activity className="w-3 h-3" />
                                 {u.speedTest.ping} ms
                               </span>
@@ -449,9 +455,12 @@ export default function SpeedTestModal({
                         type="button"
                         onClick={() => onRequestUserTest(u.id, u.username)}
                         title="Sebességteszt kérése a felhasználótól"
-                        className="px-3 py-1.5 rounded-lg bg-discord-dark hover:bg-discord-hover text-discord-textHeader text-xs font-semibold transition flex items-center gap-1.5 border border-discord-darkest flex-shrink-0"
+                        className="px-3 py-1.5 rounded-lg text-xs font-semibold transition-all flex items-center gap-1.5 flex-shrink-0"
+                        style={{ background: '#1B2040', color: '#F4F3FF', border: '1px solid rgba(125, 105, 255, 0.2)' }}
+                        onMouseOver={e => e.currentTarget.style.background = '#242b50'}
+                        onMouseOut={e => e.currentTarget.style.background = '#1B2040'}
                       >
-                        <Activity className="w-3.5 h-3.5 text-discord-primary" />
+                        <Activity className="w-3.5 h-3.5" style={{ color: '#7655F5' }} />
                         <span>Mérés kérése</span>
                       </button>
                     )}

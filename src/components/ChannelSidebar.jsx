@@ -8,7 +8,8 @@ import {
   LogOut,
   ChevronDown,
   Settings,
-  Radio
+  Radio,
+  X
 } from 'lucide-react';
 import VoiceConnectedBar from './VoiceConnectedBar';
 
@@ -31,28 +32,46 @@ export default function ChannelSidebar({
   onOpenVoiceView,
   casinoSessions = {},
   watchSessions = {},
-  onLogout
+  onLogout,
+  onCloseMobile
 }) {
   const currentVoiceObj = voiceChannels.find(vc => vc.id === activeVoiceChannel);
 
   return (
-    <div className="w-60 bg-discord-darker flex flex-col h-full select-none flex-shrink-0 border-r border-discord-darkest/50">
-      {/* Server Header */}
-      <div className="h-12 border-b border-discord-darkest px-4 flex items-center justify-between font-bold text-discord-textHeader shadow-sm hover:bg-discord-hover/50 cursor-pointer transition">
-        <div className="flex items-center gap-2 truncate">
-          <div className="w-2.5 h-2.5 rounded-full bg-discord-green flex-shrink-0 animate-pulse" />
-          <span className="truncate">Közösségi VoIP Szerver</span>
+    <div className="w-64 md:w-60 flex flex-col h-full select-none flex-shrink-0" style={{ background: '#101329', borderRight: '1px solid rgba(125, 105, 255, 0.12)' }}>
+      {/* SharkVoic Logo Header */}
+      <div className="h-14 px-4 flex items-center justify-between font-bold cursor-pointer transition" style={{ borderBottom: '1px solid rgba(125, 105, 255, 0.12)' }}>
+        <div className="flex items-center gap-2.5 truncate">
+          {/* Shark fin SVG */}
+          <svg width="26" height="26" viewBox="0 0 40 40" fill="none" className="flex-shrink-0">
+            <path d="M5 32 L18 8 L22 20 L30 14 L35 32 Z" fill="#7655F5" opacity="0.9"/>
+            <path d="M18 8 L22 20 L30 14" fill="none" stroke="#536CFF" strokeWidth="1.5"/>
+            <ellipse cx="20" cy="30" rx="15" ry="3" fill="#536CFF" opacity="0.3"/>
+          </svg>
+          <span className="font-black tracking-tight text-base" style={{ color: '#F4F3FF' }}>SharkVoic</span>
         </div>
-        <ChevronDown className="w-4 h-4 text-discord-textMuted flex-shrink-0" />
+        <div className="flex items-center gap-1">
+          {onCloseMobile && (
+            <button
+              onClick={onCloseMobile}
+              title="Menü bezárása"
+              className="p-1.5 rounded-lg md:hidden text-shark-muted hover:text-white transition"
+              style={{ color: '#999BBE' }}
+            >
+              <X className="w-5 h-5" />
+            </button>
+          )}
+          <ChevronDown className="w-4 h-4 hidden md:block flex-shrink-0" style={{ color: '#999BBE' }} />
+        </div>
       </div>
 
       {/* Channels List */}
-      <div className="flex-1 overflow-y-auto px-2 py-3 space-y-4">
+      <div className="flex-1 overflow-y-auto px-2 py-4 space-y-5">
         {/* Szöveges csatornák */}
         <div>
-          <div className="flex items-center justify-between px-2 mb-1">
-            <span className="text-[11px] font-bold uppercase tracking-wider text-discord-textMuted">
-              Szöveges Csatornák
+          <div className="flex items-center justify-between px-2 mb-2">
+            <span className="text-[11px] font-bold uppercase tracking-widest" style={{ color: '#999BBE' }}>
+              Szobák
             </span>
           </div>
           <div className="space-y-0.5">
@@ -62,14 +81,17 @@ export default function ChannelSidebar({
                 <button
                   key={ch.id}
                   onClick={() => onSelectTextChannel(ch.id)}
-                  className={`w-full flex items-center gap-2 px-2 py-1.5 rounded-md text-sm transition group ${
-                    isActive
-                      ? 'bg-discord-active text-white font-medium'
-                      : 'text-discord-channel hover:bg-discord-hover hover:text-discord-channelHover'
-                  }`}
+                  className="w-full flex items-center gap-2.5 px-3 py-2 rounded-xl text-sm transition-all group"
+                  style={{
+                    background: isActive ? 'rgba(118, 85, 245, 0.2)' : 'transparent',
+                    color: isActive ? '#F4F3FF' : '#999BBE',
+                    borderLeft: isActive ? '2px solid #7655F5' : '2px solid transparent',
+                  }}
+                  onMouseOver={e => { if (!isActive) { e.currentTarget.style.background = 'rgba(125, 105, 255, 0.08)'; e.currentTarget.style.color = '#F4F3FF'; } }}
+                  onMouseOut={e => { if (!isActive) { e.currentTarget.style.background = 'transparent'; e.currentTarget.style.color = '#999BBE'; } }}
                 >
-                  <Hash className={`w-4 h-4 flex-shrink-0 ${isActive ? 'text-white' : 'text-discord-textMuted group-hover:text-discord-channelHover'}`} />
-                  <span className="truncate">{ch.name}</span>
+                  <Hash className="w-4 h-4 flex-shrink-0" style={{ color: isActive ? '#7655F5' : '#999BBE' }} />
+                  <span className="truncate font-medium">{ch.name}</span>
                 </button>
               );
             })}
@@ -78,10 +100,10 @@ export default function ChannelSidebar({
 
         {/* Hangcsatornák (VoIP) */}
         <div>
-          <div className="flex items-center justify-between px-2 mb-1">
-            <span className="text-[11px] font-bold uppercase tracking-wider text-discord-textMuted flex items-center gap-1">
-              <Radio className="w-3 h-3 text-discord-green" />
-              Hangcsatornák (VoIP)
+          <div className="flex items-center justify-between px-2 mb-2">
+            <span className="text-[11px] font-bold uppercase tracking-widest flex items-center gap-1.5" style={{ color: '#999BBE' }}>
+              <Radio className="w-3 h-3" style={{ color: '#28C997' }} />
+              Hangcsatornák
             </span>
           </div>
           <div className="space-y-1">
@@ -99,20 +121,23 @@ export default function ChannelSidebar({
                         onJoinVoiceChannel(vc.id);
                       }
                     }}
-                    className={`w-full flex items-center justify-between px-2 py-1.5 rounded-md text-sm transition group ${
-                      isConnectedHere
-                        ? 'bg-discord-active text-discord-green font-medium'
-                        : 'text-discord-channel hover:bg-discord-hover hover:text-discord-channelHover'
-                    }`}
+                    className="w-full flex items-center justify-between px-3 py-2 rounded-xl text-sm transition-all group"
+                    style={{
+                      background: isConnectedHere ? 'rgba(40, 201, 151, 0.12)' : 'transparent',
+                      color: isConnectedHere ? '#28C997' : '#999BBE',
+                    }}
+                    onMouseOver={e => { if (!isConnectedHere) { e.currentTarget.style.background = 'rgba(125, 105, 255, 0.08)'; e.currentTarget.style.color = '#F4F3FF'; } }}
+                    onMouseOut={e => { if (!isConnectedHere) { e.currentTarget.style.background = 'transparent'; e.currentTarget.style.color = '#999BBE'; } }}
                   >
-                    <div className="flex items-center gap-2 truncate">
-                      <Volume2 className={`w-4 h-4 flex-shrink-0 ${isConnectedHere ? 'text-discord-green' : 'text-discord-textMuted group-hover:text-discord-channelHover'}`} />
-                      <span className="truncate">{vc.name}</span>
+                    <div className="flex items-center gap-2.5 truncate">
+                      <Volume2 className="w-4 h-4 flex-shrink-0" style={{ color: isConnectedHere ? '#28C997' : '#999BBE' }} />
+                      <span className="truncate font-medium">{vc.name}</span>
                     </div>
                     <div className="flex items-center gap-1.5 flex-shrink-0">
                       {watchSessions && watchSessions[vc.id]?.active && (
                         <span
-                          className="text-[10px] bg-red-500/20 text-red-300 border border-red-500/40 px-1.5 py-0.2 rounded-full font-bold flex items-center gap-1 animate-pulse"
+                          className="text-[10px] px-1.5 py-0.5 rounded-full font-bold flex items-center gap-1 animate-pulse"
+                          style={{ background: 'rgba(233, 75, 100, 0.2)', color: '#E94B64', border: '1px solid rgba(233, 75, 100, 0.4)' }}
                           title={`Közös YouTube folyamatban (${watchSessions[vc.id].title || 'YouTube'})`}
                         >
                           <span>🔴</span>
@@ -120,14 +145,15 @@ export default function ChannelSidebar({
                       )}
                       {casinoSessions && casinoSessions[vc.id]?.active && (
                         <span
-                          className="text-[10px] bg-amber-500/20 text-amber-300 border border-amber-500/40 px-1.5 py-0.2 rounded-full font-bold flex items-center gap-1 animate-pulse"
+                          className="text-[10px] px-1.5 py-0.5 rounded-full font-bold flex items-center gap-1 animate-pulse"
+                          style={{ background: 'rgba(245, 176, 65, 0.2)', color: '#f5b041', border: '1px solid rgba(245, 176, 65, 0.4)' }}
                           title={`3D Kaszinó folyamatban (${casinoSessions[vc.id].startedBy})`}
                         >
                           <span>🎰</span>
                         </span>
                       )}
                       {participants.length > 0 && (
-                        <span className="text-xs bg-discord-darkest px-1.5 py-0.5 rounded-full text-discord-textMuted">
+                        <span className="text-xs px-1.5 py-0.5 rounded-full font-medium" style={{ background: 'rgba(125, 105, 255, 0.15)', color: '#999BBE' }}>
                           {participants.length}
                         </span>
                       )}
@@ -142,37 +168,37 @@ export default function ChannelSidebar({
                         return (
                           <div
                             key={p.id}
-                            className={`flex items-center justify-between py-1 px-1.5 rounded text-xs transition ${
-                              p.isSpeaking
-                                ? 'bg-discord-green/10 text-white'
-                                : 'text-discord-textNormal hover:bg-discord-hover/50'
-                            }`}
+                            className="flex items-center justify-between py-1 px-1.5 rounded-lg text-xs transition-all"
+                            style={{
+                              background: p.isSpeaking ? 'rgba(40, 201, 151, 0.08)' : 'transparent',
+                              color: p.isSpeaking ? '#F4F3FF' : '#999BBE',
+                            }}
                           >
                             <div className="flex items-center gap-2 truncate">
                               {/* Avatar with speaking ring */}
                               <div
-                                className={`w-5 h-5 rounded-full flex items-center justify-center text-[10px] text-white font-bold flex-shrink-0 border transition-all ${
-                                  p.isSpeaking ? 'speaking-ring border-discord-green' : 'border-transparent'
+                                className={`w-5 h-5 rounded-full flex items-center justify-center text-[10px] text-white font-bold flex-shrink-0 border-2 transition-all ${
+                                  p.isSpeaking ? 'speaking-ring' : ''
                                 }`}
-                                style={{ backgroundColor: p.avatarColor }}
+                                style={{ backgroundColor: p.avatarColor, borderColor: p.isSpeaking ? '#28C997' : 'transparent' }}
                               >
                                 {p.username.charAt(0).toUpperCase()}
                               </div>
                               <span className="truncate font-medium">
-                                {p.username} {isSelf && <span className="text-[10px] text-discord-textMuted">(Te)</span>}
+                                {p.username} {isSelf && <span className="text-[10px]" style={{ color: '#999BBE' }}>(Te)</span>}
                               </span>
                             </div>
 
                             {/* Voice Status Badges */}
                             <div className="flex items-center gap-1.5 flex-shrink-0">
                               {p.isScreenSharing && (
-                                <span className="bg-discord-red text-white text-[9px] font-bold px-1 py-0.5 rounded leading-none flex items-center gap-0.5">
+                                <span className="text-white text-[9px] font-bold px-1 py-0.5 rounded leading-none flex items-center gap-0.5" style={{ background: '#E94B64' }}>
                                   <Radio className="w-2.5 h-2.5 animate-pulse" />
                                   ÉLŐ
                                 </span>
                               )}
-                              {p.isMuted && <MicOff className="w-3.5 h-3.5 text-discord-red" title="Mikrofon némítva" />}
-                              {p.isDeafened && <Headphones className="w-3.5 h-3.5 text-discord-red" title="Süketítve" />}
+                              {p.isMuted && <MicOff className="w-3.5 h-3.5" style={{ color: '#E94B64' }} title="Mikrofon némítva" />}
+                              {p.isDeafened && <Headphones className="w-3.5 h-3.5" style={{ color: '#E94B64' }} title="Süketítve" />}
                             </div>
                           </div>
                         );
@@ -198,33 +224,34 @@ export default function ChannelSidebar({
       )}
 
       {/* Bottom User Bar */}
-      <div className="h-[52px] bg-discord-darkest px-2 flex items-center justify-between border-t border-discord-dark/40">
-        <div className="flex items-center gap-2 truncate mr-1">
+      <div className="px-3 py-3 flex items-center justify-between" style={{ borderTop: '1px solid rgba(125, 105, 255, 0.12)', background: '#0D1024' }}>
+        <div className="flex items-center gap-2.5 truncate mr-1">
           <div
-            className="w-8 h-8 rounded-full flex items-center justify-center text-white text-xs font-bold flex-shrink-0 relative"
+            className="w-9 h-9 rounded-full flex items-center justify-center text-white text-sm font-bold flex-shrink-0 relative"
             style={{ backgroundColor: user.avatarColor }}
           >
             {user.username.charAt(0).toUpperCase()}
-            <div className="absolute -bottom-0.5 -right-0.5 w-3 h-3 rounded-full bg-discord-green border-2 border-discord-darkest" />
+            <div className="absolute -bottom-0.5 -right-0.5 w-3 h-3 rounded-full border-2" style={{ background: '#28C997', borderColor: '#0D1024' }} />
           </div>
           <div className="truncate">
-            <div className="text-sm font-semibold text-discord-textHeader truncate leading-tight">
+            <div className="text-sm font-semibold truncate leading-tight" style={{ color: '#F4F3FF' }}>
               {user.username}
             </div>
-            <div className="text-[11px] text-discord-textMuted leading-tight">
+            <div className="text-[11px] leading-tight" style={{ color: '#28C997' }}>
               Online
             </div>
           </div>
         </div>
 
         {/* User Controls: Mic, Headphones, Logout */}
-        <div className="flex items-center gap-0.5 text-discord-textMuted">
+        <div className="flex items-center gap-0.5">
           <button
             onClick={onToggleMute}
             title={isMuted ? 'Mikrofon bekapcsolása' : 'Mikrofon némítása'}
-            className={`w-7 h-7 rounded flex items-center justify-center hover:bg-discord-hover transition ${
-              isMuted ? 'text-discord-red hover:text-discord-red' : 'hover:text-discord-textHeader'
-            }`}
+            className="w-7 h-7 rounded-lg flex items-center justify-center transition-all"
+            style={{ color: isMuted ? '#E94B64' : '#999BBE' }}
+            onMouseOver={e => e.currentTarget.style.background = 'rgba(125, 105, 255, 0.15)'}
+            onMouseOut={e => e.currentTarget.style.background = 'transparent'}
           >
             {isMuted ? <MicOff className="w-4 h-4" /> : <Mic className="w-4 h-4" />}
           </button>
@@ -232,9 +259,10 @@ export default function ChannelSidebar({
           <button
             onClick={onToggleDeafen}
             title={isDeafened ? 'Süketítés feloldása' : 'Süketítés (hangok némítása)'}
-            className={`w-7 h-7 rounded flex items-center justify-center hover:bg-discord-hover transition ${
-              isDeafened ? 'text-discord-red hover:text-discord-red' : 'hover:text-discord-textHeader'
-            }`}
+            className="w-7 h-7 rounded-lg flex items-center justify-center transition-all"
+            style={{ color: isDeafened ? '#E94B64' : '#999BBE' }}
+            onMouseOver={e => e.currentTarget.style.background = 'rgba(125, 105, 255, 0.15)'}
+            onMouseOut={e => e.currentTarget.style.background = 'transparent'}
           >
             <Headphones className="w-4 h-4" />
           </button>
@@ -242,7 +270,10 @@ export default function ChannelSidebar({
           <button
             onClick={onLogout}
             title="Kijelentkezés"
-            className="w-7 h-7 rounded flex items-center justify-center hover:bg-discord-hover hover:text-discord-red transition"
+            className="w-7 h-7 rounded-lg flex items-center justify-center transition-all"
+            style={{ color: '#999BBE' }}
+            onMouseOver={e => { e.currentTarget.style.background = 'rgba(125, 105, 255, 0.15)'; e.currentTarget.style.color = '#E94B64'; }}
+            onMouseOut={e => { e.currentTarget.style.background = 'transparent'; e.currentTarget.style.color = '#999BBE'; }}
           >
             <LogOut className="w-4 h-4" />
           </button>
