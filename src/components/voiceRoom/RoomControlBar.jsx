@@ -1,5 +1,5 @@
 import React from 'react';
-import { Mic, MicOff, Headphones, PhoneOff, Monitor, MonitorOff, Video, VideoOff, Paintbrush, Activity, Code2 } from 'lucide-react';
+import { Mic, MicOff, Headphones, PhoneOff, Monitor, MonitorOff, Video, VideoOff, Paintbrush, Activity, Code2, Globe } from 'lucide-react';
 
 const REST_BG = '#1B2040';
 const HOVER_BG = '#242b50';
@@ -25,7 +25,7 @@ function ControlButton({
   );
 }
 
-// Egy tevékenység (kaszinó/YouTube/sakk) gombjának stílusa: kiválasztva / fut a háttérben / alap
+// Egy tevékenység (kaszinó/YouTube/sakk/böngésző) gombjának stílusa: kiválasztva / fut a háttérben / alap
 function activityStyle({ selected, live, selectedBg, liveBg, liveColor, liveBorder, pulse = true }) {
   return {
     background: selected ? selectedBg : live ? liveBg : REST_BG,
@@ -48,6 +48,7 @@ export default function RoomControlBar({
   casinoActive,
   watchActive,
   chessActive,
+  browserActive,
   onToggleMute,
   onToggleDeafen,
   onToggleScreenShare,
@@ -107,6 +108,19 @@ export default function RoomControlBar({
         border={isScreenSharing ? 'none' : IDLE_BORDER}
         color={isScreenSharing ? 'white' : '#F4F3FF'}
         hoverable={!isScreenSharing}
+      />
+
+      <ControlButton
+        onClick={() => onToggleView('browser')}
+        title={browserActive ? 'Közös Böngésző megnyitása' : 'Közös Böngésző indítása'}
+        icon={<Globe className="w-5 h-5" style={{ color: subView === 'browser' ? 'white' : '#536CFF' }} />}
+        label={browserActive ? 'Böngésző (Élő)' : 'Böngésző'}
+        extraClass="cursor-pointer"
+        {...activityStyle({
+          selected: subView === 'browser', live: browserActive,
+          selectedBg: 'linear-gradient(135deg, #536CFF, #7655F5)',
+          liveBg: 'rgba(83, 108, 255, 0.15)', liveColor: '#536CFF', liveBorder: 'rgba(83, 108, 255, 0.4)'
+        })}
       />
 
       <ControlButton

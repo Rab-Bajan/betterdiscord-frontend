@@ -14,7 +14,7 @@ function setOrDelete(setter, channelId, value) {
   });
 }
 
-// Hangszobán belüli közös tevékenységek: rajztábla, kód editor, kaszinó, YouTube, sakk
+// Hangszobán belüli közös tevékenységek: rajztábla, kód editor, kaszinó, YouTube, sakk, közös böngésző
 export function useRoomActivities(socket, currentUser, activeVoiceChannel) {
   const [whiteboards, setWhiteboards] = useState([]);
   const [activeWhiteboardId, setActiveWhiteboardId] = useState(null);
@@ -22,6 +22,7 @@ export function useRoomActivities(socket, currentUser, activeVoiceChannel) {
   const [casinoSessions, setCasinoSessions] = useState({}); // channelId -> session
   const [watchSessions, setWatchSessions] = useState({}); // channelId -> state
   const [chessSessions, setChessSessions] = useState({}); // channelId -> state
+  const [browserSessions, setBrowserSessions] = useState({}); // channelId -> state
 
   const whiteboardsRef = useRef(whiteboards);
   whiteboardsRef.current = whiteboards;
@@ -35,6 +36,7 @@ export function useRoomActivities(socket, currentUser, activeVoiceChannel) {
         );
       }
       if (data.chessSessions) setChessSessions(data.chessSessions);
+      if (data.browserSessions) setBrowserSessions(data.browserSessions);
     },
 
     'whiteboard:list': (list) => {
@@ -71,6 +73,14 @@ export function useRoomActivities(socket, currentUser, activeVoiceChannel) {
       if (state?.channelId) {
         setChessSessions((prev) => ({ ...prev, [state.channelId]: state }));
       }
+    },
+
+    'browser:session-updated': ({ channelId, state }) =>
+      setOrDelete(setBrowserSessions, channelId, state),
+    'browser:state': (state) => {
+      if (state?.channelId) {
+        setBrowserSessions((prev) => ({ ...prev, [state.channelId]: state }));
+      }
     }
   });
 
@@ -100,6 +110,7 @@ export function useRoomActivities(socket, currentUser, activeVoiceChannel) {
     casinoSessions,
     watchSessions,
     chessSessions,
+    browserSessions,
     // kaszinó
     startCasino: () => emitToRoom('casino:start-session', { username: currentUser?.username || 'Felhasználó' }),
     stopCasino: () => emitToRoom('casino:stop-session'),
@@ -110,6 +121,17 @@ export function useRoomActivities(socket, currentUser, activeVoiceChannel) {
     resignChess: () => emitToRoom('chess:resign'),
     rematchChess: () => emitToRoom('chess:rematch'),
     stopChess: () => emitToRoom('chess:stop'),
+    // közös böngésző
+    startBrowser: (initialUrl) => emitToRoom('browser:start', { initialUrl }),
+    navigateBrowser: (url) => emitToRoom('browser:navigate', { url }),
+    browserBack: () => emitToRoom('browser:back'),
+    browserForward: () => emitToRoom('browser:forward'),
+    browserReload: () => emitToRoom('browser:reload'),
+    browserReset: () => emitToRoom('browser:reset'),
+    setBrowserMode: (mode) => emitToRoom('browser:set-mode', { mode }),
+    takeBrowserControl: () => emitToRoom('browser:take-control'),
+    releaseBrowserControl: () => emitToRoom('browser:release-control'),
+    stopBrowser: () => emitToRoom('browser:stop'),
     resetRoomState
   };
 }

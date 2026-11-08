@@ -1,5 +1,5 @@
 import React from 'react';
-import { Volume2, Minimize2, Radio, Tv, Paintbrush, LayoutGrid, Code2, Menu } from 'lucide-react';
+import { Volume2, Minimize2, Radio, Tv, Paintbrush, LayoutGrid, Code2, Globe, Menu } from 'lucide-react';
 
 const idleColor = '#999BBE';
 
@@ -30,6 +30,7 @@ export default function RoomTopBar({
   casinoActive,
   watchActive,
   chessActive,
+  browserActive,
   onClose,
   onOpenMobileSidebar
 }) {
@@ -89,6 +90,20 @@ export default function RoomTopBar({
           <LayoutGrid className="w-3.5 h-3.5" />
           <span>Szoba</span>
         </button>
+
+        <ModeTab
+          active={subView === 'browser'}
+          live={browserActive}
+          activeBg="linear-gradient(135deg, #536CFF, #7655F5)"
+          liveBg="rgba(83, 108, 255, 0.15)"
+          liveColor="#536CFF"
+          liveBorder="rgba(83, 108, 255, 0.3)"
+          onClick={() => onChangeView('browser')}
+        >
+          <Globe className="w-3.5 h-3.5" style={{ color: subView === 'browser' ? 'white' : '#536CFF' }} />
+          <span>Böngésző</span>
+          {browserActive && <span className="w-2 h-2 rounded-full animate-pulse" style={{ background: '#28C997' }}></span>}
+        </ModeTab>
 
         <ModeTab active={subView === 'whiteboard'} activeBg="#7655F5" onClick={() => onChangeView('whiteboard')}>
           <Paintbrush className="w-3.5 h-3.5" style={{ color: subView === 'whiteboard' ? 'white' : '#f0b232' }} />

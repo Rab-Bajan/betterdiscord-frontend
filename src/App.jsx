@@ -160,6 +160,7 @@ export default function App() {
               casinoSessions={activities.casinoSessions}
               watchSessions={activities.watchSessions}
               chessSessions={activities.chessSessions}
+              browserSessions={activities.browserSessions}
               dmPartners={dm.dmPartners}
               activeDmPartnerId={dm.activeDmPartner?.id}
               onSelectDmPartner={handleStartDm}
@@ -207,6 +208,17 @@ export default function App() {
             onResignChess={activities.resignChess}
             onRematchChess={activities.rematchChess}
             onStopChess={activities.stopChess}
+            browserSession={activities.browserSessions[activeVoiceChannel]}
+            onStartBrowser={activities.startBrowser}
+            onNavigateBrowser={activities.navigateBrowser}
+            onBrowserBack={activities.browserBack}
+            onBrowserForward={activities.browserForward}
+            onBrowserReload={activities.browserReload}
+            onBrowserReset={activities.browserReset}
+            onSetBrowserMode={activities.setBrowserMode}
+            onTakeBrowserControl={activities.takeBrowserControl}
+            onReleaseBrowserControl={activities.releaseBrowserControl}
+            onStopBrowser={activities.stopBrowser}
             onToggleMute={voice.toggleMute}
             onToggleDeafen={voice.toggleDeafen}
             onToggleScreenShare={voice.toggleScreenShare}

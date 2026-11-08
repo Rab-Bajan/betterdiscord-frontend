@@ -4,6 +4,7 @@ import CodeEditorView from './CodeEditorView';
 import CasinoView from './CasinoView';
 import WatchPartyView from './WatchPartyView';
 import ChessView from './ChessView';
+import BrowserView from './BrowserView';
 import RoomTopBar from './voiceRoom/RoomTopBar';
 import RoomControlBar from './voiceRoom/RoomControlBar';
 import ActivityBanners from './voiceRoom/ActivityBanners';
@@ -44,6 +45,17 @@ export default function VoiceRoomView({
   onResignChess,
   onRematchChess,
   onStopChess,
+  browserSession,
+  onStartBrowser,
+  onNavigateBrowser,
+  onBrowserBack,
+  onBrowserForward,
+  onBrowserReload,
+  onBrowserReset,
+  onSetBrowserMode,
+  onTakeBrowserControl,
+  onReleaseBrowserControl,
+  onStopBrowser,
   onToggleMute,
   onToggleDeafen,
   onToggleScreenShare,
@@ -52,7 +64,7 @@ export default function VoiceRoomView({
   onClose,
   onOpenMobileSidebar
 }) {
-  // 'stage' | 'whiteboard' | 'code' | 'casino' | 'watch' | 'chess'
+  // 'stage' | 'whiteboard' | 'code' | 'casino' | 'watch' | 'chess' | 'browser'
   const [subView, setSubView] = useState('stage');
   const backToStage = () => setSubView('stage');
   const toggleView = (view) => setSubView((current) => (current === view ? 'stage' : view));
@@ -74,6 +86,27 @@ export default function VoiceRoomView({
 
   const renderMain = () => {
     switch (subView) {
+      case 'browser':
+        return (
+          <BrowserView
+            channelId={channelId}
+            channelName={channelName}
+            currentUser={currentUser}
+            socket={socket}
+            session={browserSession}
+            onClose={backToStage}
+            onStart={onStartBrowser}
+            onNavigate={onNavigateBrowser}
+            onBack={onBrowserBack}
+            onForward={onBrowserForward}
+            onReload={onBrowserReload}
+            onReset={onBrowserReset}
+            onSetMode={onSetBrowserMode}
+            onTakeControl={onTakeBrowserControl}
+            onReleaseControl={onReleaseBrowserControl}
+            onStop={onStopBrowser}
+          />
+        );
       case 'chess':
         return (
           <ChessView
@@ -178,6 +211,7 @@ export default function VoiceRoomView({
         casinoActive={!!casinoSession?.active}
         watchActive={!!watchState?.active}
         chessActive={!!chessSession?.active}
+        browserActive={!!browserSession?.active}
         onClose={onClose}
         onOpenMobileSidebar={onOpenMobileSidebar}
       />
@@ -187,6 +221,7 @@ export default function VoiceRoomView({
         watchState={watchState}
         casinoSession={casinoSession}
         chessSession={chessSession}
+        browserSession={browserSession}
         onOpen={setSubView}
       />
 
@@ -204,6 +239,7 @@ export default function VoiceRoomView({
         casinoActive={!!casinoSession?.active}
         watchActive={!!watchState?.active}
         chessActive={!!chessSession?.active}
+        browserActive={!!browserSession?.active}
         onToggleMute={onToggleMute}
         onToggleDeafen={onToggleDeafen}
         onToggleScreenShare={onToggleScreenShare}

@@ -24,9 +24,24 @@ function Banner({ background, borderColor, textColor, accentColor, icon, who, te
 }
 
 // Értesítő sávok: másik nézetben vagyunk, miközben a szobában fut valami
-export default function ActivityBanners({ subView, watchState, casinoSession, chessSession, onOpen }) {
+export default function ActivityBanners({ subView, watchState, casinoSession, chessSession, browserSession, onOpen }) {
   return (
     <>
+      {browserSession?.active && subView !== 'browser' && (
+        <Banner
+          background="linear-gradient(90deg, rgba(20, 28, 65, 0.9), rgba(15, 20, 48, 0.9))"
+          borderColor="rgba(83, 108, 255, 0.3)"
+          textColor="#bfdbfe"
+          accentColor="#536CFF"
+          icon="🌐"
+          who={browserSession.startedBy || 'Valaki'}
+          text="elindította a Közös Böngészőt!"
+          action="Csatlakozás 🌐"
+          actionClass="text-white"
+          actionStyle={{ background: 'linear-gradient(135deg, #536CFF, #7655F5)' }}
+          onAction={() => onOpen('browser')}
+        />
+      )}
       {watchState?.active && subView !== 'watch' && (
         <Banner
           background="linear-gradient(90deg, rgba(44, 16, 21, 0.9), rgba(29, 13, 18, 0.9))"

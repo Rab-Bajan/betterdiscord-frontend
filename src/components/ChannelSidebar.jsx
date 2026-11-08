@@ -37,6 +37,7 @@ export default function ChannelSidebar({
   casinoSessions = {},
   watchSessions = {},
   chessSessions = {},
+  browserSessions = {},
   dmPartners = [],
   activeDmPartnerId = null,
   onSelectDmPartner,
@@ -167,6 +168,16 @@ export default function ChannelSidebar({
                       <span className="truncate font-medium">{vc.name}</span>
                     </div>
                     <div className="flex items-center gap-1.5 flex-shrink-0">
+
+                      {browserSessions && browserSessions[vc.id]?.active && (
+                        <span
+                          className="text-[10px] px-1.5 py-0.5 rounded-full font-bold flex items-center gap-1 animate-pulse"
+                          style={{ background: 'rgba(83, 108, 255, 0.2)', color: '#536CFF', border: '1px solid rgba(83, 108, 255, 0.4)' }}
+                          title={`Közös Böngésző folyamatban (${browserSessions[vc.id].title || 'Böngésző'})`}
+                        >
+                          <span>🌐</span>
+                        </span>
+                      )}
                       {watchSessions && watchSessions[vc.id]?.active && (
                         <span
                           className="text-[10px] px-1.5 py-0.5 rounded-full font-bold flex items-center gap-1 animate-pulse"
@@ -233,6 +244,7 @@ export default function ChannelSidebar({
 
                             {/* Voice Status Badges */}
                             <div className="flex items-center gap-1.5 flex-shrink-0">
+
                               {p.isScreenSharing && (
                                 <span className="text-white text-[9px] font-bold px-1 py-0.5 rounded leading-none flex items-center gap-0.5" style={{ background: '#E94B64' }}>
                                   <Radio className="w-2.5 h-2.5 animate-pulse" />
