@@ -10,6 +10,7 @@ import {
   Settings,
   Radio,
   MessageSquare,
+  BarChart3,
   X
 } from 'lucide-react';
 import VoiceConnectedBar from './VoiceConnectedBar';
@@ -31,6 +32,8 @@ export default function ChannelSidebar({
   isScreenSharing,
   onToggleScreenShare,
   onOpenVoiceView,
+  isAnalysisActive = false,
+  onOpenAnalysis,
   casinoSessions = {},
   watchSessions = {},
   chessSessions = {},
@@ -73,6 +76,30 @@ export default function ChannelSidebar({
 
       {/* Channels List */}
       <div className="flex-1 overflow-y-auto px-2 py-4 space-y-5">
+        {/* Eszközök */}
+        {onOpenAnalysis && (
+          <div>
+            <div className="px-2 mb-2">
+              <span className="text-[11px] font-bold uppercase tracking-widest" style={{ color: '#999BBE' }}>Eszközök</span>
+            </div>
+            <button
+              onClick={onOpenAnalysis}
+              className="w-full flex items-center gap-2.5 px-3 py-2 rounded-xl text-sm transition-all"
+              style={{
+                background: isAnalysisActive ? 'rgba(118, 85, 245, 0.2)' : 'transparent',
+                color: isAnalysisActive ? '#F4F3FF' : '#999BBE',
+                borderLeft: isAnalysisActive ? '2px solid #7655F5' : '2px solid transparent'
+              }}
+              onMouseOver={e => { if (!isAnalysisActive) { e.currentTarget.style.background = 'rgba(125, 105, 255, 0.08)'; e.currentTarget.style.color = '#F4F3FF'; } }}
+              onMouseOut={e => { if (!isAnalysisActive) { e.currentTarget.style.background = 'transparent'; e.currentTarget.style.color = '#999BBE'; } }}
+            >
+              <BarChart3 className="w-4 h-4 flex-shrink-0" style={{ color: isAnalysisActive ? '#7655F5' : '#999BBE' }} />
+              <span className="truncate font-medium">Játszma elemzés</span>
+              <span className="ml-auto text-[9px] font-bold px-1.5 py-0.5 rounded-full" style={{ background: 'rgba(125, 105, 255, 0.2)', color: '#999BBE' }}>♟</span>
+            </button>
+          </div>
+        )}
+
         {/* Szöveges csatornák */}
         <div>
           <div className="flex items-center justify-between px-2 mb-2">

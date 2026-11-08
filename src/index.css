@@ -92,3 +92,43 @@ body {
   background-color: #090A18;
   color: #F4F3FF;
 }
+
+/* ===== DM hanghívás ===== */
+@keyframes call-ring-expand {
+  0% { transform: scale(1); opacity: 0.55; }
+  100% { transform: scale(1.9); opacity: 0; }
+}
+@keyframes call-pop-in {
+  0% { opacity: 0; transform: translateY(14px) scale(0.96); }
+  100% { opacity: 1; transform: translateY(0) scale(1); }
+}
+@keyframes call-fade-in {
+  0% { opacity: 0; }
+  100% { opacity: 1; }
+}
+@keyframes call-wiggle {
+  0%, 100% { transform: rotate(0deg); }
+  20% { transform: rotate(-14deg); }
+  40% { transform: rotate(12deg); }
+  60% { transform: rotate(-8deg); }
+  80% { transform: rotate(6deg); }
+}
+@keyframes call-dots {
+  0%, 20% { opacity: 0.2; }
+  50% { opacity: 1; }
+  100% { opacity: 0.2; }
+}
+@keyframes call-aurora {
+  0% { transform: translate3d(-6%, -4%, 0) scale(1); }
+  50% { transform: translate3d(6%, 5%, 0) scale(1.12); }
+  100% { transform: translate3d(-6%, -4%, 0) scale(1); }
+}
+.call-ring { animation: call-ring-expand 2.2s cubic-bezier(0.2, 0.6, 0.3, 1) infinite; }
+.call-pop { animation: call-pop-in 0.32s cubic-bezier(0.2, 0.8, 0.2, 1) both; }
+.call-fade { animation: call-fade-in 0.25s ease-out both; }
+.call-wiggle { animation: call-wiggle 1.4s ease-in-out infinite; transform-origin: 50% 50%; }
+.call-dot { animation: call-dots 1.2s ease-in-out infinite; }
+.call-aurora { animation: call-aurora 14s ease-in-out infinite; }
+@media (prefers-reduced-motion: reduce) {
+  .call-ring, .call-wiggle, .call-aurora, .call-dot { animation: none; }
+}

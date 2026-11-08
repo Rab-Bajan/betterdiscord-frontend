@@ -21,8 +21,13 @@ import {
   ExternalLink,
   Loader2,
   Check,
-  Menu
+  Menu,
+  Flag,
+  ShieldOff
 } from 'lucide-react';
+import { History, SlidersHorizontal } from 'lucide-react';
+import DMCallButton from './call/DMCallButton';
+import CallEventMessage from './call/CallEventMessage';
 
 const QUICK_EMOJIS = ['👋', '🔥', '😂', '🎉', '❤️', '🎮', '👍'];
 
@@ -68,7 +73,13 @@ export default function ChatArea({
   onOpenSpeedTest,
   onOpenMobileSidebar,
   isDm = false,
-  dmPartner = null
+  dmPartner = null,
+  onReportMessage,
+  currentUsername,
+  onStartCall,
+  callBusy = false,
+  onOpenCallSettings,
+  onOpenCallHistory
 }) {
   const [inputText, setInputText] = useState('');
   const [showEmojiPicker, setShowEmojiPicker] = useState(false);
@@ -78,6 +89,13 @@ export default function ChatArea({
   const [lightboxImage, setLightboxImage] = useState(null);
 
   const messagesEndRef = useRef(null);
+
+  const handleReport = async (msg) => {
+    const reason = window.prompt('Miért jelented ezt az üzenetet? (Az adminok csak ennek az üzenetnek a környezetét látják.)');
+    if (reason === null) return;
+    const res = await onReportMessage(msg.id, reason);
+    alert(res.ok ? 'Köszönjük, a jelentést elküldtük az adminoknak.' : res.error);
+  };
   const fileInputRef = useRef(null);
   const dragCounterRef = useRef(0);
 
@@ -307,6 +325,40 @@ export default function ChatArea({
 
         {/* Right actions */}
         <div className="flex items-center gap-2.5 flex-shrink-0">
+          {isDm && dmPartner && onStartCall && (
+            <div className="flex items-center gap-1.5">
+              <DMCallButton
+                partner={dmPartner}
+                onCall={onStartCall}
+                disabled={callBusy}
+                disabledReason="Már van egy aktív hívásod"
+              />
+              <button
+                type="button"
+                onClick={onOpenCallHistory}
+                title="Híváselőzmények"
+                aria-label="Híváselőzmények"
+                className="p-2 rounded-xl transition hidden sm:block"
+                style={{ background: 'transparent', color: '#999BBE' }}
+                onMouseOver={e => e.currentTarget.style.color = '#F4F3FF'}
+                onMouseOut={e => e.currentTarget.style.color = '#999BBE'}
+              >
+                <History className="w-4.5 h-4.5" style={{ width: 18, height: 18 }} />
+              </button>
+              <button
+                type="button"
+                onClick={onOpenCallSettings}
+                title="Hívásbeállítások (hang, csengőhang, eszközök)"
+                aria-label="Hívásbeállítások"
+                className="p-2 rounded-xl transition hidden sm:block"
+                style={{ background: 'transparent', color: '#999BBE' }}
+                onMouseOver={e => e.currentTarget.style.color = '#F4F3FF'}
+                onMouseOut={e => e.currentTarget.style.color = '#999BBE'}
+              >
+                <SlidersHorizontal style={{ width: 18, height: 18 }} />
+              </button>
+            </div>
+          )}
           <button
             onClick={onOpenSpeedTest}
             title="Net Sebességteszt futtatása és eredmények"
@@ -370,6 +422,20 @@ export default function ChatArea({
           const authorAvatarColor = msg.avatarColor || msg.senderAvatarColor || '#7655F5';
           const authorAvatarUrl = msg.avatarUrl || msg.senderAvatarUrl || null;
 
+          // Hívás-esemény: rendszerüzenet a beszélgetésben, "Hívás újra" gombbal
+          if (msg.callEvent) {
+            return (
+              <CallEventMessage
+                key={msg.id}
+                msg={msg}
+                myUsername={currentUsername}
+                partner={dmPartner}
+                onCallAgain={onStartCall}
+                callDisabled={callBusy}
+              />
+            );
+          }
+
           return (
             <div
               key={msg.id}
@@ -408,7 +474,28 @@ export default function ChatArea({
                     </span>
                   )}
                   <span className="text-[11px]" style={{ color: '#999BBE' }}>{msg.timestamp}</span>
+                  {isDm && onReportMessage && !msg.removedByAdmin && !msg.isSystem &&
+                    authorName.toLowerCase() !== (currentUsername || '').toLowerCase() && (
+                      <button
+                        type="button"
+                        onClick={() => handleReport(msg)}
+                        title="Üzenet jelentése az adminoknak"
+                        className="ml-1 p-1 rounded opacity-0 group-hover:opacity-100 transition"
+                        style={{ color: '#999BBE' }}
+                        onMouseOver={(e) => (e.currentTarget.style.color = '#E94B64')}
+                        onMouseOut={(e) => (e.currentTarget.style.color = '#999BBE')}
+                      >
+                        <Flag className="w-3.5 h-3.5" />
+                      </button>
+                  )}
                 </div>
+
+                {/* Admin által eltávolított üzenet: látható jelzés a tartalom helyett */}
+                {msg.removedByAdmin && (
+                  <p className="text-sm mt-0.5 italic flex items-center gap-1.5" style={{ color: '#999BBE' }}>
+                    <ShieldOff className="w-3.5 h-3.5" /> Ezt az üzenetet egy admin eltávolította.
+                  </p>
+                )}
 
                 {/* Szöveges tartalom ha van */}
                 {msg.text && (

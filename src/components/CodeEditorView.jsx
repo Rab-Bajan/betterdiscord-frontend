@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useRef, useMemo } from 'react';
 import Prism from 'prismjs';
+import { findNode } from '../utils/codeTree';
 import 'prismjs/themes/prism-tomorrow.css';
 
 // Prism nyelvi komponensek
@@ -108,6 +109,7 @@ export default function CodeEditorView({
   socket,
   currentUser,
   treeData,
+  onLocalChange,
   onClose
 }) {
   const [openFiles, setOpenFiles] = useState([]); // Array of fileIds
@@ -126,33 +128,31 @@ export default function CodeEditorView({
   const lineNumbersRef = useRef(null);
   const notificationTimeoutRef = useRef(null);
 
-  // Rekurzív kereső
-  const findNode = (node, id) => {
-    if (!node) return null;
-    if (node.id === id) return node;
-    if (node.children) {
-      for (const child of node.children) {
-        const found = findNode(child, id);
-        if (found) return found;
-      }
-    }
-    return null;
-  };
-
   const activeFileNode = useMemo(() => {
     return activeFileId ? findNode(treeData, activeFileId) : null;
   }, [treeData, activeFileId]);
 
-  // Első fájl automatikus megnyitása
+  // Első fájl automatikus megnyitása (csak egyszer, hogy az utolsó fül is bezárható legyen)
+  const autoOpenedRef = useRef(false);
   useEffect(() => {
-    if (!activeFileId && treeData?.children) {
-      const firstFile = treeData.children.find((c) => c.type === 'file');
-      if (firstFile) {
-        setActiveFileId(firstFile.id);
-        setOpenFiles([firstFile.id]);
-      }
+    if (autoOpenedRef.current || !treeData?.children) return;
+    autoOpenedRef.current = true;
+    const firstFile = treeData.children.find((c) => c.type === 'file');
+    if (firstFile) {
+      setActiveFileId(firstFile.id);
+      setOpenFiles([firstFile.id]);
     }
-  }, [treeData, activeFileId]);
+  }, [treeData]);
+
+  // Más által törölt fájlok fülei és az aktív fájl takarítása
+  useEffect(() => {
+    if (!treeData) return;
+    setOpenFiles((prev) => {
+      const alive = prev.filter((id) => findNode(treeData, id));
+      return alive.length === prev.length ? prev : alive;
+    });
+    setActiveFileId((prev) => (prev && !findNode(treeData, prev) ? null : prev));
+  }, [treeData]);
 
   // Távoli fájlmódosítás figyelése
   useEffect(() => {
@@ -192,7 +192,8 @@ export default function CodeEditorView({
     if (!activeFileId || !activeFileNode) return;
     const newContent = e.target.value;
 
-    // Helyi fa frissítés és socket továbbítás
+    // Először helyben frissítjük a fát (különben a vezérelt textarea visszaugrana), majd továbbítjuk
+    onLocalChange?.(activeFileId, newContent);
     socket?.emit('code:file-change', {
       channelId,
       fileId: activeFileId,

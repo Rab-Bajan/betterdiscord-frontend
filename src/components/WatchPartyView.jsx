@@ -11,18 +11,9 @@ import {
   Timer,
   Radio
 } from 'lucide-react';
+import { extractYouTubeId, getLiveTime } from '../utils/youtube';
 
-export function extractYouTubeId(urlOrId) {
-  if (!urlOrId) return '';
-  const str = urlOrId.trim();
-  if (/^[a-zA-Z0-9_-]{11}$/.test(str)) {
-    return str;
-  }
-  const regExp =
-    /(?:youtube\.com\/(?:[^\/]+\/.+\/|(?:v|e(?:mbed)?)\/|.*[?&]v=)|youtu\.be\/|youtube\.com\/live\/|youtube\.com\/shorts\/)([^"&?\/\s]{11})/i;
-  const match = str.match(regExp);
-  return match ? match[1] : '';
-}
+export { extractYouTubeId };
 
 export default function WatchPartyView({
   channelId,
@@ -34,7 +25,11 @@ export default function WatchPartyView({
 }) {
   const containerRef = useRef(null);
   const ytPlayerRef = useRef(null);
+  const playerHostRef = useRef(null);
   const isRemoteSyncRef = useRef(false);
+  const syncTimerRef = useRef(null);
+  const watchStateRef = useRef(watchState);
+  watchStateRef.current = watchState;
 
   // Helyi input állapotok
   const [inputUrl, setInputUrl] = useState('');
@@ -55,47 +50,53 @@ export default function WatchPartyView({
     }
   }, []);
 
-  // 2. YouTube lejátszó inicializálása vagy videó váltás
+  // A távoli szinkron idejére letiltjuk a kimenő eseményeket, hogy ne vezessünk vissza visszhangot
+  const suppressEmit = (ms) => {
+    isRemoteSyncRef.current = true;
+    clearTimeout(syncTimerRef.current);
+    syncTimerRef.current = setTimeout(() => {
+      isRemoteSyncRef.current = false;
+    }, ms);
+  };
+
+  // Belépéskor / visszatéréskor friss állapotot kérünk a szervertől
   useEffect(() => {
-    if (!isSessionActive || !watchState?.videoId) {
-      if (ytPlayerRef.current) {
-        try {
-          ytPlayerRef.current.destroy?.();
-        } catch (e) {}
-        ytPlayerRef.current = null;
-      }
-      return;
-    }
+    socket?.emit('watch:get-state', { channelId });
+  }, [socket, channelId]);
+
+  // 2. YouTube lejátszó létrehozása (videóváltáskor új példány, az ÉLŐ időkódtól indulva)
+  useEffect(() => {
+    const host = playerHostRef.current;
+    if (!isSessionActive || !host) return;
 
     const videoId = watchState.videoId;
+    let cancelled = false;
+    let retryTimer = null;
+
+    // Minden lejátszópéldánynak saját elem kell, mert a destroy() eltávolítja a céldiv-et
+    const mount = document.createElement('div');
+    mount.style.width = '100%';
+    mount.style.height = '100%';
+    host.appendChild(mount);
 
     const initPlayer = () => {
+      if (cancelled) return;
       if (!window.YT || !window.YT.Player) {
-        setTimeout(initPlayer, 150);
+        retryTimer = setTimeout(initPlayer, 150);
         return;
       }
 
-      if (ytPlayerRef.current) {
-        try {
-          ytPlayerRef.current.loadVideoById(videoId, watchState.currentTime || 0);
-          if (watchState.isPlaying) {
-            ytPlayerRef.current.playVideo();
-          } else {
-            ytPlayerRef.current.pauseVideo();
-          }
-          return;
-        } catch (e) {
-          console.warn('YT loadVideoById error, recreating:', e);
-        }
-      }
+      const startAt = Math.floor(getLiveTime(watchStateRef.current));
+      // A kezdeti seek/play ne menjen ki a szobának, különben mindenkit visszaugrasztana
+      suppressEmit(4000);
 
-      const playerElement = document.getElementById('youtube-player-iframe');
-      if (!playerElement) return;
-
-      ytPlayerRef.current = new window.YT.Player('youtube-player-iframe', {
-        videoId: videoId,
+      ytPlayerRef.current = new window.YT.Player(mount, {
+        videoId,
+        width: '100%',
+        height: '100%',
         playerVars: {
-          autoplay: watchState.isPlaying ? 1 : 0,
+          autoplay: watchStateRef.current?.isPlaying ? 1 : 0,
+          start: startAt,
           controls: 1,
           rel: 0,
           modestbranding: 1,
@@ -104,30 +105,29 @@ export default function WatchPartyView({
         },
         events: {
           onReady: (event) => {
-            if (watchState.currentTime) {
-              event.target.seekTo(watchState.currentTime, true);
-            }
-            if (watchState.isPlaying) {
-              event.target.playVideo();
-            }
+            if (cancelled) return;
+            const live = getLiveTime(watchStateRef.current);
+            suppressEmit(1500);
+            event.target.seekTo(live, true);
+            if (watchStateRef.current?.isPlaying) event.target.playVideo();
+            else event.target.pauseVideo();
           },
           onStateChange: (event) => {
-            if (isRemoteSyncRef.current) return;
-
+            if (isRemoteSyncRef.current || cancelled) return;
+            const player = ytPlayerRef.current;
+            if (!player?.getCurrentTime) return;
             // 1: PLAYING, 2: PAUSED
             if (event.data === window.YT.PlayerState.PLAYING) {
-              const curTime = ytPlayerRef.current?.getCurrentTime() || 0;
               socket?.emit('watch:playback-control', {
                 channelId,
                 action: 'play',
-                currentTime: curTime
+                currentTime: player.getCurrentTime()
               });
             } else if (event.data === window.YT.PlayerState.PAUSED) {
-              const curTime = ytPlayerRef.current?.getCurrentTime() || 0;
               socket?.emit('watch:playback-control', {
                 channelId,
                 action: 'pause',
-                currentTime: curTime
+                currentTime: player.getCurrentTime()
               });
             }
           }
@@ -138,14 +138,17 @@ export default function WatchPartyView({
     initPlayer();
 
     return () => {
-      if (ytPlayerRef.current) {
-        try {
-          ytPlayerRef.current.destroy?.();
-        } catch (e) {}
-        ytPlayerRef.current = null;
-      }
+      cancelled = true;
+      clearTimeout(retryTimer);
+      clearTimeout(syncTimerRef.current);
+      isRemoteSyncRef.current = false;
+      try {
+        ytPlayerRef.current?.destroy?.();
+      } catch (e) {}
+      ytPlayerRef.current = null;
+      mount.remove();
     };
-  }, [isSessionActive, watchState?.videoId]);
+  }, [isSessionActive, watchState?.videoId, socket, channelId]);
 
   // 3. Socket szinkron események figyelése
   useEffect(() => {
@@ -153,26 +156,20 @@ export default function WatchPartyView({
 
     // Lejátszás vezérlés szinkron (Play / Pause / Seek)
     const handleSyncEvent = ({ action, currentTime }) => {
-      isRemoteSyncRef.current = true;
-
-      if (ytPlayerRef.current) {
-        try {
-          if (typeof currentTime === 'number') {
-            ytPlayerRef.current.seekTo(currentTime, true);
-          }
-          if (action === 'play') {
-            ytPlayerRef.current.playVideo();
-          } else if (action === 'pause') {
-            ytPlayerRef.current.pauseVideo();
-          }
-        } catch (e) {
-          console.warn('Sync YouTube error:', e);
+      const player = ytPlayerRef.current;
+      if (!player?.seekTo) return;
+      suppressEmit(900);
+      try {
+        if (typeof currentTime === 'number') {
+          // Csak akkor ugrunk, ha érdemben eltér, így nincs felesleges megakadás
+          const diff = Math.abs((player.getCurrentTime?.() || 0) - currentTime);
+          if (diff > 0.75) player.seekTo(currentTime, true);
         }
+        if (action === 'play') player.playVideo();
+        else if (action === 'pause') player.pauseVideo();
+      } catch (e) {
+        console.warn('Sync YouTube error:', e);
       }
-
-      setTimeout(() => {
-        isRemoteSyncRef.current = false;
-      }, 700);
     };
 
     // Visszaszámláló szinkron (3... 2... 1... Indítás!)
@@ -262,8 +259,9 @@ export default function WatchPartyView({
 
   // 8. Kényszerített újraszinkronizálás
   const handleResync = () => {
-    if (ytPlayerRef.current && typeof watchState?.currentTime === 'number') {
-      ytPlayerRef.current.seekTo(watchState.currentTime, true);
+    if (ytPlayerRef.current?.seekTo && watchState) {
+      suppressEmit(900);
+      ytPlayerRef.current.seekTo(getLiveTime(watchState), true);
     }
   };
 
@@ -532,10 +530,7 @@ export default function WatchPartyView({
         /* AKTÍV YOUTUBE LEJÁTSZÓ NÉZET */
         <div className="flex-1 flex flex-col min-h-0 relative bg-black">
           <div className="flex-1 w-full h-full flex items-center justify-center bg-black relative">
-            <div
-              id="youtube-player-iframe"
-              className="w-full h-full max-h-full"
-            ></div>
+            <div ref={playerHostRef} className="w-full h-full max-h-full"></div>
           </div>
 
           {/* ALSÓ VEZÉRLŐ ÉS REAKCIÓ SÁV */}
