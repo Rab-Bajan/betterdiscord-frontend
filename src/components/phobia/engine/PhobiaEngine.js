@@ -69,14 +69,72 @@ export class PhobiaEngine {
   /*                             INITIALIZATION                                 */
   /* -------------------------------------------------------------------------- */
 
+  _getWebGLContext(canvas) {
+    if (!canvas || typeof canvas.getContext !== 'function') return null;
+
+    const attributesList = [
+      { antialias: true, powerPreference: 'default', alpha: false, stencil: false },
+      { antialias: true, powerPreference: 'high-performance', alpha: false, stencil: false },
+      { antialias: false, alpha: false },
+      {}
+    ];
+
+    const contextTypes = ['webgl2', 'webgl', 'experimental-webgl'];
+
+    for (const attrs of attributesList) {
+      for (const type of contextTypes) {
+        try {
+          const ctx = canvas.getContext(type, attrs);
+          if (ctx) return ctx;
+        } catch (_) {}
+      }
+    }
+    return null;
+  }
+
   _initRenderer() {
-    this.renderer = new THREE.WebGLRenderer({
-      canvas: this.canvas,
-      antialias: true,
-      powerPreference: 'high-performance',
-      alpha: false,
-      stencil: false
-    });
+    let canvas = this.canvas;
+    let gl = this._getWebGLContext(canvas);
+
+    // If canvas already has another context (e.g. extension called getContext('2d')),
+    // or failed to get WebGL on this canvas, create a brand-new fresh canvas element
+    if (!gl) {
+      const freshCanvas = document.createElement('canvas');
+      freshCanvas.className = canvas ? canvas.className : 'w-full h-full block cursor-crosshair focus:outline-none';
+      freshCanvas.tabIndex = 0;
+      if (canvas && canvas.parentNode) {
+        canvas.parentNode.replaceChild(freshCanvas, canvas);
+      } else if (this.container) {
+        this.container.appendChild(freshCanvas);
+      }
+      this.canvas = freshCanvas;
+      canvas = freshCanvas;
+      gl = this._getWebGLContext(canvas);
+    }
+
+    if (!gl) {
+      throw new Error(
+        'A WebGL nem indítható el a böngészőben. Kérjük, ellenőrizd a hardveres gyorsítást a böngésző beállításaiban (chrome://settings/system -> Hardveres gyorsítás bekapcsolása).'
+      );
+    }
+
+    try {
+      this.renderer = new THREE.WebGLRenderer({
+        canvas: this.canvas,
+        context: gl,
+        antialias: true,
+        powerPreference: 'default',
+        alpha: false,
+        stencil: false
+      });
+    } catch (err) {
+      console.warn('Initial WebGLRenderer failed, trying minimal renderer config:', err);
+      this.renderer = new THREE.WebGLRenderer({
+        canvas: this.canvas,
+        antialias: false,
+        alpha: false
+      });
+    }
 
     this.renderer.outputColorSpace = THREE.SRGBColorSpace;
     this.renderer.toneMapping = THREE.ACESFilmicToneMapping;
@@ -168,38 +226,43 @@ export class PhobiaEngine {
   }
 
   _initPostProcessing() {
-    const width = this.container.clientWidth || window.innerWidth;
-    const height = this.container.clientHeight || window.innerHeight;
+    try {
+      const width = this.container.clientWidth || window.innerWidth;
+      const height = this.container.clientHeight || window.innerHeight;
 
-    this.composer = new EffectComposer(this.renderer);
+      this.composer = new EffectComposer(this.renderer);
 
-    // Pass 1: Base scene render
-    this.renderPass = new RenderPass(this.scene, this.camera);
-    this.composer.addPass(this.renderPass);
+      // Pass 1: Base scene render
+      this.renderPass = new RenderPass(this.scene, this.camera);
+      this.composer.addPass(this.renderPass);
 
-    // Pass 2: Vignette Shader
-    this.vignettePass = new ShaderPass(VignetteShader);
-    this.vignettePass.uniforms.offset.value = 1.05;
-    this.vignettePass.uniforms.darkness.value = 1.25;
-    this.composer.addPass(this.vignettePass);
+      // Pass 2: Vignette Shader
+      this.vignettePass = new ShaderPass(VignetteShader);
+      this.vignettePass.uniforms.offset.value = 1.05;
+      this.vignettePass.uniforms.darkness.value = 1.25;
+      this.composer.addPass(this.vignettePass);
 
-    // Pass 3: Film Grain Shader
-    this.filmPass = new ShaderPass(FilmShader);
-    this.filmPass.uniforms.intensity.value = 0.22;
-    this.filmPass.uniforms.time.value = 0.0;
-    this.composer.addPass(this.filmPass);
+      // Pass 3: Film Grain Shader
+      this.filmPass = new ShaderPass(FilmShader);
+      this.filmPass.uniforms.intensity.value = 0.22;
+      this.filmPass.uniforms.time.value = 0.0;
+      this.composer.addPass(this.filmPass);
 
-    // Pass 4: Custom VHS Hunt Glitch Shader
-    this.vhsPass = new ShaderPass(VhsHuntGlitchShader);
-    this.vhsPass.uniforms.uHuntIntensity.value = 0.0;
-    this.vhsPass.uniforms.uTime.value = 0.0;
-    this.composer.addPass(this.vhsPass);
+      // Pass 4: Custom VHS Hunt Glitch Shader
+      this.vhsPass = new ShaderPass(VhsHuntGlitchShader);
+      this.vhsPass.uniforms.uHuntIntensity.value = 0.0;
+      this.vhsPass.uniforms.uTime.value = 0.0;
+      this.composer.addPass(this.vhsPass);
 
-    // Pass 5: Output Color Space & Tone Mapping pass
-    this.outputPass = new OutputPass();
-    this.composer.addPass(this.outputPass);
+      // Pass 5: Output Color Space & Tone Mapping pass
+      this.outputPass = new OutputPass();
+      this.composer.addPass(this.outputPass);
 
-    this.composer.setSize(width, height);
+      this.composer.setSize(width, height);
+    } catch (err) {
+      console.warn('PostProcessing init failed, falling back to direct WebGLRenderer:', err);
+      this.composer = null;
+    }
   }
 
   _initParticleSystems() {
@@ -325,10 +388,16 @@ export class PhobiaEngine {
     }
 
     // 7. Render frame via Composer pipeline (with graceful fallback)
-    try {
-      this.composer.render(delta);
-    } catch (err) {
-      console.warn('Composer render failed, falling back to WebGLRenderer:', err);
+    if (this.composer) {
+      try {
+        this.composer.render(delta);
+      } catch (err) {
+        console.warn('Composer render failed, falling back to WebGLRenderer:', err);
+        if (this.renderer && this.scene && this.camera) {
+          this.renderer.render(this.scene, this.camera);
+        }
+      }
+    } else if (this.renderer && this.scene && this.camera) {
       this.renderer.render(this.scene, this.camera);
     }
   }

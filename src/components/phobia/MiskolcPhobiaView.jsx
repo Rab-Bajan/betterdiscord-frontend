@@ -103,6 +103,9 @@ export default function MiskolcPhobiaView({
         container: containerRef.current
       });
       engineRef.current = engine;
+      if (engine.canvas) {
+        canvasRef.current = engine.canvas;
+      }
 
       // 2. Map Collision System
       const mapColliders = new MapColliders();
@@ -157,7 +160,7 @@ export default function MiskolcPhobiaView({
       // 7. Player 3D Controller
       const controller = new PhobiaController({
         camera: engine.camera,
-        domElement: canvasRef.current,
+        domElement: engine.canvas || canvasRef.current,
         scene: engine.scene,
         mapColliders,
         socket,
@@ -475,8 +478,9 @@ export default function MiskolcPhobiaView({
 
   // Handle clicking canvas to lock mouse
   const handleCanvasClick = useCallback(() => {
-    if (!journalOpen && canvasRef.current && !isLocked) {
-      canvasRef.current.requestPointerLock?.();
+    const targetCanvas = engineRef.current?.canvas || canvasRef.current;
+    if (!journalOpen && targetCanvas && !isLocked) {
+      targetCanvas.requestPointerLock?.();
       setHasStarted(true);
     }
   }, [journalOpen, isLocked]);
