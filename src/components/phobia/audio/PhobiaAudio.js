@@ -337,8 +337,9 @@ export class PhobiaAudio {
    */
   playFootstep(surface = 'concrete', options = {}) {
     const now = this.context.currentTime;
-    const dest = this._resolveDestination(options);
-    const volume = (options.volume ?? 1.0);
+    const opts = typeof options === 'boolean' ? { isSprinting: options } : (options || {});
+    const dest = this._resolveDestination(opts);
+    const volume = (opts.volume ?? (opts.isSprinting ? 1.25 : 1.0));
     const normalizedSurface = String(surface).toLowerCase();
 
     // Random pitch multiplier between 0.88 and 1.12
@@ -474,7 +475,20 @@ export class PhobiaAudio {
     }
   }
 
-  updateHeartbeat({ sanity = 100, ghostDistance = 30, isHunting = false } = {}) {
+  updateHeartbeat(optionsOrSanity = {}, maybeHunting = false) {
+    let sanity = 100;
+    let ghostDistance = 30;
+    let isHunting = false;
+
+    if (typeof optionsOrSanity === 'number') {
+      sanity = optionsOrSanity;
+      isHunting = !!maybeHunting;
+    } else if (optionsOrSanity && typeof optionsOrSanity === 'object') {
+      sanity = optionsOrSanity.sanity ?? 100;
+      ghostDistance = optionsOrSanity.ghostDistance ?? 30;
+      isHunting = Boolean(optionsOrSanity.isHunting);
+    }
+
     this.heartbeatState.sanity = Math.max(0, Math.min(100, sanity));
     this.heartbeatState.ghostDistance = Math.max(0, ghostDistance);
     this.heartbeatState.isHunting = !!isHunting;
@@ -1396,6 +1410,30 @@ export class PhobiaAudio {
       osc.start(t);
       osc.stop(t + 0.09);
     });
+  }
+
+  playSpatialSFX(sfxKey, pos, options = {}) {
+    const opts = { ...options };
+    if (pos) {
+      opts.position = pos;
+    }
+    const key = String(sfxKey).toLowerCase();
+    if (key.includes('buzz') || key.includes('overload') || key.includes('trip')) {
+      return this.playBreakerOverload(opts);
+    }
+    if (key.includes('breaker') || key.includes('flip')) {
+      return this.playBreakerFlip(opts);
+    }
+    if (key.includes('shatter') || key.includes('bulb')) {
+      return this.playLightbulbShatter(opts);
+    }
+    if (key.includes('switch') || key.includes('click')) {
+      return this.playFlashlightClick(opts);
+    }
+    if (key.includes('scrap') || key.includes('drop') || key.includes('clatter')) {
+      return this.playScrapDrop(opts);
+    }
+    return this.playFlashlightClick(opts);
   }
 
   /* -------------------------------------------------------------------------- */

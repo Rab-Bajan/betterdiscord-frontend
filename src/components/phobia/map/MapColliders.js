@@ -712,6 +712,14 @@ export class MapColliders {
   /**
    * Determines active zone for ghost AI, temperature, and HUD.
    */
+  detectZone(position) {
+    if (!position) return ZONE_KEYS.YARD;
+    const x = position.x ?? position[0] ?? 0;
+    const z = position.z ?? position[2] ?? 0;
+    const zoneObj = this.getZoneAt(x, z);
+    return zoneObj?.id || ZONE_KEYS.YARD;
+  }
+
   getZoneAt(x, z) {
     // 1. Truck safe haven
     if (x >= -6.0 && x <= -1.5 && z >= -18.0 && z <= -12.0) {

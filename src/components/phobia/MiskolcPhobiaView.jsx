@@ -21,6 +21,7 @@ import { TruckEnvironment } from './map/TruckEnvironment.js';
 import { MapColliders } from './map/MapColliders.js';
 import { ElectricalSystem } from './systems/ElectricalSystem.js';
 import { PhobiaAudio } from './audio/PhobiaAudio.js';
+import { ItemSystem } from './items/ItemSystem.js';
 
 import PhobiaHUD from './ui/PhobiaHUD.jsx';
 import JournalModal, { EVIDENCE_TYPES, GHOST_ARCHETYPES } from './ui/JournalModal.jsx';
@@ -48,6 +49,7 @@ export default function MiskolcPhobiaView({
   const itemSystemRef = useRef(null);
 
   // Game UI State
+  const [initError, setInitError] = useState(null);
   const [isReady, setIsReady] = useState(false);
   const [hasStarted, setHasStarted] = useState(false);
   const [isLocked, setIsLocked] = useState(false);
@@ -57,7 +59,11 @@ export default function MiskolcPhobiaView({
   // Stats & HUD
   const [stamina, setStamina] = useState(100);
   const [sanity, setSanity] = useState(100);
-  const [inventory, setInventory] = useState([null, null, null]);
+  const [inventory, setInventory] = useState([
+    { id: 'flashlight', name: 'Zseblámpa', icon: '🔦' },
+    { id: 'mobile_jesus', name: 'Mobil Jézus', icon: '✝️', charges: 2 },
+    { id: 'spirit_box', name: 'Spirit Box', icon: '📻' }
+  ]);
   const [activeSlot, setActiveSlot] = useState(0);
   const [crosshairPrompt, setCrosshairPrompt] = useState(null);
   const [huntActive, setHuntActive] = useState(false);
@@ -85,38 +91,6 @@ export default function MiskolcPhobiaView({
     { id: 2, title: 'Mérj 0.0°C alatti fagypontot a hőmérővel', reward: 500, completed: false },
     { id: 3, title: 'Akadályozz meg egy vadászatot Mobil Jézussal', reward: 500, completed: false }
   ]);
-
-  // Load ItemSystem dynamically if available
-  useEffect(() => {
-    let mounted = true;
-    import(/* @vite-ignore */ './items/ItemSystem.js')
-      .then((mod) => {
-        if (!mounted) return;
-        const ItemSys = mod.ItemSystem || mod.default;
-        if (ItemSys && engineRef.current && controllerRef.current) {
-          const itemSys = new ItemSys({
-            scene: engineRef.current.scene,
-            camera: engineRef.current.camera,
-            controller: controllerRef.current,
-            socket,
-            roomId: channelId
-          });
-          itemSystemRef.current = itemSys;
-        }
-      })
-      .catch(() => {
-        // Fallback default starter inventory
-        setInventory([
-          { id: 'flashlight', name: 'Zseblámpa', icon: '🔦' },
-          { id: 'mobile_jesus', name: 'Mobil Jézus', icon: '✝️', charges: 2 },
-          { id: 'spirit_box', name: 'Spirit Box', icon: '📻' }
-        ]);
-      });
-
-    return () => {
-      mounted = false;
-    };
-  }, [socket, channelId]);
 
   // 1. INITIALIZE THREE.JS ENGINE & GAME WORLD
   useEffect(() => {
@@ -173,7 +147,9 @@ export default function MiskolcPhobiaView({
         socket,
         roomId: channelId,
         onPlaySound: (sfxKey, pos) => {
-          if (audio) audio.playSpatialSFX(sfxKey, pos);
+          if (audio && typeof audio.playSpatialSFX === 'function') {
+            audio.playSpatialSFX(sfxKey, pos);
+          }
         }
       });
       electricalRef.current = electrical;
@@ -187,6 +163,11 @@ export default function MiskolcPhobiaView({
         socket,
         roomId: channelId,
         initialPosition: [-4.0, 0.0, -15.0], // Spawns outside truck
+        initialItems: [
+          { id: 'flashlight', name: 'Zseblámpa', icon: '🔦' },
+          { id: 'mobile_jesus', name: 'Mobil Jézus', icon: '✝️', charges: 2 },
+          { id: 'spirit_box', name: 'Spirit Box', icon: '📻' }
+        ],
         onInteractionPrompt: (prompt, target) => {
           if (!prompt) {
             setCrosshairPrompt(null);
@@ -209,13 +190,43 @@ export default function MiskolcPhobiaView({
           if (audio) audio.playFootstep(surface, controller.isSprinting);
         },
         onFlashlightToggle: (isOn) => {
-          engine.setFlashlight(isOn);
+          if (typeof engine.setFlashlight === 'function') {
+            engine.setFlashlight(isOn);
+          } else if (typeof engine.toggleFlashlight === 'function') {
+            engine.toggleFlashlight(isOn);
+          }
           if (audio) audio.playFlashlightClick();
         }
       });
       controllerRef.current = controller;
 
-      // 8. Multiplayer Avatars
+      // 8. Item System (Investigation Tools & Survival Items)
+      try {
+        const itemSys = new ItemSystem({
+          engine,
+          scene: engine.scene,
+          camera: engine.camera,
+          viewmodelGroup: engine.viewmodelGroup,
+          interactivePropsGroup: engine.interactivePropsGroup,
+          socket,
+          roomId: channelId,
+          onInventoryChange: (newInv, slot) => {
+            setInventory([...newInv]);
+            setActiveSlot(slot);
+          },
+          onPhotoSnapped: (photo) => {
+            setPhotos((prev) => [...prev.slice(-9), photo]);
+          },
+          onSanityRestored: (newSanity) => {
+            setSanity(newSanity);
+          }
+        });
+        itemSystemRef.current = itemSys;
+      } catch (itemErr) {
+        console.warn('ItemSystem init error:', itemErr);
+      }
+
+      // 9. Multiplayer Avatars
       const avatars = new PhobiaAvatars({
         scene: engine.scene,
         localUserId: currentUser?.id,
@@ -223,51 +234,101 @@ export default function MiskolcPhobiaView({
       });
       avatarsRef.current = avatars;
 
-      // 9. Frame Update Hook
-      engine.registerUpdateHook((delta, elapsed) => {
-        controller.update(delta);
-        truck.update(delta, elapsed);
-        map.update(delta, elapsed);
-        electrical.update(delta);
-        avatars.update(delta);
+      // 10. Frame Update Hook
+      const updateFn = (delta, elapsed) => {
+        if (controllerRef.current) controllerRef.current.update(delta);
+        if (truckRef.current) truckRef.current.update(delta, elapsed);
+        if (mapRef.current) mapRef.current.update(delta, elapsed);
+        if (electricalRef.current) electricalRef.current.update(delta);
+        if (avatarsRef.current) avatarsRef.current.update(delta);
+        if (itemSystemRef.current) {
+          const speed = controllerRef.current ? (controllerRef.current.isSprinting ? 5.0 : 3.0) : 0;
+          itemSystemRef.current.update(delta, speed);
+        }
 
-        // Update electrical HUD state
-        setBreakerOn(electrical.isOn);
-        setActiveLightsCount(electrical.activeLights.size);
+        // Update electrical HUD state only on state changes
+        if (electricalRef.current) {
+          const breakerState = electricalRef.current.isOn;
+          setBreakerOn((prev) => (prev !== breakerState ? breakerState : prev));
+          const lightsCount = electricalRef.current.activeLights?.size || 0;
+          setActiveLightsCount((prev) => (prev !== lightsCount ? lightsCount : prev));
+        }
 
         // Calculate ambient temperature based on player zone
-        const playerPos = controller.position;
-        const currentZone = mapColliders.detectZone(playerPos);
-        if (currentZone === 'truck') {
-          setAmbientTemp(18.5);
-        } else if (huntActive) {
-          setAmbientTemp(-3.2); // Freezing during hunts
-        } else {
-          setAmbientTemp(12.0);
+        if (controllerRef.current && mapCollidersRef.current) {
+          const playerPos = controllerRef.current.position;
+          const currentZone = mapCollidersRef.current.detectZone(playerPos);
+          let targetTemp = 12.0;
+          if (currentZone === 'truck') {
+            targetTemp = 18.5;
+          } else if (huntActive) {
+            targetTemp = -3.2; // Freezing during hunts
+          }
+          setAmbientTemp((prev) => (prev !== targetTemp ? targetTemp : prev));
         }
 
         // Low sanity audio sync
-        if (audio && sanity < 30) {
-          audio.updateHeartbeat(sanity, huntActive);
+        if (audioRef.current && sanity < 30) {
+          audioRef.current.updateHeartbeat(sanity, huntActive);
         }
-      });
+      };
+
+      if (typeof engine.registerUpdateHook === 'function') {
+        engine.registerUpdateHook(updateFn);
+      } else if (typeof engine.addUpdateHook === 'function') {
+        engine.addUpdateHook(updateFn);
+      }
 
       // Start engine loop
       engine.start();
       setIsReady(true);
     } catch (error) {
       console.error('Failed to initialize MiskolcPhobia 3D engine:', error);
+      setInitError(error.message || 'Nem sikerült elindítani a 3D motort.');
     }
 
     return () => {
-      if (engineRef.current) {
-        engineRef.current.destroy();
-      }
-      if (controllerRef.current) {
-        controllerRef.current.dispose();
-      }
-      if (audioRef.current) {
-        audioRef.current.dispose();
+      try {
+        if (engineRef.current) {
+          if (typeof engineRef.current.destroy === 'function') {
+            engineRef.current.destroy();
+          } else if (typeof engineRef.current.dispose === 'function') {
+            engineRef.current.dispose();
+          }
+          engineRef.current = null;
+        }
+        if (controllerRef.current) {
+          if (typeof controllerRef.current.dispose === 'function') {
+            controllerRef.current.dispose();
+          }
+          controllerRef.current = null;
+        }
+        if (audioRef.current) {
+          if (typeof audioRef.current.dispose === 'function') {
+            audioRef.current.dispose();
+          }
+          audioRef.current = null;
+        }
+        if (electricalRef.current) {
+          if (typeof electricalRef.current.dispose === 'function') {
+            electricalRef.current.dispose();
+          }
+          electricalRef.current = null;
+        }
+        if (avatarsRef.current) {
+          if (typeof avatarsRef.current.dispose === 'function') {
+            avatarsRef.current.dispose();
+          }
+          avatarsRef.current = null;
+        }
+        if (itemSystemRef.current) {
+          if (typeof itemSystemRef.current.dispose === 'function') {
+            itemSystemRef.current.dispose();
+          }
+          itemSystemRef.current = null;
+        }
+      } catch (err) {
+        console.warn('Error during Phobia cleanup:', err);
       }
     };
   }, [channelId, currentUser?.id, socket]);
@@ -312,11 +373,11 @@ export default function MiskolcPhobiaView({
         avatarsRef.current.updateFromTick(tickData.players);
 
         // Filter alive teammates
-        const living = tickData.players.filter(p => p.alive && p.id !== currentUser?.id);
+        const living = tickData.players.filter((p) => p.alive && p.id !== currentUser?.id);
         setAliveTeammates(living);
 
         // Find self in tick
-        const me = tickData.players.find(p => p.id === currentUser?.id);
+        const me = tickData.players.find((p) => p.id === currentUser?.id);
         if (me) {
           if (typeof me.sanity === 'number') setSanity(me.sanity);
           if (me.alive === false && isAlive) {
@@ -353,7 +414,7 @@ export default function MiskolcPhobiaView({
     };
 
     const handlePhotoTaken = (newPhoto) => {
-      setPhotos(prev => [...prev.slice(-9), newPhoto]);
+      setPhotos((prev) => [...prev.slice(-9), newPhoto]);
     };
 
     const handleVerdictResult = (result) => {
@@ -429,26 +490,59 @@ export default function MiskolcPhobiaView({
   }, []);
 
   // Submit Final Verdict
-  const handleSubmitVerdict = useCallback((ghostName) => {
-    if (!ghostName) return;
-    if (socket && channelId) {
-      socket.emit('phobia:submit-verdict', {
-        roomId: channelId,
-        channelId,
-        ghostGuess: ghostName,
-        ghostName,
-        photosCount: photos.length,
-        isAlive
-      });
-    } else {
-      // Offline fallback simulation
-      setMatchResult({
-        correct: true,
-        actualGhost: ghostName,
-        payoutFt: isAlive ? 4200 : 2100
-      });
-    }
-  }, [socket, channelId, photos.length, isAlive]);
+  const handleSubmitVerdict = useCallback(
+    (ghostName) => {
+      if (!ghostName) return;
+      if (socket && channelId) {
+        socket.emit('phobia:submit-verdict', {
+          roomId: channelId,
+          channelId,
+          ghostGuess: ghostName,
+          ghostName,
+          photosCount: photos.length,
+          isAlive
+        });
+      } else {
+        // Offline fallback simulation
+        setMatchResult({
+          correct: true,
+          actualGhost: ghostName,
+          payoutFt: isAlive ? 4200 : 2100
+        });
+      }
+    },
+    [socket, channelId, photos.length, isAlive]
+  );
+
+  if (initError) {
+    return (
+      <div className="relative flex-1 w-full h-full flex flex-col items-center justify-center bg-[#06070e] text-white p-6 select-none">
+        <div className="max-w-md p-6 rounded-2xl bg-gray-900/90 border border-red-500/40 shadow-2xl backdrop-blur-md flex flex-col items-center text-center">
+          <AlertTriangle className="w-12 h-12 text-red-500 mb-3" />
+          <h2 className="text-lg font-bold text-gray-100 mb-2">Nem sikerült elindítani a 3D motort</h2>
+          <p className="text-xs text-gray-400 mb-5 leading-relaxed">{initError}</p>
+          <div className="flex items-center gap-3">
+            <button
+              onClick={() => {
+                setInitError(null);
+                setIsReady(false);
+              }}
+              className="px-4 py-2 rounded-xl bg-purple-700 hover:bg-purple-600 text-white text-xs font-bold transition flex items-center gap-1.5"
+            >
+              <RotateCcw className="w-3.5 h-3.5" />
+              <span>Újrapróbálás</span>
+            </button>
+            <button
+              onClick={onClose}
+              className="px-4 py-2 rounded-xl bg-gray-800 hover:bg-gray-700 text-gray-300 text-xs font-semibold transition"
+            >
+              Vissza a szobába
+            </button>
+          </div>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div
@@ -478,13 +572,62 @@ export default function MiskolcPhobiaView({
           onClick={() => setJournalOpen(true)}
           className="px-3 py-1.5 rounded-xl bg-purple-900/60 hover:bg-purple-800 text-purple-200 border border-purple-500/50 text-xs font-bold transition flex items-center gap-1.5 backdrop-blur-md shadow-lg"
         >
-          <BookOpen className="w-3.5 h-3.5 text-purple-400" />
-          <span>Jegyzőkönyv [J]</span>
+          <BookOpen className="w-3.5 h-3.5" />
+          <span>Napló (J)</span>
         </button>
       </div>
 
-      {/* 3. In-Game 2D HUD */}
-      {hasStarted && isAlive && !journalOpen && (
+      {/* 3. Click to Start Overlay */}
+      {!hasStarted && isReady && isAlive && (
+        <div
+          onClick={handleCanvasClick}
+          className="absolute inset-0 z-20 flex flex-col items-center justify-center bg-black/75 backdrop-blur-sm cursor-pointer select-none transition-all"
+        >
+          <div className="text-center p-8 rounded-3xl bg-gray-950/90 border border-purple-500/30 shadow-2xl max-w-lg transform hover:scale-[1.02] transition">
+            <h1 className="text-3xl font-black text-transparent bg-clip-text bg-gradient-to-r from-red-500 via-purple-400 to-indigo-400 mb-2 tracking-wider">
+              MISKOLCPHOBIA 3D
+            </h1>
+            <p className="text-gray-400 text-xs mb-6 tracking-wide">
+              MÉH Telep Paranormális Helyszínelés
+            </p>
+
+            <div className="grid grid-cols-2 gap-3 text-left mb-6 text-xs text-gray-300 bg-black/50 p-4 rounded-xl border border-gray-800">
+              <div>
+                <span className="text-purple-400 font-bold">W, A, S, D:</span> Mozgás
+              </div>
+              <div>
+                <span className="text-purple-400 font-bold">Shift:</span> Futás (Stamina)
+              </div>
+              <div>
+                <span className="text-purple-400 font-bold">E / Bal klikk:</span> Használat
+              </div>
+              <div>
+                <span className="text-purple-400 font-bold">G:</span> Tárgy eldobása
+              </div>
+              <div>
+                <span className="text-purple-400 font-bold">1, 2, 3 / Görgő:</span> Tárhely
+              </div>
+              <div>
+                <span className="text-purple-400 font-bold">J:</span> Nyomozói Napló
+              </div>
+              <div>
+                <span className="text-purple-400 font-bold">F:</span> Zseblámpa ki/be
+              </div>
+              <div>
+                <span className="text-purple-400 font-bold">V:</span> Walkie-Talkie
+              </div>
+            </div>
+
+            <div className="inline-flex items-center gap-2 px-6 py-2.5 rounded-2xl bg-gradient-to-r from-purple-700 to-indigo-700 text-white font-bold text-sm shadow-lg hover:from-purple-600 hover:to-indigo-600 transition">
+              <Play className="w-4 h-4 fill-current" />
+              <span>Kattints a kezdéshez (Egér zárolása)</span>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* 4. Alive Player HUD */}
+      {isAlive ? (
         <PhobiaHUD
           stamina={stamina}
           sanity={sanity}
@@ -496,42 +639,19 @@ export default function MiskolcPhobiaView({
           ambientTemp={ambientTemp}
           breakerOn={breakerOn}
           activeLightsCount={activeLightsCount}
+          maxLightsCount={6}
           onOpenJournal={() => setJournalOpen(true)}
+        />
+      ) : (
+        /* 5. Dead Spectator Overlay */
+        <SpectatorView
+          aliveTeammates={aliveTeammates}
+          spectatorTarget={aliveTeammates[0] || null}
+          onCycleTarget={() => {}}
         />
       )}
 
-      {/* 4. Spectator View overlay when dead */}
-      {!isAlive && (
-        <SpectatorView aliveTeammates={aliveTeammates} />
-      )}
-
-      {/* 5. Start Click Prompt Overlay */}
-      {isReady && !hasStarted && (
-        <div
-          onClick={handleCanvasClick}
-          className="absolute inset-0 z-40 bg-black/75 backdrop-blur-sm flex flex-col items-center justify-center cursor-pointer transition-opacity"
-        >
-          <div className="p-8 rounded-3xl bg-[#101329]/95 border-2 border-purple-500/40 shadow-2xl max-w-md text-center space-y-4">
-            <div className="text-4xl animate-bounce">🔦</div>
-            <h2 className="text-2xl font-black text-white tracking-wide">
-              A MÉH TELEP KÉSZEN ÁLL
-            </h2>
-            <p className="text-xs sm:text-sm text-gray-300 leading-relaxed">
-              Kattints ide az egér befogásához és a nyomozás megkezdéséhez.
-              Használd a <strong>[WASD]</strong> gombokat a mozgáshoz, <strong>[E]</strong> az interakcióhoz, és <strong>[J]</strong> a nyomozói naplóhoz!
-            </p>
-            <button
-              onClick={handleCanvasClick}
-              className="w-full py-3 rounded-xl bg-gradient-to-r from-purple-600 to-indigo-600 text-white font-bold text-sm uppercase tracking-wider hover:opacity-95 shadow-lg flex items-center justify-center gap-2"
-            >
-              <Play className="w-4 h-4 fill-white" />
-              <span>Belépés a Telepre</span>
-            </button>
-          </div>
-        </div>
-      )}
-
-      {/* 6. Interactive Journal Modal [J] */}
+      {/* 6. Journal & Deduction Modal ('J' key) */}
       <JournalModal
         isOpen={journalOpen}
         onClose={() => setJournalOpen(false)}
@@ -542,7 +662,6 @@ export default function MiskolcPhobiaView({
         onSelectGhost={setSelectedGhost}
         onSubmitVerdict={handleSubmitVerdict}
         matchResult={matchResult}
-        isAlive={isAlive}
         sideTasks={sideTasks}
       />
     </div>

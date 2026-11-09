@@ -196,6 +196,19 @@ export class PhobiaController {
     }
   }
 
+  unlock() {
+    if (typeof document !== 'undefined' && document.pointerLockElement) {
+      document.exitPointerLock?.();
+    }
+    this.isLocked = false;
+  }
+
+  lock() {
+    if (this.domElement && typeof this.domElement.requestPointerLock === 'function') {
+      this.domElement.requestPointerLock();
+    }
+  }
+
   dispose() {
     if (typeof window !== 'undefined' && typeof document !== 'undefined') {
       window.removeEventListener('keydown', this._boundKeyDown);

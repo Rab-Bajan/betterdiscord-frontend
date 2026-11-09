@@ -543,6 +543,10 @@ export class PhobiaAvatars {
     }
   }
 
+  updateFromTick(players = [], localPlayerId = null) {
+    return this.handleTick(players, localPlayerId);
+  }
+
   update(delta) {
     for (const avatar of this.avatars.values()) {
       avatar.update(delta);

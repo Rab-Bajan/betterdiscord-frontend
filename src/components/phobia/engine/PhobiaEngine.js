@@ -347,6 +347,10 @@ export class PhobiaEngine {
     return this.flashlightOn;
   }
 
+  setFlashlight(isOn) {
+    return this.toggleFlashlight(isOn);
+  }
+
   isFlashlightOn() {
     return this.flashlightOn;
   }
@@ -506,8 +510,17 @@ export class PhobiaEngine {
     }
   }
 
+  registerUpdateHook(fn) {
+    this.addUpdateHook(fn);
+    return () => this.removeUpdateHook(fn);
+  }
+
   removeUpdateHook(fn) {
     this.updateHooks.delete(fn);
+  }
+
+  destroy() {
+    this.dispose();
   }
 
   dispose() {
