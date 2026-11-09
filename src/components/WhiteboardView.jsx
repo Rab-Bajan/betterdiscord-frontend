@@ -306,12 +306,12 @@ export default function WhiteboardView({
   };
 
   return (
-    <div className="flex-1 flex flex-col bg-discord-darkest h-full relative select-none">
+    <div className="flex-1 flex flex-col bg-shark-bg h-full relative select-none">
       {/* 1. Header & Tábla fülek (Tabs) */}
-      <div className="bg-discord-dark border-b border-discord-darkest px-3 py-2 flex items-center justify-between gap-2 flex-shrink-0 z-20">
-        <div className="flex items-center gap-1.5 overflow-x-auto py-0.5 flex-1 min-w-0">
-          <div className="flex items-center gap-1.5 text-xs font-bold text-discord-textHeader mr-2 flex-shrink-0">
-            <Paintbrush className="w-4 h-4 text-discord-primary" />
+      <div className="bg-shark-card border-b border-shark-bg px-3 py-2 flex items-center justify-between gap-2 flex-shrink-0 z-20">
+        <div className="flex items-center gap-1.5 overflow-x-auto scrollbar-none py-0.5 flex-1 min-w-0">
+          <div className="flex items-center gap-1.5 text-xs font-bold text-shark-text mr-2 flex-shrink-0">
+            <Paintbrush className="w-4 h-4 text-shark-purple" />
             <span className="hidden sm:inline">Közös Paint</span>
           </div>
 
@@ -324,8 +324,8 @@ export default function WhiteboardView({
                 onClick={() => onSelectBoard(b.id)}
                 className={`flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-medium cursor-pointer transition flex-shrink-0 ${
                   isActive
-                    ? 'bg-discord-primary text-white shadow-sm'
-                    : 'bg-discord-darker hover:bg-discord-hover text-discord-textMuted hover:text-white'
+                    ? 'bg-shark-purple text-white shadow-sm'
+                    : 'bg-shark-panel hover:bg-shark-elevated-hover text-shark-muted hover:text-white'
                 }`}
               >
                 <span className="truncate max-w-[130px]">{b.title}</span>
@@ -357,7 +357,7 @@ export default function WhiteboardView({
             type="button"
             onClick={() => setShowNewBoardModal(true)}
             title="Új Rajztábla Indítása"
-            className="flex items-center gap-1 px-2.5 py-1.5 rounded-md text-xs font-semibold bg-discord-green hover:bg-green-600 text-white transition flex-shrink-0 shadow"
+            className="flex items-center gap-1 px-2.5 py-1.5 rounded-md text-xs font-semibold bg-shark-green hover:opacity-90 text-white transition flex-shrink-0 shadow"
           >
             <Plus className="w-3.5 h-3.5" />
             <span>Új Rajztábla</span>
@@ -367,8 +367,8 @@ export default function WhiteboardView({
         {/* Jobb oldali műveletek */}
         <div className="flex items-center gap-2 flex-shrink-0">
           {activeDrawer && (
-            <div className="hidden md:flex items-center gap-1.5 text-xs text-discord-green bg-discord-green/10 px-2.5 py-1 rounded-full animate-pulse border border-discord-green/30">
-              <span className="w-2 h-2 rounded-full bg-discord-green" />
+            <div className="hidden md:flex items-center gap-1.5 text-xs text-shark-green bg-shark-green/10 px-2.5 py-1 rounded-full animate-pulse border border-shark-green/30">
+              <span className="w-2 h-2 rounded-full bg-shark-green" />
               <span>{activeDrawer} épp rajzol...</span>
             </div>
           )}
@@ -379,7 +379,7 @@ export default function WhiteboardView({
                 type="button"
                 onClick={handleDownload}
                 title="Kép letöltése PNG-ként"
-                className="p-1.5 rounded bg-discord-darker hover:bg-discord-hover text-discord-textHeader transition"
+                className="p-1.5 rounded bg-shark-panel hover:bg-shark-elevated-hover text-shark-text transition"
               >
                 <Download className="w-4 h-4" />
               </button>
@@ -388,7 +388,7 @@ export default function WhiteboardView({
                 type="button"
                 onClick={handleClearBoard}
                 title="Vászon törlése (Mindenkinek törli)"
-                className="p-1.5 rounded bg-discord-darker hover:bg-discord-red/80 text-discord-textHeader hover:text-white transition"
+                className="p-1.5 rounded bg-shark-panel hover:bg-shark-red/80 text-shark-text hover:text-white transition"
               >
                 <Trash2 className="w-4 h-4" />
               </button>
@@ -399,7 +399,7 @@ export default function WhiteboardView({
             type="button"
             onClick={onClose}
             title="Bezárás (Vissza a szoba nézethez)"
-            className="p-1.5 rounded bg-discord-darker hover:bg-discord-hover text-discord-textMuted hover:text-white transition"
+            className="p-1.5 rounded bg-shark-panel hover:bg-shark-elevated-hover text-shark-muted hover:text-white transition"
           >
             <X className="w-4 h-4" />
           </button>
@@ -408,15 +408,15 @@ export default function WhiteboardView({
 
       {/* 2. Paint Eszköztár (Toolbar) */}
       {activeBoardId ? (
-        <div className="bg-discord-darker/95 border-b border-discord-dark px-4 py-2 flex items-center justify-between gap-4 flex-wrap z-10 shadow">
+        <div className="bg-shark-panel/95 border-b border-shark-card px-3 sm:px-4 py-2 flex items-center justify-between gap-3 sm:gap-4 flex-nowrap overflow-x-auto scrollbar-none sm:flex-wrap sm:overflow-visible z-10 shadow">
           {/* Eszközök: Ecset, Radír, Vonal, Téglalap, Kör */}
-          <div className="flex items-center gap-1 bg-discord-darkest/70 p-1 rounded-lg">
+          <div className="flex items-center gap-1 bg-shark-bg/70 p-1 rounded-lg flex-shrink-0">
             <button
               type="button"
               onClick={() => setTool('brush')}
               title="Szabadkézi Ecset"
               className={`p-2 rounded-md transition ${
-                tool === 'brush' ? 'bg-discord-primary text-white shadow' : 'text-discord-textMuted hover:text-white'
+                tool === 'brush' ? 'bg-shark-purple text-white shadow' : 'text-shark-muted hover:text-white'
               }`}
             >
               <Paintbrush className="w-4 h-4" />
@@ -427,7 +427,7 @@ export default function WhiteboardView({
               onClick={() => setTool('eraser')}
               title="Radír"
               className={`p-2 rounded-md transition ${
-                tool === 'eraser' ? 'bg-discord-primary text-white shadow' : 'text-discord-textMuted hover:text-white'
+                tool === 'eraser' ? 'bg-shark-purple text-white shadow' : 'text-shark-muted hover:text-white'
               }`}
             >
               <Eraser className="w-4 h-4" />
@@ -438,7 +438,7 @@ export default function WhiteboardView({
               onClick={() => setTool('line')}
               title="Egyenes vonal"
               className={`p-2 rounded-md transition ${
-                tool === 'line' ? 'bg-discord-primary text-white shadow' : 'text-discord-textMuted hover:text-white'
+                tool === 'line' ? 'bg-shark-purple text-white shadow' : 'text-shark-muted hover:text-white'
               }`}
             >
               <Minus className="w-4 h-4" />
@@ -449,7 +449,7 @@ export default function WhiteboardView({
               onClick={() => setTool('rect')}
               title="Téglalap"
               className={`p-2 rounded-md transition ${
-                tool === 'rect' ? 'bg-discord-primary text-white shadow' : 'text-discord-textMuted hover:text-white'
+                tool === 'rect' ? 'bg-shark-purple text-white shadow' : 'text-shark-muted hover:text-white'
               }`}
             >
               <Square className="w-4 h-4" />
@@ -460,7 +460,7 @@ export default function WhiteboardView({
               onClick={() => setTool('circle')}
               title="Kör"
               className={`p-2 rounded-md transition ${
-                tool === 'circle' ? 'bg-discord-primary text-white shadow' : 'text-discord-textMuted hover:text-white'
+                tool === 'circle' ? 'bg-shark-purple text-white shadow' : 'text-shark-muted hover:text-white'
               }`}
             >
               <Circle className="w-4 h-4" />
@@ -468,7 +468,7 @@ export default function WhiteboardView({
           </div>
 
           {/* Színpaletta */}
-          <div className="flex items-center gap-1.5 flex-wrap">
+          <div className="flex items-center gap-1.5 flex-nowrap sm:flex-wrap flex-shrink-0">
             {PRESET_COLORS.map((c) => (
               <button
                 key={c}
@@ -479,7 +479,7 @@ export default function WhiteboardView({
                 }}
                 className={`w-6 h-6 rounded-full transition-transform border border-black/40 flex items-center justify-center ${
                   color === c && tool !== 'eraser'
-                    ? 'scale-125 ring-2 ring-white ring-offset-1 ring-offset-discord-dark'
+                    ? 'scale-125 ring-2 ring-white ring-offset-1 ring-offset-shark-card'
                     : 'hover:scale-110 opacity-90'
                 }`}
                 style={{ backgroundColor: c }}
@@ -491,7 +491,7 @@ export default function WhiteboardView({
             ))}
 
             {/* Egyedi színválasztó */}
-            <label className="relative cursor-pointer flex items-center justify-center w-6 h-6 rounded-full bg-gradient-to-tr from-pink-500 via-purple-500 to-indigo-500 border border-white/30 hover:scale-110 transition-transform">
+            <label className="relative cursor-pointer flex items-center justify-center w-6 h-6 rounded-full bg-gradient-to-tr from-shark-red via-shark-purple to-shark-blue border border-white/30 hover:scale-110 transition-transform">
               <input
                 type="color"
                 value={color}
@@ -507,7 +507,7 @@ export default function WhiteboardView({
           </div>
 
           {/* Vonal vastagság választó */}
-          <div className="flex items-center gap-1 bg-discord-darkest/70 px-2 py-1 rounded-lg">
+          <div className="flex items-center gap-1 bg-shark-bg/70 px-2 py-1 rounded-lg flex-shrink-0">
             {PRESET_SIZES.map((s) => (
               <button
                 key={s.size}
@@ -516,8 +516,8 @@ export default function WhiteboardView({
                 title={`${s.label} (${s.size}px)`}
                 className={`px-2 py-1 text-xs rounded transition font-medium ${
                   size === s.size
-                    ? 'bg-discord-active text-white font-bold'
-                    : 'text-discord-textMuted hover:text-white'
+                    ? 'bg-shark-elevated text-white font-bold'
+                    : 'text-shark-muted hover:text-white'
                 }`}
               >
                 {s.label}
@@ -531,7 +531,7 @@ export default function WhiteboardView({
       <div className="flex-1 min-h-0 p-3 sm:p-5 flex items-center justify-center overflow-hidden relative">
         {activeBoardId ? (
           <div
-            className="w-full h-full max-w-[1400px] max-h-[850px] relative bg-white rounded-xl shadow-2xl overflow-hidden border border-discord-dark"
+            className="w-full h-full max-w-[1400px] max-h-[850px] relative bg-white rounded-xl shadow-2xl overflow-hidden border border-shark-card"
             style={{ aspectRatio: `${VIRTUAL_WIDTH} / ${VIRTUAL_HEIGHT}` }}
           >
             {/* Alap vászon (mindenki rajzai) */}
@@ -556,21 +556,21 @@ export default function WhiteboardView({
           </div>
         ) : (
           /* Ha még nincs létrehozott tábla a szobában */
-          <div className="text-center p-8 bg-discord-darker rounded-2xl border border-discord-dark max-w-md shadow-2xl">
-            <div className="w-20 h-20 rounded-3xl bg-discord-primary/20 text-discord-primary flex items-center justify-center mx-auto mb-4">
+          <div className="text-center p-8 bg-shark-panel rounded-2xl border border-shark-card max-w-md shadow-2xl">
+            <div className="w-20 h-20 rounded-3xl bg-shark-purple/20 text-shark-purple flex items-center justify-center mx-auto mb-4">
               <Paintbrush className="w-10 h-10" />
             </div>
-            <h3 className="text-xl font-bold text-discord-textHeader mb-2">
+            <h3 className="text-xl font-bold text-shark-text mb-2">
               Közös Paint & Rajztábla
             </h3>
-            <p className="text-sm text-discord-textMuted mb-6 leading-relaxed">
+            <p className="text-sm text-shark-muted mb-6 leading-relaxed">
               Még nincs megnyitott rajztábla ebben a hangcsatornában.
               Indíts egy újat, amibe minden szobában lévő társad valós időben belerajzolhat!
             </p>
             <button
               type="button"
               onClick={() => setShowNewBoardModal(true)}
-              className="px-6 py-3 rounded-lg bg-discord-primary hover:bg-discord-primaryHover text-white font-semibold text-sm transition shadow-lg flex items-center gap-2 mx-auto"
+              className="px-6 py-3 rounded-lg bg-shark-purple hover:bg-shark-purple-dim text-white font-semibold text-sm transition shadow-lg flex items-center gap-2 mx-auto"
             >
               <Plus className="w-5 h-5" />
               <span>Első Rajztábla Indítása</span>
@@ -581,12 +581,12 @@ export default function WhiteboardView({
 
       {/* Új Tábla Modal */}
       {showNewBoardModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-sm p-4">
-          <div className="bg-discord-darker border border-discord-dark p-6 rounded-xl shadow-2xl max-w-sm w-full">
-            <h3 className="text-lg font-bold text-discord-textHeader mb-2">
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-md p-3 sm:p-4">
+          <div className="bg-shark-panel border border-shark-card p-6 rounded-xl shadow-2xl max-w-lg w-full max-h-[90vh] overflow-y-auto">
+            <h3 className="text-lg font-bold text-shark-text mb-2">
               Új Rajztábla Indítása
             </h3>
-            <p className="text-xs text-discord-textMuted mb-4">
+            <p className="text-xs text-shark-muted mb-4">
               Adj meg egy nevet a rajztáblának. Mindenki látni fogja és bele tud rajzolni.
             </p>
             <form onSubmit={handleCreateSubmit} className="space-y-4">
@@ -596,19 +596,19 @@ export default function WhiteboardView({
                 onChange={(e) => setNewBoardTitle(e.target.value)}
                 placeholder={`Pl. ${currentUser?.username} Rajza, Skribbl, Tervezés...`}
                 autoFocus
-                className="w-full bg-discord-darkest text-white px-3.5 py-2.5 rounded-lg outline-none border border-transparent focus:border-discord-primary text-sm font-medium"
+                className="w-full bg-shark-panel text-shark-text px-3.5 py-2.5 rounded-lg outline-none border border-shark-purple/30 focus:border-shark-purple text-sm font-medium"
               />
               <div className="flex items-center justify-end gap-2 pt-2">
                 <button
                   type="button"
                   onClick={() => setShowNewBoardModal(false)}
-                  className="px-4 py-2 rounded text-xs font-semibold text-discord-textMuted hover:text-white transition"
+                  className="px-4 py-2 rounded text-xs font-semibold text-shark-muted hover:text-white transition"
                 >
                   Mégse
                 </button>
                 <button
                   type="submit"
-                  className="px-4 py-2 rounded bg-discord-green hover:bg-green-600 text-white text-xs font-semibold transition shadow"
+                  className="px-4 py-2 rounded bg-shark-green hover:opacity-90 text-white text-xs font-semibold transition shadow"
                 >
                   Indítás
                 </button>

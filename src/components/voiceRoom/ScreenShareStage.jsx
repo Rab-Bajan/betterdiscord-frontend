@@ -2,6 +2,7 @@ import React, { useState, useRef, useEffect } from 'react';
 import { Maximize2, MicOff, Headphones } from 'lucide-react';
 import VideoRenderer from './VideoRenderer';
 import { useTileFullscreen } from '../../hooks/useTileFullscreen';
+import Avatar from '../Avatar';
 
 // Képernyőmegosztás nézet: nagy videó + résztvevő-kártyák alul
 export default function ScreenShareStage({
@@ -35,18 +36,13 @@ export default function ScreenShareStage({
     <div className="flex-1 flex flex-col min-h-0 gap-2 sm:gap-3">
       <div
         ref={stageRef}
-        className="flex-1 w-full min-h-0 overflow-hidden relative flex items-center justify-center group rounded-xl sm:rounded-2xl"
-        style={{ background: '#070814', border: '1px solid rgba(125, 105, 255, 0.2)', boxShadow: '0 8px 32px rgba(0, 0, 0, 0.6)' }}
+        className="flex-1 w-full min-h-[40vh] sm:min-h-0 overflow-hidden relative flex items-center justify-center group rounded-xl sm:rounded-2xl"
+        style={{ background: '#090A18', border: '1px solid rgba(125, 105, 255, 0.2)', boxShadow: '0 8px 32px rgba(0, 0, 0, 0.6)' }}
       >
         <VideoRenderer stream={stream} isMuted={selectedSharerId === currentUserId || !!isDeafened} className="max-h-full max-w-full" />
 
         <div className="absolute top-2 left-2 sm:top-3 sm:left-3 flex items-center gap-1.5 sm:gap-2 px-2.5 py-1 sm:px-3 sm:py-1.5 rounded-xl z-10" style={{ background: 'rgba(9, 10, 24, 0.85)', backdropFilter: 'blur(12px)', border: '1px solid rgba(125, 105, 255, 0.2)' }}>
-          <div
-            className="w-4 h-4 sm:w-5 sm:h-5 rounded-full flex items-center justify-center text-white text-[9px] sm:text-[10px] font-bold flex-shrink-0"
-            style={{ backgroundColor: sharer?.avatarColor || '#7655F5' }}
-          >
-            {sharer?.username?.charAt(0).toUpperCase()}
-          </div>
+          <Avatar user={sharer} size="xs" />
           <span className="text-white text-[11px] sm:text-xs font-semibold truncate max-w-[120px] sm:max-w-none">
             {sharer?.username} képernyője
           </span>
@@ -98,14 +94,7 @@ export default function ScreenShareStage({
                   />
                 </div>
               ) : (
-                <div
-                  className={`w-8 h-8 sm:w-10 sm:h-10 rounded-full flex items-center justify-center text-white text-xs sm:text-sm font-bold border-2 transition ${
-                    p.isSpeaking ? 'speaking-ring' : ''
-                  }`}
-                  style={{ backgroundColor: p.avatarColor || '#7655F5', borderColor: p.isSpeaking ? '#28C997' : 'transparent' }}
-                >
-                  {p.username.charAt(0).toUpperCase()}
-                </div>
+                <Avatar user={p} size="sm" speaking={p.isSpeaking} />
               )}
               <span className="text-[11px] sm:text-xs font-medium truncate mt-1 max-w-[85px] sm:max-w-[120px]" style={{ color: '#F4F3FF' }}>
                 {p.username} {p.id === currentUserId && '(Te)'}

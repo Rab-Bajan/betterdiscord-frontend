@@ -22,6 +22,7 @@ export function useRoomActivities(socket, currentUser, activeVoiceChannel) {
   const [casinoSessions, setCasinoSessions] = useState({}); // channelId -> session
   const [watchSessions, setWatchSessions] = useState({}); // channelId -> state
   const [chessSessions, setChessSessions] = useState({}); // channelId -> state
+  const [empireSessions, setEmpireSessions] = useState({}); // channelId -> MiskolcEmpire összefoglaló
   const [browserSessions, setBrowserSessions] = useState({}); // channelId -> state
   const [gameSessions, setGameSessions] = useState({}); // channelId -> összefoglaló
 
@@ -37,6 +38,7 @@ export function useRoomActivities(socket, currentUser, activeVoiceChannel) {
         );
       }
       if (data.chessSessions) setChessSessions(data.chessSessions);
+      if (data.empireSessions) setEmpireSessions(data.empireSessions);
       if (data.browserSessions) setBrowserSessions(data.browserSessions);
     },
 
@@ -76,6 +78,9 @@ export function useRoomActivities(socket, currentUser, activeVoiceChannel) {
       }
     },
 
+    'empire:session-updated': ({ channelId, state }) =>
+      setOrDelete(setEmpireSessions, channelId, state),
+
     'game:session-updated': ({ channelId, state }) =>
       setOrDelete(setGameSessions, channelId, state),
 
@@ -114,6 +119,7 @@ export function useRoomActivities(socket, currentUser, activeVoiceChannel) {
     casinoSessions,
     watchSessions,
     chessSessions,
+    empireSessions,
     browserSessions,
     gameSessions,
     // kaszinó

@@ -26,6 +26,7 @@ import {
   ShieldOff
 } from 'lucide-react';
 import { History, SlidersHorizontal } from 'lucide-react';
+import Avatar from './Avatar';
 import DMCallButton from './call/DMCallButton';
 import CallEventMessage from './call/CallEventMessage';
 import MessageContent from './chat/MessageContent';
@@ -46,24 +47,24 @@ function formatFileSize(bytes) {
 function getFileIcon(mimeType = '', filename = '') {
   const ext = filename.split('.').pop()?.toLowerCase() || '';
   if (mimeType.startsWith('image/') || ['png', 'jpg', 'jpeg', 'gif', 'webp', 'svg'].includes(ext)) {
-    return <ImageIcon className="w-5 h-5 text-indigo-400" />;
+    return <ImageIcon className="w-5 h-5 text-[#7655F5]" />;
   }
   if (mimeType.startsWith('video/') || ['mp4', 'webm', 'mov', 'mkv', 'avi'].includes(ext)) {
-    return <Film className="w-5 h-5 text-rose-400" />;
+    return <Film className="w-5 h-5 text-[#E94B64]" />;
   }
   if (mimeType.startsWith('audio/') || ['mp3', 'wav', 'ogg', 'm4a'].includes(ext)) {
-    return <Volume2 className="w-5 h-5 text-emerald-400" />;
+    return <Volume2 className="w-5 h-5 text-[#28C997]" />;
   }
   if (['zip', 'rar', '7z', 'tar', 'gz'].includes(ext) || mimeType.includes('zip') || mimeType.includes('archive')) {
-    return <FileArchive className="w-5 h-5 text-amber-400" />;
+    return <FileArchive className="w-5 h-5 text-[#F5B041]" />;
   }
   if (['js', 'jsx', 'ts', 'tsx', 'html', 'css', 'json', 'py', 'c', 'cpp', 'java', 'sql', 'sh', 'bat'].includes(ext)) {
-    return <FileCode className="w-5 h-5 text-cyan-400" />;
+    return <FileCode className="w-5 h-5 text-[#536CFF]" />;
   }
   if (['pdf', 'doc', 'docx', 'txt', 'rtf', 'md'].includes(ext) || mimeType.includes('pdf') || mimeType.includes('document')) {
-    return <FileText className="w-5 h-5 text-blue-400" />;
+    return <FileText className="w-5 h-5 text-[#536CFF]" />;
   }
-  return <File className="w-5 h-5 text-gray-300" />;
+  return <File className="w-5 h-5 text-[#999BBE]" />;
 }
 
 export default function ChatArea({
@@ -293,14 +294,14 @@ export default function ChatArea({
       )}
 
       {/* Channel Header */}
-      <div className="h-14 px-3 sm:px-5 flex items-center justify-between flex-shrink-0 z-10" style={{ background: '#101329', borderBottom: '1px solid rgba(125, 105, 255, 0.12)' }}>
-        <div className="flex items-center gap-2 sm:gap-2.5 truncate">
+      <div className="h-14 px-2 sm:px-5 gap-2 flex items-center justify-between flex-shrink-0 z-10 min-w-0" style={{ background: '#101329', borderBottom: '1px solid rgba(125, 105, 255, 0.12)' }}>
+        <div className="flex items-center gap-2 sm:gap-2.5 min-w-0 flex-1">
           {onOpenMobileSidebar && (
             <button
               type="button"
               onClick={onOpenMobileSidebar}
               title="Csatornák megnyitása"
-              className="p-2 rounded-xl md:hidden transition flex-shrink-0"
+              className="p-2 min-w-[40px] min-h-[40px] flex items-center justify-center rounded-xl md:hidden transition flex-shrink-0"
               style={{ background: '#1B2040', color: '#7655F5', border: '1px solid rgba(125, 105, 255, 0.2)' }}
             >
               <Menu className="w-4 h-4" />
@@ -308,35 +309,23 @@ export default function ChatArea({
           )}
 
           {isDm && dmPartner ? (
-            <div className="flex items-center gap-2.5 truncate">
-              <div className="relative flex-shrink-0">
-                <div
-                  className="w-7 h-7 rounded-full flex items-center justify-center text-xs text-white font-bold overflow-hidden shadow"
-                  style={{ backgroundColor: dmPartner.avatarColor || '#7655F5' }}
-                >
-                  {dmPartner.avatarUrl ? (
-                    <img src={dmPartner.avatarUrl} alt={dmPartner.username} className="w-full h-full object-cover" />
-                  ) : (
-                    dmPartner.username.charAt(0).toUpperCase()
-                  )}
-                </div>
-                <div className="absolute -bottom-0.5 -right-0.5 w-2 h-2 rounded-full border border-[#101329] bg-[#28C997]" />
-              </div>
-              <span className="font-bold truncate text-sm sm:text-base" style={{ color: '#F4F3FF' }}>
+            <div className="flex items-center gap-2.5 min-w-0">
+              <Avatar user={dmPartner} size="sm" status="online" badgeBorderColor="#101329" />
+              <span className="font-bold truncate text-sm sm:text-base" title={`@${dmPartner.username}`} style={{ color: '#F4F3FF' }}>
                 @{dmPartner.username}
               </span>
-              <span className="text-[10px] px-2 py-0.5 rounded-full font-bold bg-[#7655F5]/20 text-[#7655F5] border border-[#7655F5]/30 hidden sm:inline">
+              <span className="text-[10px] px-2 py-0.5 rounded-full font-bold bg-[#7655F5]/20 text-[#7655F5] border border-[#7655F5]/30 hidden sm:inline flex-shrink-0 whitespace-nowrap">
                 Privát Üzenet
               </span>
             </div>
           ) : (
             <>
               <Hash className="w-5 h-5 flex-shrink-0" style={{ color: '#7655F5' }} />
-              <span className="font-bold truncate text-sm sm:text-base" style={{ color: '#F4F3FF' }}>{channel ? channel.name : 'Csatorna'}</span>
+              <span className="font-bold truncate text-sm sm:text-base min-w-0" title={channel ? channel.name : undefined} style={{ color: '#F4F3FF' }}>{channel ? channel.name : 'Csatorna'}</span>
               {channel?.description && (
                 <>
-                  <div className="w-[1px] h-4 mx-2 hidden sm:block" style={{ background: 'rgba(125, 105, 255, 0.2)' }} />
-                  <span className="text-xs truncate hidden sm:block" style={{ color: '#999BBE' }}>
+                  <div className="w-[1px] h-4 mx-2 hidden sm:block flex-shrink-0" style={{ background: 'rgba(125, 105, 255, 0.2)' }} />
+                  <span className="text-xs truncate min-w-0 hidden sm:block" title={channel.description} style={{ color: '#999BBE' }}>
                     {channel.description}
                   </span>
                 </>
@@ -346,7 +335,7 @@ export default function ChatArea({
         </div>
 
         {/* Right actions */}
-        <div className="flex items-center gap-2.5 flex-shrink-0">
+        <div className="flex items-center gap-1 sm:gap-2.5 flex-shrink-0">
           {isDm && dmPartner && onStartCall && (
             <div className="flex items-center gap-1.5">
               <DMCallButton
@@ -360,7 +349,7 @@ export default function ChatArea({
                 onClick={onOpenCallHistory}
                 title="Híváselőzmények"
                 aria-label="Híváselőzmények"
-                className="p-2 rounded-xl transition hidden sm:block"
+                className="p-2 rounded-xl transition flex items-center justify-center min-w-[40px] min-h-[40px]"
                 style={{ background: 'transparent', color: '#999BBE' }}
                 onMouseOver={e => e.currentTarget.style.color = '#F4F3FF'}
                 onMouseOut={e => e.currentTarget.style.color = '#999BBE'}
@@ -372,7 +361,7 @@ export default function ChatArea({
                 onClick={onOpenCallSettings}
                 title="Hívásbeállítások (hang, csengőhang, eszközök)"
                 aria-label="Hívásbeállítások"
-                className="p-2 rounded-xl transition hidden sm:block"
+                className="p-2 rounded-xl transition flex items-center justify-center min-w-[40px] min-h-[40px]"
                 style={{ background: 'transparent', color: '#999BBE' }}
                 onMouseOver={e => e.currentTarget.style.color = '#F4F3FF'}
                 onMouseOut={e => e.currentTarget.style.color = '#999BBE'}
@@ -384,7 +373,7 @@ export default function ChatArea({
           <button
             onClick={onOpenSpeedTest}
             title="Net Sebességteszt futtatása és eredmények"
-            className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-semibold transition"
+            className="flex items-center justify-center gap-1.5 px-2.5 sm:px-3 py-1.5 min-w-[40px] min-h-[40px] rounded-xl text-xs font-semibold transition"
             style={{ background: 'rgba(118, 85, 245, 0.15)', color: '#7655F5', border: '1px solid rgba(118, 85, 245, 0.25)' }}
             onMouseOver={e => e.currentTarget.style.background = 'rgba(118, 85, 245, 0.25)'}
             onMouseOut={e => e.currentTarget.style.background = 'rgba(118, 85, 245, 0.15)'}
@@ -397,7 +386,7 @@ export default function ChatArea({
             <button
               onClick={() => onJoinVoiceChannel('hang-altalanos')}
               title="Csatlakozás a Hangcsatornához (VoIP)"
-              className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-white text-xs font-medium transition shadow-md"
+              className="flex items-center justify-center gap-1.5 px-2.5 sm:px-3 py-1.5 min-w-[40px] min-h-[40px] rounded-xl text-white text-xs font-medium transition shadow-md"
               style={{ background: 'linear-gradient(135deg, #7655F5, #536CFF)' }}
             >
               <PhoneCall className="w-3.5 h-3.5" />
@@ -408,7 +397,7 @@ export default function ChatArea({
           <button
             onClick={onToggleUserList}
             title={showUserList ? 'Résztvevők elrejtése' : 'Résztvevők mutatása'}
-            className="p-2 rounded-xl transition"
+            className="p-2 min-w-[40px] min-h-[40px] flex items-center justify-center rounded-xl transition flex-shrink-0"
             style={{
               background: showUserList ? 'rgba(118, 85, 245, 0.2)' : 'transparent',
               color: showUserList ? '#7655F5' : '#999BBE',
@@ -422,13 +411,13 @@ export default function ChatArea({
       </div>
 
       {/* Messages Scroll Area */}
-      <div className="flex-1 overflow-y-auto px-5 py-4 space-y-4">
+      <div className="flex-1 min-h-0 overflow-y-auto overflow-x-hidden px-2 sm:px-5 py-4 space-y-1">
         {/* Welcome block */}
         <div className="pt-6 pb-4" style={{ borderBottom: '1px solid rgba(125, 105, 255, 0.12)' }}>
           <div className="w-14 h-14 rounded-2xl flex items-center justify-center mb-3 shadow-lg" style={{ background: 'rgba(118, 85, 245, 0.15)', border: '1px solid rgba(118, 85, 245, 0.3)', color: '#7655F5' }}>
             {isDm ? <span className="text-2xl">💬</span> : <Hash className="w-7 h-7" />}
           </div>
-          <h1 className="text-2xl font-bold" style={{ color: '#F4F3FF' }}>
+          <h1 className="text-xl sm:text-2xl font-bold break-words" style={{ color: '#F4F3FF' }}>
             {isDm ? `Beszélgetés vele: @${dmPartner?.username || 'Partner'}` : `Üdv a #${channel ? channel.name : 'csatornában'}!`}
           </h1>
           <p className="text-sm mt-1" style={{ color: '#999BBE' }}>
@@ -461,7 +450,7 @@ export default function ChatArea({
           return (
             <div
               key={msg.id}
-              className="relative flex items-start gap-4 px-3 py-2 rounded-xl group transition-all"
+              className="relative flex items-start gap-3 sm:gap-4 px-2 sm:px-4 py-1.5 rounded-xl group transition-all min-w-0"
               style={{
                 background: msg.isSystem ? 'rgba(118, 85, 245, 0.08)' : 'transparent',
                 borderLeft: msg.isSystem ? '3px solid #7655F5' : '3px solid transparent',
@@ -472,7 +461,7 @@ export default function ChatArea({
               {/* Üzenet műveletek */}
               {msg.text && !msg.removedByAdmin && (
                 <div
-                  className="absolute -top-2 right-3 z-10 rounded-lg shadow-lg opacity-0 group-hover:opacity-100 focus-within:opacity-100 transition"
+                  className="absolute -top-2 right-2 sm:right-3 z-10 rounded-lg shadow-lg opacity-0 group-hover:opacity-100 focus-within:opacity-100 transition"
                   style={{ background: '#151832', border: '1px solid rgba(125, 105, 255, 0.25)', color: '#999BBE' }}
                 >
                   <CopyButton text={msg.text} title="Üzenet másolása" className="p-1.5 rounded-lg hover:text-white" />
@@ -480,32 +469,24 @@ export default function ChatArea({
               )}
 
               {/* Avatar */}
-              <div
-                className="w-10 h-10 rounded-2xl flex items-center justify-center text-white font-bold text-sm flex-shrink-0 shadow-md mt-0.5 overflow-hidden"
-                style={{ backgroundColor: authorAvatarColor }}
-              >
-                {authorAvatarUrl ? (
-                  <img src={authorAvatarUrl} alt={authorName} className="w-full h-full object-cover" />
-                ) : (
-                  (authorName.charAt(0) || '?').toUpperCase()
-                )}
-              </div>
+              <Avatar username={authorName} avatarUrl={authorAvatarUrl} avatarColor={authorAvatarColor} size="md" className="mt-0.5" />
 
               {/* Message Content */}
               <div className="flex-1 min-w-0">
-                <div className="flex items-baseline gap-2">
+                <div className="flex items-baseline gap-x-2 gap-y-0 flex-wrap min-w-0">
                   <span
-                    className="font-semibold text-sm hover:underline cursor-pointer"
+                    className="font-semibold text-sm hover:underline cursor-pointer truncate max-w-[60%] sm:max-w-xs"
+                    title={authorName}
                     style={{ color: authorAvatarColor }}
                   >
                     {authorName}
                   </span>
                   {msg.isSystem && (
-                    <span className="text-[10px] font-bold px-1.5 py-0.5 rounded text-white uppercase tracking-wider" style={{ background: '#7655F5' }}>
+                    <span className="text-[10px] font-bold px-1.5 py-0.5 rounded text-white uppercase tracking-wider whitespace-nowrap" style={{ background: '#7655F5' }}>
                       Rendszer
                     </span>
                   )}
-                  <span className="text-[11px]" style={{ color: '#999BBE' }}>{msg.timestamp}</span>
+                  <span className="text-[11px] whitespace-nowrap" style={{ color: '#999BBE' }}>{msg.timestamp}</span>
                   {isDm && onReportMessage && !msg.removedByAdmin && !msg.isSystem &&
                     authorName.toLowerCase() !== (currentUsername || '').toLowerCase() && (
                       <button
@@ -536,7 +517,7 @@ export default function ChatArea({
 
                 {/* CSATOLT FÁJLOK MEGJELENÍTÉSE */}
               {msg.attachments && msg.attachments.length > 0 && (
-                <div className="mt-2 space-y-2 max-w-xl">
+                <div className="mt-2 space-y-2 max-w-xl min-w-0">
                   {msg.attachments.map((att) => {
                     const isImg =
                        att.mimeType?.startsWith('image/') ||
@@ -548,16 +529,16 @@ export default function ChatArea({
 
                     if (isImg) {
                       return (
-                        <div key={att.id || att.filename} className="relative group/att inline-block max-w-md">
+                        <div key={att.id || att.filename} className="relative group/att inline-block max-w-md max-w-full">
                           <img
                             src={att.url}
                             alt={att.originalName}
                             onClick={() => setLightboxImage(att)}
-                            className="max-h-72 max-w-full rounded-2xl object-contain cursor-zoom-in hover:brightness-105 transition shadow-xl"
+                            className="max-h-72 max-w-full rounded-xl object-contain cursor-zoom-in hover:brightness-105 transition shadow-xl"
                             style={{ background: '#101329', border: '1px solid rgba(125, 105, 255, 0.2)' }}
                             loading="lazy"
                           />
-                          <div className="absolute top-2 right-2 flex items-center gap-1.5 opacity-0 group-hover/att:opacity-100 transition">
+                          <div className="absolute top-2 right-2 flex items-center gap-1.5 opacity-100 sm:opacity-0 sm:group-hover/att:opacity-100 transition">
                             <a
                               href={att.downloadUrl || att.url}
                               download={att.originalName}
@@ -577,7 +558,7 @@ export default function ChatArea({
 
                     if (isVid) {
                       return (
-                        <div key={att.id || att.filename} className="rounded-2xl overflow-hidden max-w-md shadow-xl" style={{ background: '#101329', border: '1px solid rgba(125, 105, 255, 0.2)' }}>
+                        <div key={att.id || att.filename} className="rounded-xl overflow-hidden max-w-md w-full shadow-xl" style={{ background: '#101329', border: '1px solid rgba(125, 105, 255, 0.2)' }}>
                           <video src={att.url} controls className="max-h-72 w-full" />
                           <div className="p-2.5 flex items-center justify-between text-xs" style={{ background: '#151832', color: '#999BBE' }}>
                             <span className="truncate">{att.originalName}</span>
@@ -596,10 +577,10 @@ export default function ChatArea({
 
                     if (isAud) {
                       return (
-                        <div key={att.id || att.filename} className="p-3 rounded-2xl max-w-md space-y-2 shadow-xl" style={{ background: '#151832', border: '1px solid rgba(125, 105, 255, 0.2)' }}>
+                        <div key={att.id || att.filename} className="p-3 rounded-xl max-w-md w-full space-y-2 shadow-xl" style={{ background: '#151832', border: '1px solid rgba(125, 105, 255, 0.2)' }}>
                           <div className="flex items-center justify-between text-xs" style={{ color: '#F4F3FF' }}>
-                            <span className="truncate font-semibold flex items-center gap-1.5">
-                              <Volume2 className="w-4 h-4 text-emerald-400" />
+                            <span className="truncate min-w-0 font-semibold flex items-center gap-1.5">
+                              <Volume2 className="w-4 h-4 text-[#28C997]" />
                               {att.originalName}
                             </span>
                             <a
@@ -620,7 +601,7 @@ export default function ChatArea({
                     return (
                       <div
                         key={att.id || att.filename}
-                        className="flex items-center justify-between p-3 rounded-2xl transition group/file shadow-md"
+                        className="flex items-center justify-between gap-2 p-3 rounded-xl transition group/file shadow-md max-w-md w-full"
                         style={{ background: '#151832', border: '1px solid rgba(125, 105, 255, 0.15)' }}
                       >
                         <div className="flex items-center gap-3 min-w-0 pr-2">
@@ -664,13 +645,13 @@ export default function ChatArea({
 
       {/* Quick emoji drawer */}
       {showEmojiPicker && (
-        <div className="absolute bottom-20 right-6 rounded-2xl p-2 shadow-2xl flex gap-1.5 z-20" style={{ background: '#151832', border: '1px solid rgba(125, 105, 255, 0.25)' }}>
+        <div className="absolute bottom-20 right-2 sm:right-6 max-w-[calc(100%-1rem)] overflow-x-auto scrollbar-none rounded-2xl p-2 shadow-2xl flex gap-1 sm:gap-1.5 z-20" style={{ background: '#151832', border: '1px solid rgba(125, 105, 255, 0.25)' }}>
           {QUICK_EMOJIS.map((emoji) => (
             <button
               key={emoji}
               type="button"
               onClick={() => addEmoji(emoji)}
-              className="text-xl p-2 rounded-xl transition transform hover:scale-125"
+              className="text-xl p-2 rounded-xl transition transform hover:scale-125 flex-shrink-0"
               onMouseOver={e => e.currentTarget.style.background = 'rgba(125, 105, 255, 0.15)'}
               onMouseOut={e => e.currentTarget.style.background = 'transparent'}
             >
@@ -681,7 +662,7 @@ export default function ChatArea({
       )}
 
       {/* Bottom Message Input Bar */}
-      <div className="px-3 pb-3 sm:px-5 sm:pb-5 flex-shrink-0">
+      <div className="px-2 pb-2 sm:px-5 sm:pb-5 pb-safe flex-shrink-0 w-full min-w-0">
         {/* KÜLDÉS ELŐTTI CSATOLMÁNYOK SÁVJA */}
         {pendingAttachments.length > 0 && (
           <div className="rounded-t-2xl px-4 py-2 flex items-center gap-2 overflow-x-auto" style={{ background: '#151832', borderTop: '1px solid rgba(125, 105, 255, 0.2)', borderLeft: '1px solid rgba(125, 105, 255, 0.2)', borderRight: '1px solid rgba(125, 105, 255, 0.2)' }}>
@@ -728,7 +709,7 @@ export default function ChatArea({
 
         <form
           onSubmit={handleSubmit}
-          className={`px-4 py-2 flex flex-col gap-1.5 shadow-lg transition-all ${
+          className={`px-2 sm:px-4 py-2 flex flex-col gap-1.5 shadow-lg min-w-0 transition-all ${
             pendingAttachments.length > 0 || isUploading ? 'rounded-b-2xl' : 'rounded-2xl'
           }`}
           style={{
@@ -744,7 +725,7 @@ export default function ChatArea({
             onTogglePreview={() => setShowPreview((v) => !v)}
           />
 
-          <div className="flex items-end gap-3">
+          <div className="flex items-end gap-2 sm:gap-3 min-w-0">
           {/* Rejtett fájlválasztó input */}
           <input
             ref={fileInputRef}
@@ -759,7 +740,7 @@ export default function ChatArea({
             type="button"
             onClick={() => fileInputRef.current?.click()}
             title="Fájl csatolása (vagy húzd ide a fájlokat az ablakba)"
-            className="w-9 h-9 rounded-xl flex items-center justify-center transition flex-shrink-0"
+            className="w-10 h-10 sm:w-9 sm:h-9 rounded-xl flex items-center justify-center transition flex-shrink-0"
             style={{ background: '#1B2040', color: '#999BBE', border: '1px solid rgba(125, 105, 255, 0.15)' }}
             onMouseOver={e => { e.currentTarget.style.background = '#7655F5'; e.currentTarget.style.color = '#fff'; }}
             onMouseOut={e => { e.currentTarget.style.background = '#1B2040'; e.currentTarget.style.color = '#999BBE'; }}
@@ -788,9 +769,9 @@ export default function ChatArea({
             type="button"
             onClick={() => setShowEmojiPicker(!showEmojiPicker)}
             title="Emoji hozzáadása"
-            className="transition p-1.5 rounded-lg"
+            className="transition p-2 sm:p-1.5 rounded-lg flex-shrink-0 min-w-[40px] min-h-[40px] sm:min-w-0 sm:min-h-0 flex items-center justify-center"
             style={{ color: '#999BBE' }}
-            onMouseOver={e => e.currentTarget.style.color = '#f5b041'}
+            onMouseOver={e => e.currentTarget.style.color = '#F5B041'}
             onMouseOut={e => e.currentTarget.style.color = '#999BBE'}
           >
             <Smile className="w-5 h-5" />
@@ -800,7 +781,7 @@ export default function ChatArea({
             type="submit"
             disabled={(!inputText.trim() && pendingAttachments.length === 0) || isUploading}
             title="Üzenet küldése (Enter)"
-            className="w-9 h-9 rounded-xl text-white flex items-center justify-center transition shadow-lg flex-shrink-0 disabled:opacity-40"
+            className="w-10 h-10 sm:w-9 sm:h-9 rounded-xl text-white flex items-center justify-center transition shadow-lg flex-shrink-0 disabled:opacity-40"
             style={{ background: 'linear-gradient(135deg, #7655F5, #536CFF)', boxShadow: '0 2px 12px rgba(118, 85, 245, 0.3)' }}
           >
             <Send className="w-4 h-4" />

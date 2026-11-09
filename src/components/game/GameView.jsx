@@ -101,7 +101,7 @@ function ModeHud({ hud, info }) {
   if (info.mode === 'boss' && m) {
     const ratio = (m.bossHp / m.bossMax) * 100;
     return (
-      <div className="absolute top-14 left-1/2 -translate-x-1/2 w-96 max-w-[80%] p-2 rounded-xl" style={bg}>
+      <div className="absolute top-14 left-1/2 -translate-x-1/2 w-96 max-w-[90%] p-2 rounded-xl" style={bg}>
         <div className="flex justify-between text-xs font-extrabold mb-1"><span>{m.boss}</span><span>{m.phase}. fázis</span></div>
         <div className="h-3 rounded-full overflow-hidden" style={{ background: '#1B2040' }}><div className="h-full" style={{ width: `${ratio}%`, background: '#E94B64' }} /></div>
       </div>
@@ -117,7 +117,7 @@ function ModeHud({ hud, info }) {
       <>
         <div className="absolute top-14 left-3 px-3 py-2 rounded-xl text-sm font-extrabold" style={bg}>{pos}. hely · {Math.min(hud.lap + 1, m.laps)}/{m.laps} kör</div>
         {m.startIn > 0 && <div className="absolute inset-0 flex items-center justify-center text-7xl font-black">{m.startIn}</div>}
-        <div className="absolute bottom-16 right-3 p-2 rounded-xl w-44 text-xs font-bold" style={bg}>
+        <div className="absolute bottom-16 right-3 p-2 rounded-xl w-44 max-w-[50%] text-xs font-bold" style={bg}>
           <div>{Math.round(hud.speed * 3.6)} km/h</div>
           <div className="h-2 rounded-full mt-1 overflow-hidden" style={{ background: '#1B2040' }}><div className="h-full" style={{ width: `${hud.nitro}%`, background: '#22d3ee' }} /></div>
           <div className="mt-1">Tárgy: {ITEM_NAMES[hud.item] || 'nincs'}</div>
@@ -159,7 +159,7 @@ function Hud({ hud, info, speaking }) {
         ))}
       </div>
 
-      {speaking.length > 0 && <div className="absolute top-14 right-3 text-xs font-semibold text-right" style={{ color: '#6ee7b7' }}>{speaking.map((n) => <div key={n}>🎙️ {n}</div>)}</div>}
+      {speaking.length > 0 && <div className="absolute top-14 right-3 text-xs font-semibold text-right" style={{ color: '#28C997' }}>{speaking.map((n) => <div key={n}>🎙️ {n}</div>)}</div>}
 
       {!isRace && !hud.spectating && (
         <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2">
@@ -169,7 +169,7 @@ function Hud({ hud, info, speaking }) {
 
       {!isRace && (
         <>
-          <div className="absolute bottom-3 left-3 w-56 p-2.5 rounded-xl" style={{ background: 'rgba(9,10,24,0.72)' }}>
+          <div className="absolute bottom-3 left-3 w-56 max-w-[60%] p-2.5 rounded-xl" style={{ background: 'rgba(9,10,24,0.72)' }}>
             <div className="flex justify-between text-xs font-bold mb-1">
               <span>{info.characters[me.characterId].name}</span>
               <span>{hud.hp} / {hud.maxHp}</span>
@@ -239,7 +239,7 @@ function Results({ result, onBack }) {
     <div className="flex-1 overflow-y-auto p-4 flex justify-center">
       <div className="w-full max-w-xl rounded-2xl p-5 h-fit" style={card}>
         <div className="flex items-center gap-2 mb-1">
-          <Trophy className="w-6 h-6 text-amber-400" />
+          <Trophy className="w-6 h-6 text-shark-gold" />
           <h2 className="text-xl font-extrabold text-white">{title}</h2>
         </div>
         <p className="text-sm mb-3" style={{ color: '#999BBE' }}>
@@ -312,7 +312,7 @@ function Lobby({ lobby, catalog, socket, profile, error, notice, onSwitchLobby }
               </button>
             ))}
           </div>
-          <p className="text-xs" style={{ color: '#c7d2fe' }}>{lobby.battle ? `Területi csata: ${lobby.battle.territory}` : currentMode?.description}</p>
+          <p className="text-xs" style={{ color: '#F4F3FF' }}>{lobby.battle ? `Területi csata: ${lobby.battle.territory}` : currentMode?.description}</p>
           {canChangeMode && lobby.mode === 'boss' && (
             <div className="flex gap-2 text-xs">
               <select aria-label="Főellenség" value={lobby.modeOptions.bossId || currentMode.options.bosses[0]} onChange={(e) => setMode('boss', { ...lobby.modeOptions, bossId: e.target.value })} className="px-2 py-1 rounded-lg" style={selectStyle}>{currentMode.options.bosses.map((id) => <option key={id} value={id}>{catalog.npcDefs[id].name}</option>)}</select>
@@ -324,8 +324,8 @@ function Lobby({ lobby, catalog, socket, profile, error, notice, onSwitchLobby }
           )}
         </div>
 
-        {error && <div className="px-3 py-2 rounded-xl text-xs font-semibold" style={{ background: 'rgba(233,75,100,0.15)', color: '#fca5a5' }}>{error}</div>}
-        {!error && notice && <div className="px-3 py-2 rounded-xl text-xs font-semibold" style={{ background: 'rgba(240,178,50,0.14)', color: '#fde68a' }}>{notice}</div>}
+        {error && <div className="px-3 py-2 rounded-xl text-xs font-semibold" style={{ background: 'rgba(233,75,100,0.15)', color: '#E94B64' }}>{error}</div>}
+        {!error && notice && <div className="px-3 py-2 rounded-xl text-xs font-semibold" style={{ background: 'rgba(245,176,65,0.14)', color: '#F5B041' }}>{notice}</div>}
 
         <div className="grid sm:grid-cols-2 gap-3">
           {Object.values(catalog.factions).map((faction) => {
@@ -354,7 +354,7 @@ function Lobby({ lobby, catalog, socket, profile, error, notice, onSwitchLobby }
                 <div className="space-y-1">
                   {members.map((p) => (
                     <div key={p.id} className="flex items-center justify-between text-xs" style={{ color: '#F4F3FF' }}>
-                      <span className="truncate">{p.username}{p.id === socket.id ? ' (te)' : ''}{p.title ? <span className="ml-1 text-amber-300">[{p.title}]</span> : null}</span>
+                      <span className="truncate">{p.username}{p.id === socket.id ? ' (te)' : ''}{p.title ? <span className="ml-1 text-shark-gold">[{p.title}]</span> : null}</span>
                       {p.ready && <Check className="w-3.5 h-3.5 text-[#28C997]" aria-label="Kész" />}
                     </div>
                   ))}
@@ -521,7 +521,7 @@ export default function GameView({ socket, channelId, isAdmin = false, participa
 
   if (matchInfo) {
     return (
-      <div className="flex-1 relative min-h-0 overflow-hidden" style={{ background: '#141a33' }}>
+      <div className="flex-1 relative min-h-0 overflow-hidden" style={{ background: '#101329' }}>
         <div ref={canvasHostRef} className="absolute inset-0" />
         <Hud hud={hud} info={matchInfo} speaking={speaking} />
         {IS_TOUCH && <TouchControls clientRef={clientRef} />}
@@ -539,7 +539,7 @@ export default function GameView({ socket, channelId, isAdmin = false, participa
   if (!lobby || !catalog) {
     return (
       <div className="flex-1 flex flex-col items-center justify-center gap-2">
-        {error ? <p className="text-sm" style={{ color: '#fca5a5' }}>{error}</p> : <Loader2 className="w-6 h-6 animate-spin text-[#7655F5]" />}
+        {error ? <p className="text-sm" style={{ color: '#E94B64' }}>{error}</p> : <Loader2 className="w-6 h-6 animate-spin text-[#7655F5]" />}
       </div>
     );
   }
@@ -554,7 +554,7 @@ export default function GameView({ socket, channelId, isAdmin = false, participa
         ))}
       </div>
       {toast && (
-        <div className="mx-3 mt-2 px-3 py-2 rounded-xl text-xs font-semibold flex items-center justify-between gap-2" style={{ background: 'rgba(118,85,245,0.2)', color: '#c7d2fe' }}>
+        <div className="mx-3 mt-2 px-3 py-2 rounded-xl text-xs font-semibold flex items-center justify-between gap-2" style={{ background: 'rgba(118,85,245,0.2)', color: '#F4F3FF' }}>
           <span>{toast.text}</span>
           {toast.lobbyId && <button type="button" onClick={() => { setOtherLobby(toast.lobbyId); setToast(null); setTab('play'); }} className="px-2 py-1 rounded-lg font-bold text-white" style={{ background: '#7655F5' }}>Csatlakozás</button>}
         </div>

@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, lazy, Suspense } from 'react';
 import { socket } from './socket';
 import ChannelSidebar from './components/ChannelSidebar';
 import ChatArea from './components/ChatArea';
@@ -11,6 +11,7 @@ import AutoplayBanner from './components/AutoplayBanner';
 import SpeedTestRequestToast from './components/SpeedTestRequestToast';
 import AdminPanel from './components/AdminPanel';
 import GameAnalysisView from './components/GameAnalysisView';
+const MiskolcEmpireView = lazy(() => import('./components/miskolcEmpire/MiskolcEmpireView'));
 import { ShieldCheck } from 'lucide-react';
 import { useAuth } from './hooks/useAuth';
 import { useServerData } from './hooks/useServerData';
@@ -25,7 +26,7 @@ import AudioSettings from './components/call/AudioSettings';
 import CallHistory from './components/call/CallHistory';
 
 export default function App() {
-  const [viewMode, setViewMode] = useState('chat'); // 'chat' | 'voice' | 'analysis'
+  const [viewMode, setViewMode] = useState('chat'); // 'chat' | 'voice' | 'analysis' | 'empire'
   const [showUserList, setShowUserList] = useState(window.innerWidth >= 1024);
   const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false);
   const [isAdminOpen, setIsAdminOpen] = useState(false);
@@ -121,7 +122,7 @@ export default function App() {
 
         {/* Csatornasáv (mobilon kicsúszó, asztali nézetben oszlop) */}
         {currentUser && (
-          <div className={`fixed inset-y-0 left-0 z-40 transform transition-transform duration-200 ease-in-out md:relative md:translate-x-0 ${
+          <div style={{ background: '#101329' }} className={`fixed inset-y-0 left-0 z-40 max-w-[85vw] pt-safe pb-safe md:pt-0 md:pb-0 md:max-w-none transform transition-transform duration-200 ease-in-out shadow-2xl md:shadow-none md:relative md:translate-x-0 ${
             mobileSidebarOpen ? 'translate-x-0' : '-translate-x-full md:translate-x-0'
           }`}>
             <ChannelSidebar
@@ -157,6 +158,12 @@ export default function App() {
                 setViewMode('analysis');
                 closeMobileSidebar();
               }}
+              isEmpireActive={viewMode === 'empire'}
+              onOpenEmpire={() => {
+                setViewMode('empire');
+                closeMobileSidebar();
+              }}
+              empireSessions={activities.empireSessions}
               casinoSessions={activities.casinoSessions}
               watchSessions={activities.watchSessions}
               chessSessions={activities.chessSessions}
@@ -174,6 +181,10 @@ export default function App() {
         {/* Központi nézet: hangszoba vagy csevegés */}
         {viewMode === 'analysis' ? (
           <GameAnalysisView onClose={() => setViewMode('chat')} />
+        ) : viewMode === 'empire' ? (
+          <Suspense fallback={<div className="flex-1 flex items-center justify-center text-sm" style={{ color: '#999BBE' }}>MiskolcEmpire betöltése...</div>}>
+            <MiskolcEmpireView socket={socket} currentUser={currentUser} onClose={() => setViewMode('chat')} />
+          </Suspense>
         ) : viewMode === 'voice' && activeVoiceChannel ? (
           <VoiceRoomView
             channel={currentVoiceChannel}
@@ -202,6 +213,7 @@ export default function App() {
             onStopCasino={activities.stopCasino}
             watchState={activities.watchSessions[activeVoiceChannel]}
             chessSession={activities.chessSessions[activeVoiceChannel]}
+            empireSession={activities.empireSessions[activeVoiceChannel]}
             onStartChess={activities.startChess}
             onJoinChess={activities.joinChess}
             onMoveChess={activities.moveChess}
@@ -258,7 +270,8 @@ export default function App() {
               onClick={() => setShowUserList(false)}
               className="fixed inset-0 bg-black/60 backdrop-blur-sm z-30 lg:hidden transition-opacity animate-in fade-in"
             />
-            <div className="fixed inset-y-0 right-0 z-40 lg:relative lg:translate-x-0 shadow-2xl lg:shadow-none animate-in slide-in-from-right duration-200">
+            <div className="fixed inset-y-0 right-0 z-40 max-w-[85vw] pt-safe pb-safe lg:pt-0 lg:pb-0 lg:max-w-none lg:relative lg:translate-x-0 shadow-2xl lg:shadow-none animate-in slide-in-from-right duration-200"
+              style={{ background: '#101329' }}>
               <UserListSidebar
                 users={server.onlineUsers}
                 currentUserId={currentUser?.id}
@@ -277,8 +290,8 @@ export default function App() {
             <button
               onClick={() => setIsAdminOpen(true)}
               title="Admin menü"
-              className="fixed bottom-3 right-3 z-50 p-2.5 rounded-full shadow-lg transition active:scale-95"
-              style={{ background: '#1B2040', color: '#f0b232', border: '1px solid rgba(240, 178, 50, 0.4)' }}
+              className="fixed bottom-3 right-3 z-50 p-2.5 min-w-[40px] min-h-[40px] flex items-center justify-center rounded-full shadow-lg transition active:scale-95"
+              style={{ background: '#1B2040', color: '#F5B041', border: '1px solid rgba(245, 176, 65, 0.4)' }}
             >
               <ShieldCheck className="w-5 h-5" />
             </button>

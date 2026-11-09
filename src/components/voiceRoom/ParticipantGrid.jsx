@@ -2,16 +2,24 @@ import React from 'react';
 import { Volume2, MicOff, Headphones, Activity, Maximize2, Minimize2 } from 'lucide-react';
 import VideoRenderer from './VideoRenderer';
 import { useTileFullscreen } from '../../hooks/useTileFullscreen';
+import Avatar from '../Avatar';
 
 // Alapértelmezett nézet: résztvevők rácsa
 export default function ParticipantGrid({ participants, currentUserId, onOpenSpeedTest, getCameraStream }) {
   const solo = participants.length <= 1;
   const fullscreen = useTileFullscreen();
+  const count = participants.length;
+  const gridCols = count === 2
+    ? 'grid-cols-1 sm:grid-cols-2'
+    : count <= 4
+      ? 'grid-cols-2'
+      : 'grid-cols-2 md:grid-cols-3 lg:grid-cols-4';
+  const compact = count > 4;
 
   return (
-    <div className="flex-1 overflow-y-auto flex items-center justify-center p-3 sm:p-6 w-full min-w-0">
-      <div className={`w-full max-w-5xl ${
-        solo ? 'flex justify-center items-center' : 'grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-2.5 sm:gap-4 auto-rows-fr'
+    <div className="flex-1 min-h-0 overflow-y-auto flex p-3 sm:p-6 w-full min-w-0">
+      <div className={`w-full max-w-5xl m-auto ${
+        solo ? 'flex justify-center items-center' : `grid ${gridCols} gap-2.5 sm:gap-4 auto-rows-fr`
       }`}>
         {participants.map((p) => {
           const camera = getCameraStream?.(p);
@@ -22,7 +30,7 @@ export default function ParticipantGrid({ participants, currentUserId, onOpenSpe
             data-tile-id={camera ? p.id : undefined}
             onDoubleClick={camera ? fullscreen.toggle : undefined}
             className={`rounded-2xl ${camera ? 'overflow-hidden' : 'p-4 sm:p-6'} flex flex-col items-center justify-center relative shadow-xl group transition-all ${
-              camera ? 'aspect-video w-full ' + (solo ? 'max-w-2xl' : '') : solo ? 'w-full max-w-sm sm:max-w-md min-h-[170px] sm:min-h-[220px]' : 'min-h-[140px] sm:min-h-[190px]'
+              camera ? 'aspect-video w-full ' + (solo ? 'max-w-2xl' : 'min-h-[140px] sm:min-h-[190px]') : solo ? 'w-full max-w-md sm:max-w-lg min-h-[200px] sm:min-h-[260px]' : 'min-h-[140px] sm:min-h-[190px]'
             }`}
             style={{
               background: isFs ? '#000' : '#151832',
@@ -70,14 +78,7 @@ export default function ParticipantGrid({ participants, currentUserId, onOpenSpe
             ) : (
               <>
             <div className="relative mb-2.5 sm:mb-3">
-              <div
-                className={`w-16 h-16 sm:w-24 sm:h-24 rounded-full flex items-center justify-center text-white text-2xl sm:text-3xl font-bold shadow-xl border-2 sm:border-4 transition-all duration-150 ${
-                  p.isSpeaking ? 'speaking-ring' : ''
-                }`}
-                style={{ backgroundColor: p.avatarColor || '#7655F5', borderColor: p.isSpeaking ? '#28C997' : 'transparent' }}
-              >
-                {p.username.charAt(0).toUpperCase()}
-              </div>
+              <Avatar user={p} size={compact ? 'lg' : 'xl'} speaking={p.isSpeaking} />
               {p.isSpeaking && (
                 <div className="absolute -bottom-1 -right-1 p-0.5 sm:p-1 rounded-full shadow" style={{ background: '#28C997' }}>
                   <Volume2 className="w-3.5 h-3.5 sm:w-4 sm:h-4 animate-bounce text-white" />

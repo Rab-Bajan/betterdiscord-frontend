@@ -1,4 +1,5 @@
 import React from 'react';
+import Avatar from './Avatar';
 import { Volume2, MicOff, Headphones, Tv, Activity, X, MessageSquare, User, Settings } from 'lucide-react';
 
 export default function UserListSidebar({
@@ -24,32 +25,20 @@ export default function UserListSidebar({
           else if (!isSelf && onStartDm) onStartDm(u);
         }}
         title={isSelf ? 'Kattints a profilod szerkesztéséhez' : `Kattints a privát üzenethez vele: ${u.username}`}
-        className="flex items-center justify-between px-2.5 py-2 rounded-xl group transition-all cursor-pointer"
+        className="flex items-center justify-between gap-2 px-2.5 py-2 min-h-[40px] rounded-xl group transition-all cursor-pointer"
         onMouseOver={e => e.currentTarget.style.background = 'rgba(125, 105, 255, 0.08)'}
         onMouseOut={e => e.currentTarget.style.background = 'transparent'}
       >
-        <div className="flex items-center gap-2.5 truncate">
+        <div className="flex items-center gap-2.5 min-w-0 flex-1">
           {/* Avatar with online dot */}
-          <div className="relative flex-shrink-0">
-            <div
-              className="w-8 h-8 rounded-full flex items-center justify-center text-white text-xs font-bold shadow-md overflow-hidden"
-              style={{ backgroundColor: u.avatarColor || '#7655F5' }}
-            >
-              {u.avatarUrl ? (
-                <img src={u.avatarUrl} alt={u.username} className="w-full h-full object-cover" />
-              ) : (
-                u.username.charAt(0).toUpperCase()
-              )}
-            </div>
-            <div className="absolute -bottom-0.5 -right-0.5 w-2.5 h-2.5 rounded-full border-2" style={{ background: '#28C997', borderColor: '#101329' }} />
-          </div>
+          <Avatar user={u} size="sm" status="online" badgeBorderColor="#101329" />
 
-          <div className="truncate">
+          <div className="min-w-0 flex-1">
             <div
               className="text-sm font-medium truncate flex items-center gap-1.5"
               style={{ color: u.avatarColor || '#F4F3FF' }}
             >
-              <span className="truncate">{u.username}</span>
+              <span className="truncate" title={u.username}>{u.username}</span>
               {isSelf && (
                 <span className="text-[9px] px-1 py-0.2 rounded font-bold" style={{ background: 'rgba(118, 85, 245, 0.25)', color: '#7655F5' }}>
                   Te
@@ -85,7 +74,7 @@ export default function UserListSidebar({
                 onStartDm(u);
               }}
               title={`Privát üzenet küldése neki: ${u.username}`}
-              className="p-1 rounded-lg text-[#999BBE] hover:text-[#7655F5] opacity-0 group-hover:opacity-100 transition-all cursor-pointer"
+              className="p-2 rounded-xl text-[#999BBE] hover:text-[#7655F5] opacity-100 md:opacity-0 md:group-hover:opacity-100 transition-all cursor-pointer"
               onMouseOver={e => e.currentTarget.style.background = 'rgba(118, 85, 245, 0.15)'}
               onMouseOut={e => e.currentTarget.style.background = 'transparent'}
             >
@@ -112,7 +101,7 @@ export default function UserListSidebar({
   };
 
   return (
-    <div className="w-64 md:w-60 flex flex-col h-full p-3 select-none flex-shrink-0 overflow-y-auto" style={{ background: '#101329', borderLeft: '1px solid rgba(125, 105, 255, 0.12)' }}>
+    <div className="w-72 max-w-full lg:w-64 flex flex-col h-full p-3 select-none flex-shrink-0 overflow-y-auto" style={{ background: '#101329', borderLeft: '1px solid rgba(125, 105, 255, 0.12)' }}>
       {/* Header */}
       <div className="mb-3 px-2 flex items-center justify-between pb-2" style={{ borderBottom: '1px solid rgba(125, 105, 255, 0.12)' }}>
         <div className="flex items-center gap-2">
@@ -123,7 +112,7 @@ export default function UserListSidebar({
             type="button"
             onClick={onOpenSpeedTest}
             title="Net Sebességteszt megnyitása"
-            className="flex items-center gap-1 px-2 py-1 rounded-lg text-[11px] font-semibold transition-all"
+            className="flex items-center gap-1 px-2.5 py-2 min-h-[36px] rounded-xl text-[11px] font-semibold transition-all"
             style={{ background: 'rgba(118, 85, 245, 0.15)', color: '#7655F5', border: '1px solid rgba(118, 85, 245, 0.25)' }}
             onMouseOver={e => e.currentTarget.style.background = 'rgba(118, 85, 245, 0.25)'}
             onMouseOut={e => e.currentTarget.style.background = 'rgba(118, 85, 245, 0.15)'}
@@ -136,10 +125,10 @@ export default function UserListSidebar({
               type="button"
               onClick={onClose}
               title="Panel bezárása"
-              className="p-1 rounded-lg lg:hidden text-shark-muted hover:text-white transition"
+              className="p-2 rounded-xl text-shark-muted hover:text-white hover:bg-shark-elevated transition"
               style={{ color: '#999BBE' }}
             >
-              <X className="w-4 h-4" />
+              <X className="w-5 h-5" />
             </button>
           )}
         </div>

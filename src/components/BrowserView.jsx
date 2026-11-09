@@ -323,13 +323,13 @@ export default function BrowserView({
       {errorMessage && (
         <div
           className="mb-2 px-4 py-2.5 rounded-xl flex items-center justify-between text-xs font-semibold animate-in fade-in flex-shrink-0"
-          style={{ background: 'rgba(233, 75, 100, 0.15)', border: '1px solid rgba(233, 75, 100, 0.4)', color: '#fca5a5' }}
+          style={{ background: 'rgba(233, 75, 100, 0.15)', border: '1px solid rgba(233, 75, 100, 0.4)', color: '#F4F3FF' }}
         >
           <div className="flex items-center gap-2">
             <AlertCircle className="w-4 h-4 text-[#E94B64] flex-shrink-0" />
             <span>{errorMessage}</span>
           </div>
-          <button onClick={() => setErrorMessage(null)} className="text-white hover:text-white/80">✕</button>
+          <button onClick={() => setErrorMessage(null)} className="p-2 rounded-xl text-white hover:text-white/80 flex-shrink-0">✕</button>
         </div>
       )}
 
@@ -342,7 +342,7 @@ export default function BrowserView({
         }}
       >
         {/* Navigációs gombok és Címsor */}
-        <div className="flex items-center gap-1.5 flex-1 min-w-0">
+        <div className="flex flex-wrap sm:flex-nowrap items-center gap-1.5 flex-1 min-w-0">
           <button
             onClick={onBack}
             disabled={!isActive || !canInteract}
@@ -381,7 +381,7 @@ export default function BrowserView({
           </button>
 
           {/* Címsor Űrlap */}
-          <form onSubmit={handleAddressSubmit} className="flex-1 flex items-center min-w-0 relative">
+          <form onSubmit={handleAddressSubmit} className="flex-1 basis-full sm:basis-0 flex items-center min-w-0 relative">
             <div className="absolute left-3 flex items-center pointer-events-none">
               <Lock className="w-3.5 h-3.5 text-[#28C997]" />
             </div>
@@ -410,7 +410,7 @@ export default function BrowserView({
         </div>
 
         {/* Módváltó és vezérlő ikonok */}
-        <div className="flex items-center justify-between sm:justify-end gap-2 flex-shrink-0">
+        <div className="flex flex-wrap items-center justify-between sm:justify-end gap-2 md:flex-shrink-0 min-w-0">
           {/* Mód kapcsoló (Szabad / Irányítós) */}
           {isActive && (
             <div className="flex items-center gap-1.5 bg-[#101329] p-1 rounded-xl border border-[rgba(125,105,255,0.15)]">
@@ -450,7 +450,7 @@ export default function BrowserView({
                   style={{
                     background: 'rgba(118, 85, 245, 0.15)',
                     border: '1px solid rgba(118, 85, 245, 0.3)',
-                    color: '#c7d2fe'
+                    color: '#F4F3FF'
                   }}
                 >
                   <span className="w-2 h-2 rounded-full" style={{ background: session.controller.color || '#7655F5' }} />
@@ -630,7 +630,7 @@ export default function BrowserView({
                 style={{
                   background: 'rgba(21, 24, 50, 0.75)',
                   border: '1px solid rgba(125, 105, 255, 0.2)',
-                  color: '#c7d2fe'
+                  color: '#F4F3FF'
                 }}
               >
                 💡 Kattints a felületre a billentyűzet fókuszálásához!
@@ -640,7 +640,7 @@ export default function BrowserView({
           </div>
         ) : (
           /* Kezdőképernyő: még nem indult böngésző */
-          <div className="max-w-xl w-full p-6 sm:p-8 flex flex-col items-center text-center">
+          <div className="max-w-xl w-full min-h-0 overflow-y-auto p-6 sm:p-8 flex flex-col items-center text-center">
             <div
               className="w-16 h-16 rounded-2xl flex items-center justify-center mb-4 shadow-xl"
               style={{
@@ -666,7 +666,7 @@ export default function BrowserView({
                   value={addressInput}
                   onChange={(e) => setAddressInput(e.target.value)}
                   placeholder="https://en.wikipedia.org"
-                  className="flex-1 px-4 py-3 rounded-xl text-sm font-medium outline-none transition"
+                  className="flex-1 min-w-0 px-4 py-3 rounded-xl text-sm font-medium outline-none transition"
                   style={{
                     background: '#151832',
                     color: '#F4F3FF',
@@ -676,7 +676,7 @@ export default function BrowserView({
                 <button
                   type="submit"
                   disabled={isStarting}
-                  className="px-6 py-3 rounded-xl font-bold text-sm text-white shadow-lg transition active:scale-95 disabled:opacity-60"
+                  className="flex-shrink-0 px-4 sm:px-6 py-3 rounded-xl font-bold text-sm text-white shadow-lg transition active:scale-95 disabled:opacity-60"
                   style={{
                     background: 'linear-gradient(135deg, #7655F5, #536CFF)'
                   }}
@@ -719,9 +719,9 @@ export default function BrowserView({
 
       {/* Szövegbeviteli modál (vágólap vagy kényelmi gépelés) */}
       {showTextInput && (
-        <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+        <div className="fixed inset-0 bg-black/60 backdrop-blur-md z-50 flex items-center justify-center p-3 sm:p-4">
           <div
-            className="w-full max-w-md p-5 rounded-2xl shadow-2xl flex flex-col gap-4 animate-in fade-in zoom-in-95"
+            className="w-full max-w-lg max-h-[90vh] overflow-y-auto p-5 rounded-2xl shadow-2xl flex flex-col gap-4 animate-in fade-in zoom-in-95"
             style={{ background: '#151832', border: '1px solid rgba(125, 105, 255, 0.25)' }}
           >
             <div className="flex items-center justify-between">
@@ -729,7 +729,7 @@ export default function BrowserView({
                 <Keyboard className="w-5 h-5 text-[#7655F5]" />
                 <h3 className="font-bold text-sm text-[#F4F3FF]">Szöveg beillesztése a böngészőbe</h3>
               </div>
-              <button onClick={() => setShowTextInput(false)} className="text-[#999BBE] hover:text-white">✕</button>
+              <button onClick={() => setShowTextInput(false)} className="p-2 rounded-xl text-[#999BBE] hover:text-white">✕</button>
             </div>
             <p className="text-xs text-[#999BBE]">
               A beírt vagy beillesztett szöveg közvetlenül a fókuszban lévő beviteli mezőbe kerül.

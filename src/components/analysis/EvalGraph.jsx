@@ -50,7 +50,7 @@ export default function EvalGraph({ positions, moves, currentPly, onSelect }) {
         width={width}
         height={HEIGHT}
         className="block rounded-md cursor-pointer"
-        style={{ background: '#1B1C33', border: '1px solid rgba(125, 105, 255, 0.2)' }}
+        style={{ background: '#1B2040', border: '1px solid rgba(125, 105, 255, 0.2)' }}
         role="img"
         aria-label={`Értékelés-grafikon ${count - 1} lépésen át. A lépéslista ugyanezeket az adatokat táblázatosan mutatja.`}
         onMouseMove={(e) => setHover(plyFromEvent(e))}

@@ -17,15 +17,14 @@ export default function IncomingCallModal({ call, onAccept, onDecline }) {
     <div
       role="alertdialog"
       aria-label={`Bejövő hanghívás ${peer.username} felhasználótól`}
-      className="fixed inset-0 z-[100] flex items-end sm:items-center justify-center p-4 call-fade"
-      style={{ background: 'rgba(5, 6, 16, 0.72)', backdropFilter: 'blur(10px)' }}
+      className="fixed inset-0 z-[100] flex items-center justify-center p-3 sm:p-4 bg-black/60 backdrop-blur-md call-fade"
       onPointerDown={() => unlockCallAudio()}
     >
       <div
-        className="call-pop relative w-full max-w-sm rounded-[28px] overflow-hidden text-center px-6 pt-9 pb-7"
+        className="call-pop relative w-full max-w-sm max-h-[90vh] rounded-2xl overflow-x-hidden overflow-y-auto text-center px-4 sm:px-6 pt-8 pb-7"
         style={{
-          background: 'linear-gradient(160deg, #1B2040 0%, #12152D 55%, #0E1024 100%)',
-          border: '1px solid rgba(125, 105, 255, 0.28)',
+          background: 'linear-gradient(160deg, #1B2040 0%, #151832 55%, #101329 100%)',
+          border: '1px solid rgba(125, 105, 255, 0.15)',
           boxShadow: '0 30px 80px rgba(0,0,0,0.6), 0 0 80px rgba(118, 85, 245, 0.18)',
           paddingBottom: 'max(1.75rem, env(safe-area-inset-bottom))'
         }}
@@ -41,9 +40,9 @@ export default function IncomingCallModal({ call, onAccept, onDecline }) {
             <CallAvatar peer={peer} size={116} rings />
           </div>
 
-          <h2 className="text-2xl font-bold truncate" style={{ color: '#F4F3FF' }}>{peer.displayName}</h2>
-          <p className="text-sm mt-0.5" style={{ color: '#999BBE' }}>@{peer.username}</p>
-          <p className="text-sm mt-3" style={{ color: '#C9C7F5' }}>
+          <h2 className="text-2xl font-bold truncate" title={peer.displayName} style={{ color: '#F4F3FF' }}>{peer.displayName}</h2>
+          <p className="text-sm mt-0.5 truncate" style={{ color: '#999BBE' }}>@{peer.username}</p>
+          <p className="text-sm mt-3" style={{ color: '#F4F3FF' }}>
             hív téged<span className="call-dot">.</span><span className="call-dot" style={{ animationDelay: '0.2s' }}>.</span><span className="call-dot" style={{ animationDelay: '0.4s' }}>.</span>
           </p>
 
@@ -51,21 +50,21 @@ export default function IncomingCallModal({ call, onAccept, onDecline }) {
             <button
               type="button"
               onClick={unlockCallAudio}
-              className="mt-4 mx-auto flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-full"
-              style={{ background: 'rgba(118,85,245,0.18)', color: '#C9C7F5', border: '1px solid rgba(118,85,245,0.35)' }}
+              className="mt-4 mx-auto flex items-center gap-1.5 text-xs px-3 py-2 min-h-[40px] max-w-full rounded-full text-left"
+              style={{ background: 'rgba(118,85,245,0.18)', color: '#F4F3FF', border: '1px solid rgba(118,85,245,0.35)' }}
             >
-              <Volume2 className="w-3.5 h-3.5" /> A böngésző elnémította a csengőt – koppints a bekapcsoláshoz
+              <Volume2 className="w-3.5 h-3.5 flex-shrink-0" /> A böngésző elnémította a csengőt – koppints a bekapcsoláshoz
             </button>
           )}
 
-          <div className="flex items-center justify-center gap-10 mt-8">
+          <div className="flex items-center justify-center gap-8 sm:gap-10 mt-8">
             <div className="flex flex-col items-center gap-2">
               <button
                 type="button"
                 onClick={onDecline}
                 aria-label="Hívás elutasítása"
                 className="w-16 h-16 rounded-full flex items-center justify-center text-white transition active:scale-90 hover:scale-105"
-                style={{ background: 'linear-gradient(135deg, #F0556E, #D63A54)', boxShadow: '0 10px 28px rgba(233, 75, 100, 0.4)' }}
+                style={{ background: 'linear-gradient(135deg, #E94B64, #E94B64)', boxShadow: '0 10px 28px rgba(233, 75, 100, 0.4)' }}
               >
                 <PhoneOff className="w-7 h-7" />
               </button>
@@ -77,7 +76,7 @@ export default function IncomingCallModal({ call, onAccept, onDecline }) {
                 onClick={onAccept}
                 aria-label="Hívás fogadása"
                 className="w-16 h-16 rounded-full flex items-center justify-center text-white transition active:scale-90 hover:scale-105"
-                style={{ background: 'linear-gradient(135deg, #34D9A5, #1FAF82)', boxShadow: '0 10px 28px rgba(40, 201, 151, 0.45)' }}
+                style={{ background: 'linear-gradient(135deg, #28C997, #28C997)', boxShadow: '0 10px 28px rgba(40, 201, 151, 0.45)' }}
               >
                 <Phone className="w-7 h-7" />
               </button>

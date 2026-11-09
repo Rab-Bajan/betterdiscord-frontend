@@ -2,9 +2,9 @@ import React, { useState, useEffect, useCallback } from 'react';
 import { X, ShieldCheck, Dices, Crown, RefreshCw, Flag, ArrowLeft, Trash2 } from 'lucide-react';
 
 const card = { background: '#151832', border: '1px solid rgba(125, 105, 255, 0.15)' };
-const inputCls = 'px-2.5 py-1.5 rounded-lg text-sm outline-none text-white w-full';
-const inputStyle = { background: '#0d0f24', border: '1px solid rgba(125, 105, 255, 0.2)' };
-const btnCls = 'px-3 py-1.5 rounded-lg text-xs font-bold text-white transition active:scale-95 flex-shrink-0';
+const inputCls = 'px-2.5 py-1.5 rounded-lg text-sm outline-none text-white w-full min-w-0';
+const inputStyle = { background: '#101329', border: '1px solid rgba(125, 105, 255, 0.2)' };
+const btnCls = 'px-3 py-2 min-h-[36px] rounded-lg text-xs font-bold text-white transition active:scale-95 flex-shrink-0';
 const btnStyle = { background: 'linear-gradient(135deg, #7655F5, #536CFF)' };
 
 // socket.emit ack-kel, Promise-ként
@@ -70,7 +70,7 @@ function CasinoTab({ socket }) {
         <p className="text-xs" style={{ color: '#999BBE' }}>
           Játékosok a kaszinóban. Az egyenleg azonnal frissül nekik; a pörgetés-beállítás a következő N pörgetésre érvényes.
         </p>
-        <button onClick={load} className="p-1.5 rounded-lg" style={{ background: '#1B2040', color: '#999BBE' }} title="Frissítés">
+        <button onClick={load} className="p-2 rounded-xl flex-shrink-0" style={{ background: '#1B2040', color: '#999BBE' }} title="Frissítés">
           <RefreshCw className="w-4 h-4" />
         </button>
       </div>
@@ -84,9 +84,9 @@ function CasinoTab({ socket }) {
       {players.map((p) => (
         <div key={p.playerId} className="rounded-xl p-3 space-y-2.5" style={card}>
           <div className="flex items-center gap-2">
-            <span className="w-2 h-2 rounded-full" style={{ background: p.online ? '#28C997' : '#666' }} />
+            <span className="w-2 h-2 rounded-full" style={{ background: p.online ? '#28C997' : '#999BBE' }} />
             <strong className="text-sm" style={{ color: '#F4F3FF' }}>{p.name || 'Ismeretlen'}</strong>
-            <span className="text-[10px] font-mono truncate" style={{ color: '#666A90' }}>{p.playerId.slice(0, 12)}…</span>
+            <span className="text-[10px] font-mono truncate" style={{ color: '#999BBE' }}>{p.playerId.slice(0, 12)}…</span>
             {p.rig && (
               <span className="ml-auto text-[10px] px-2 py-0.5 rounded-full font-bold" style={{ background: 'rgba(233, 75, 100, 0.15)', color: '#E94B64' }}>
                 manipulált: {p.rig.mode} ×{p.rig.spins}
@@ -95,11 +95,11 @@ function CasinoTab({ socket }) {
           </div>
 
           <div className="grid grid-cols-[1fr_1fr_auto] gap-2 items-end">
-            <label className="text-[11px]" style={{ color: '#999BBE' }}>Egyenleg (kredit)
+            <label className="text-[11px] min-w-0" style={{ color: '#999BBE' }}>Egyenleg (kredit)
               <input type="number" min="0" className={inputCls} style={inputStyle}
                 value={field(p, 'balance', p.balance)} onChange={(e) => setField(p, 'balance', e.target.value)} />
             </label>
-            <label className="text-[11px]" style={{ color: '#999BBE' }}>Ingyen pörgetés
+            <label className="text-[11px] min-w-0" style={{ color: '#999BBE' }}>Ingyen pörgetés
               <input type="number" min="0" className={inputCls} style={inputStyle}
                 value={field(p, 'freeSpins', p.freeSpins)} onChange={(e) => setField(p, 'freeSpins', e.target.value)} />
             </label>
@@ -107,14 +107,14 @@ function CasinoTab({ socket }) {
           </div>
 
           <div className="grid grid-cols-[1fr_80px_auto] gap-2 items-end">
-            <label className="text-[11px]" style={{ color: '#999BBE' }}>Slot manipuláció
+            <label className="text-[11px] min-w-0" style={{ color: '#999BBE' }}>Slot manipuláció
               <select className={inputCls} style={inputStyle}
                 value={field(p, 'rig', p.rig ? (p.rig.mode === 'jackpot' ? `jackpot:${p.rig.symbols[0]}` : p.rig.mode) : '')}
                 onChange={(e) => setField(p, 'rig', e.target.value)}>
                 {RIG_OPTIONS.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
               </select>
             </label>
-            <label className="text-[11px]" style={{ color: '#999BBE' }}>Pörgetés
+            <label className="text-[11px] min-w-0" style={{ color: '#999BBE' }}>Pörgetés
               <input type="number" min="1" max="1000" className={inputCls} style={inputStyle}
                 value={field(p, 'spins', p.rig?.spins || 1)} onChange={(e) => setField(p, 'spins', e.target.value)} />
             </label>
@@ -186,7 +186,7 @@ function ChessTab({ socket, channelId }) {
             Alkalmaz
           </button>
         </div>
-        <p className="text-[11px]" style={{ color: '#666A90' }}>Extra bábu is lehet (pl. második vezér); királyból oldalanként csak egy lehet.</p>
+        <p className="text-[11px] min-w-0" style={{ color: '#999BBE' }}>Extra bábu is lehet (pl. második vezér); királyból oldalanként csak egy lehet.</p>
       </div>
 
       <div className="rounded-xl p-3 flex items-center gap-2" style={card}>
@@ -247,7 +247,7 @@ function ModerationTab({ socket }) {
         <div className="rounded-xl p-3 text-xs space-y-1" style={card}>
           <div style={{ color: '#F4F3FF' }}><strong>{open.report.reporter}</strong> jelentette az üzenetet</div>
           {open.report.reason && <div style={{ color: '#999BBE' }}>Indok: „{open.report.reason}”</div>}
-          <div style={{ color: '#666A90' }}>Csak a jelentett üzenet és a környező üzenetek láthatók. A megnyitás naplózódik.</div>
+          <div style={{ color: '#999BBE' }}>Csak a jelentett üzenet és a környező üzenetek láthatók. A megnyitás naplózódik.</div>
         </div>
 
         <div className="space-y-1.5">
@@ -257,12 +257,12 @@ function ModerationTab({ socket }) {
               <div key={m.id} className="rounded-lg px-3 py-2 flex items-start gap-2 group"
                 style={{ background: reported ? 'rgba(233, 75, 100, 0.1)' : '#151832', border: reported ? '1px solid rgba(233, 75, 100, 0.4)' : '1px solid transparent' }}>
                 <div className="flex-1 min-w-0">
-                  <div className="text-[11px]" style={{ color: '#999BBE' }}>
+                  <div className="text-[11px] min-w-0" style={{ color: '#999BBE' }}>
                     <strong style={{ color: '#F4F3FF' }}>{m.senderUsername}</strong> · {m.timestamp}
                     {reported && <span className="ml-2 font-bold" style={{ color: '#E94B64' }}>jelentett</span>}
                   </div>
                   {m.removedByAdmin
-                    ? <div className="text-sm italic" style={{ color: '#666A90' }}>(eltávolítva)</div>
+                    ? <div className="text-sm italic" style={{ color: '#999BBE' }}>(eltávolítva)</div>
                     : <div className="text-sm whitespace-pre-wrap break-words" style={{ color: '#F4F3FF' }}>
                         {m.text || (m.attachments?.length ? `📎 ${m.attachments.length} csatolmány` : '')}
                       </div>}
@@ -292,7 +292,7 @@ function ModerationTab({ socket }) {
         <p className="text-xs" style={{ color: '#999BBE' }}>
           Nyitott jelentések. A privát beszélgetések tartalma csak akkor látható, ha egy résztvevő jelentett egy üzenetet.
         </p>
-        <button onClick={load} className="p-1.5 rounded-lg" style={{ background: '#1B2040', color: '#999BBE' }} title="Frissítés">
+        <button onClick={load} className="p-2 rounded-xl flex-shrink-0" style={{ background: '#1B2040', color: '#999BBE' }} title="Frissítés">
           <RefreshCw className="w-4 h-4" />
         </button>
       </div>
@@ -320,7 +320,7 @@ export default function AdminPanel({ socket, channelId, currentUser, onClose }) 
   const tabBtn = (id, icon, label) => (
     <button
       onClick={() => setTab(id)}
-      className="px-3 py-1.5 rounded-lg text-xs font-semibold flex items-center gap-1.5 transition"
+      className="px-3 py-2 min-h-[36px] rounded-xl text-xs font-semibold flex items-center gap-1.5 whitespace-nowrap flex-shrink-0 transition"
       style={{ background: tab === id ? '#7655F5' : 'transparent', color: tab === id ? 'white' : '#999BBE' }}
     >
       {icon}{label}
@@ -328,26 +328,26 @@ export default function AdminPanel({ socket, channelId, currentUser, onClose }) 
   );
 
   return (
-    <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/70 backdrop-blur-sm p-3" onClick={onClose}>
+    <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/60 backdrop-blur-md p-3 pt-safe pb-safe" onClick={onClose}>
       <div
-        className="w-full max-w-xl max-h-[88vh] flex flex-col rounded-2xl shadow-2xl overflow-hidden select-text"
+        className="w-full max-w-3xl max-h-[90vh] flex flex-col rounded-2xl shadow-2xl overflow-hidden select-text"
         style={{ background: '#101329', border: '1px solid rgba(125, 105, 255, 0.3)' }}
         onClick={(e) => e.stopPropagation()}
       >
         <div className="flex items-center gap-2 px-4 py-3" style={{ borderBottom: '1px solid rgba(125, 105, 255, 0.12)' }}>
-          <ShieldCheck className="w-5 h-5" style={{ color: '#f0b232' }} />
+          <ShieldCheck className="w-5 h-5" style={{ color: '#F5B041' }} />
           <strong style={{ color: '#F4F3FF' }}>Admin menü</strong>
-          <span className="text-xs" style={{ color: '#999BBE' }}>({currentUser?.username})</span>
-          <button onClick={onClose} className="ml-auto p-1.5 rounded-lg" style={{ color: '#999BBE' }}><X className="w-4 h-4" /></button>
+          <span className="text-xs truncate min-w-0" style={{ color: '#999BBE' }}>({currentUser?.username})</span>
+          <button onClick={onClose} title="Bezárás" className="ml-auto p-2 rounded-xl hover:bg-[#1B2040] transition" style={{ color: '#999BBE' }}><X className="w-5 h-5" /></button>
         </div>
 
-        <div className="flex gap-1 p-2" style={{ borderBottom: '1px solid rgba(125, 105, 255, 0.12)' }}>
+        <div className="flex gap-1 p-2 overflow-x-auto scrollbar-none" style={{ borderBottom: '1px solid rgba(125, 105, 255, 0.12)' }}>
           {tabBtn('casino', <Dices className="w-3.5 h-3.5" />, 'Kaszinó')}
           {tabBtn('chess', <Crown className="w-3.5 h-3.5" />, 'Sakk')}
           {tabBtn('moderation', <Flag className="w-3.5 h-3.5" />, 'Moderáció')}
         </div>
 
-        <div className="p-4 overflow-y-auto">
+        <div className="p-3 sm:p-4 overflow-y-auto">
           {tab === 'casino' && <CasinoTab socket={socket} />}
           {tab === 'chess' && <ChessTab socket={socket} channelId={channelId} />}
           {tab === 'moderation' && <ModerationTab socket={socket} />}

@@ -107,7 +107,7 @@ function insertLink(value, start, end) {
   };
 }
 
-const iconButtonClass = 'p-1.5 rounded-lg transition flex-shrink-0 hover:bg-[rgba(125,105,255,0.18)] hover:text-white';
+const iconButtonClass = 'p-2 sm:p-1.5 rounded-lg transition flex-shrink-0 hover:bg-[rgba(125,105,255,0.18)] hover:text-white';
 
 export function runFormatShortcut(key, textarea, value, onChange) {
   const pair = { b: '**', i: '*', u: '__' }[key.toLowerCase()];
@@ -159,7 +159,7 @@ export default function FormatToolbar({ textareaRef, value, onChange, showPrevie
     <div className="relative">
       {panel === 'style' && (
         <div
-          className="absolute bottom-full left-0 mb-2 p-3 rounded-2xl shadow-2xl z-30 w-72 max-w-full"
+          className="absolute bottom-full left-0 mb-2 p-3 rounded-2xl shadow-2xl z-30 w-72 max-w-[calc(100vw-1.5rem)]"
           style={{ background: '#151832', border: '1px solid rgba(125, 105, 255, 0.25)' }}
         >
           <p className="text-[11px] font-semibold mb-2" style={{ color: '#999BBE' }}>
@@ -213,12 +213,12 @@ export default function FormatToolbar({ textareaRef, value, onChange, showPrevie
 
       {panel === 'help' && (
         <div
-          className="absolute bottom-full left-0 mb-2 p-3 rounded-2xl shadow-2xl z-30 w-full max-w-lg max-h-96 overflow-y-auto"
+          className="absolute bottom-full left-0 mb-2 p-3 rounded-2xl shadow-2xl z-30 w-full max-w-lg max-w-[calc(100vw-1.5rem)] max-h-96 overflow-y-auto"
           style={{ background: '#151832', border: '1px solid rgba(125, 105, 255, 0.25)' }}
         >
           <div className="space-y-2">
             {HELP_EXAMPLES.map((example) => (
-              <div key={example} className="grid grid-cols-2 gap-3 text-xs items-center">
+              <div key={example} className="grid grid-cols-1 sm:grid-cols-2 gap-1 sm:gap-3 text-xs items-center min-w-0">
                 <code className="font-mono whitespace-pre-wrap break-all select-text" style={{ color: '#999BBE' }}>{example}</code>
                 <MessageContent text={example} className="text-sm" />
               </div>
@@ -228,7 +228,7 @@ export default function FormatToolbar({ textareaRef, value, onChange, showPrevie
       )}
 
       <div
-        className="flex items-center gap-0.5 overflow-x-auto"
+        className="flex items-center gap-0.5 overflow-x-auto scrollbar-none"
         style={{ color: '#999BBE' }}
         onMouseDown={(e) => e.preventDefault()}
       >

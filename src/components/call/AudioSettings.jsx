@@ -20,7 +20,7 @@ function Toggle({ checked, onChange, label, hint }) {
         aria-checked={checked}
         onClick={() => onChange(!checked)}
         className="relative w-11 h-6 rounded-full flex-shrink-0 transition"
-        style={{ background: checked ? 'linear-gradient(135deg, #7655F5, #536CFF)' : '#2A2F55' }}
+        style={{ background: checked ? 'linear-gradient(135deg, #7655F5, #536CFF)' : '#242b50' }}
       >
         <span
           className="absolute top-0.5 w-5 h-5 rounded-full bg-white shadow transition-all"
@@ -34,7 +34,7 @@ function Toggle({ checked, onChange, label, hint }) {
 function Section({ icon: Icon, title, children }) {
   return (
     <section className="rounded-2xl p-4" style={card}>
-      <h3 className="flex items-center gap-2 text-xs font-bold uppercase tracking-wider mb-2" style={{ color: '#9B8BFF' }}>
+      <h3 className="flex items-center gap-2 text-xs font-bold uppercase tracking-wider mb-2" style={{ color: '#7655F5' }}>
         <Icon className="w-3.5 h-3.5" /> {title}
       </h3>
       {children}
@@ -42,7 +42,7 @@ function Section({ icon: Icon, title, children }) {
   );
 }
 
-const selectStyle = { background: '#0E1024', color: '#F4F3FF', border: '1px solid rgba(125, 105, 255, 0.25)' };
+const selectStyle = { background: '#101329', color: '#F4F3FF', border: '1px solid rgba(125, 105, 255, 0.35)' };
 
 // Haladó hang- és hívásbeállítások. Hívás közben a módosítások azonnal érvényesülnek.
 export default function AudioSettings({ onClose, call }) {
@@ -58,20 +58,19 @@ export default function AudioSettings({ onClose, call }) {
 
   return (
     <div
-      className="fixed inset-0 z-[110] flex items-end sm:items-center justify-center p-0 sm:p-4 call-fade"
-      style={{ background: 'rgba(5, 6, 16, 0.7)', backdropFilter: 'blur(6px)' }}
+      className="fixed inset-0 z-[110] flex items-center justify-center p-3 sm:p-4 bg-black/60 backdrop-blur-md call-fade"
       onClick={onClose}
     >
       <div
         role="dialog"
         aria-label="Hívásbeállítások"
         onClick={(e) => e.stopPropagation()}
-        className="call-pop w-full sm:max-w-lg max-h-[92vh] overflow-y-auto rounded-t-3xl sm:rounded-3xl"
-        style={{ background: '#101329', border: '1px solid rgba(125, 105, 255, 0.2)', boxShadow: '0 30px 80px rgba(0,0,0,0.6)' }}
+        className="call-pop w-full max-w-lg max-h-[90vh] overflow-y-auto rounded-2xl"
+        style={{ background: '#101329', border: '1px solid rgba(125, 105, 255, 0.15)', boxShadow: '0 8px 32px 0 rgba(0, 0, 0, 0.37)' }}
       >
-        <div className="sticky top-0 z-10 flex items-center justify-between px-5 py-4" style={{ background: '#101329', borderBottom: '1px solid rgba(125, 105, 255, 0.12)' }}>
+        <div className="sticky top-0 z-10 flex items-center justify-between gap-3 px-4 sm:px-5 py-3" style={{ background: '#101329', borderBottom: '1px solid rgba(125, 105, 255, 0.12)' }}>
           <h2 className="text-lg font-bold" style={{ color: '#F4F3FF' }}>Hívásbeállítások</h2>
-          <button type="button" onClick={onClose} aria-label="Bezárás" className="p-2 rounded-xl" style={{ color: '#999BBE' }}>
+          <button type="button" onClick={onClose} aria-label="Bezárás" className="p-2 min-w-[40px] min-h-[40px] flex items-center justify-center rounded-xl flex-shrink-0 transition hover:bg-[#1B2040]" style={{ color: '#999BBE' }}>
             <X className="w-5 h-5" />
           </button>
         </div>
@@ -107,8 +106,8 @@ export default function AudioSettings({ onClose, call }) {
                 type="button"
                 disabled={Notification.permission === 'denied'}
                 onClick={() => Notification.requestPermission().then(() => updateCallSettings({}))}
-                className="mt-3 w-full text-xs font-semibold py-2 rounded-xl transition disabled:opacity-50"
-                style={{ background: 'rgba(118,85,245,0.18)', color: '#C9C7F5', border: '1px solid rgba(118,85,245,0.35)' }}
+                className="mt-3 w-full min-h-[40px] text-xs font-semibold py-2 px-3 rounded-xl transition disabled:opacity-50"
+                style={{ background: 'rgba(118,85,245,0.18)', color: '#F4F3FF', border: '1px solid rgba(118,85,245,0.35)' }}
               >
                 {Notification.permission === 'denied'
                   ? 'Az értesítések le vannak tiltva a böngészőben'
@@ -125,7 +124,7 @@ export default function AudioSettings({ onClose, call }) {
                 updateCallSettings({ inputDeviceId: e.target.value });
                 if (inCall) call.setInputDevice(e.target.value);
               }}
-              className="w-full px-3 py-2 rounded-xl text-sm mb-3 outline-none"
+              className="w-full min-h-[40px] px-3 py-2 rounded-xl text-sm mb-3 outline-none"
               style={selectStyle}
             >
               <option value="default">Rendszer alapértelmezett</option>
@@ -144,7 +143,7 @@ export default function AudioSettings({ onClose, call }) {
                   updateCallSettings({ outputDeviceId: e.target.value });
                   if (inCall) call.setOutputDevice(e.target.value);
                 }}
-                className="w-full px-3 py-2 rounded-xl text-sm outline-none"
+                className="w-full min-h-[40px] px-3 py-2 rounded-xl text-sm outline-none"
                 style={selectStyle}
               >
                 <option value="default">Rendszer alapértelmezett</option>
@@ -179,7 +178,7 @@ export default function AudioSettings({ onClose, call }) {
                     onClick={() => updateCallSettings({ quality: id })}
                     className="px-2 py-2.5 rounded-xl text-center transition"
                     style={{
-                      background: active ? 'rgba(118, 85, 245, 0.2)' : '#0E1024',
+                      background: active ? 'rgba(118, 85, 245, 0.2)' : '#101329',
                       border: `1px solid ${active ? 'rgba(118, 85, 245, 0.65)' : 'rgba(125, 105, 255, 0.12)'}`
                     }}
                   >

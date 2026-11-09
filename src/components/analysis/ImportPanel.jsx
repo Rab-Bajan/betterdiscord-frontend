@@ -10,7 +10,7 @@ const PRESETS = [
   { id: 'deep', label: 'Mély', depth: 18, hint: 'lassabb' }
 ];
 
-const inputStyle = { background: '#0d0f24', border: '1px solid rgba(125, 105, 255, 0.25)', color: '#F4F3FF' };
+const inputStyle = { background: '#101329', border: '1px solid rgba(125, 105, 255, 0.25)', color: '#F4F3FF' };
 const cardStyle = { background: '#151832', border: '1px solid rgba(125, 105, 255, 0.15)' };
 
 export default function ImportPanel({ phase, imported, error, onImport, onStart, settings, onSettingsChange }) {
@@ -122,7 +122,7 @@ export default function ImportPanel({ phase, imported, error, onImport, onStart,
             <div className="text-xs mt-1" style={{ color: '#999BBE' }}>
               {[resultLabel(game.result), game.termination, `${Math.ceil(game.plies / 2)} lépés`, game.date, game.timeControl ? `időkontroll: ${game.timeControl}` : null].filter(Boolean).join(' · ')}
             </div>
-            <div className="text-[11px] mt-1" style={{ color: '#666A90' }}>
+            <div className="text-[11px] mt-1" style={{ color: '#999BBE' }}>
               Forrás: {imported.source === 'chess.com-official' ? 'Chess.com hivatalos PGN' : imported.source === 'chess.com-callback' ? 'Chess.com játékadatok' : 'beillesztett PGN'}
             </div>
           </div>
@@ -168,7 +168,7 @@ export default function ImportPanel({ phase, imported, error, onImport, onStart,
                 </select>
               </label>
             </div>
-            <p className="text-[11px]" style={{ color: '#666A90' }}>
+            <p className="text-[11px]" style={{ color: '#999BBE' }}>
               Ha mélységet és időt is megadsz, a keresés a kettő közül az előbb teljesülőnél áll meg. A több vonal a „Nagyszerű” és „Zseniális” lépések felismeréséhez kell.
             </p>
           </fieldset>

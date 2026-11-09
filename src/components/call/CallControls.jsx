@@ -4,18 +4,18 @@ import { useCallSettings, updateCallSettings } from '../../call/callSettings';
 import { useAudioDevices } from '../../call/useAudioDevices';
 
 function RoundButton({ onClick, active, danger, accent, label, children, size = 'md' }) {
-  const dim = size === 'lg' ? 'w-16 h-16' : 'w-12 h-12 sm:w-14 sm:h-14';
+  const dim = size === 'lg' ? 'w-14 h-14 sm:w-16 sm:h-16' : 'w-12 h-12 sm:w-14 sm:h-14';
   return (
-    <div className="flex flex-col items-center gap-1.5">
+    <div className="flex flex-col items-center gap-1.5 min-w-0">
       <button
         type="button"
         onClick={onClick}
         aria-label={label}
         aria-pressed={active}
-        className={`${dim} rounded-full flex items-center justify-center transition active:scale-90 hover:scale-105`}
+        className={`${dim} flex-shrink-0 rounded-full flex items-center justify-center transition active:scale-90 hover:scale-105`}
         style={
           danger
-            ? { background: 'linear-gradient(135deg, #F0556E, #D63A54)', color: '#fff', boxShadow: '0 10px 28px rgba(233, 75, 100, 0.45)' }
+            ? { background: 'linear-gradient(135deg, #E94B64, #E94B64)', color: '#fff', boxShadow: '0 10px 28px rgba(233, 75, 100, 0.45)' }
             : accent
               ? { background: 'linear-gradient(135deg, #7655F5, #536CFF)', color: '#fff', boxShadow: '0 6px 20px rgba(118, 85, 245, 0.35)' }
               : active
@@ -25,7 +25,7 @@ function RoundButton({ onClick, active, danger, accent, label, children, size = 
       >
         {children}
       </button>
-      <span className="text-[10px] sm:text-[11px] font-medium" style={{ color: '#999BBE' }}>{label}</span>
+      <span className="text-[10px] sm:text-[11px] font-medium truncate max-w-full" style={{ color: '#999BBE' }}>{label}</span>
     </div>
   );
 }
@@ -47,8 +47,8 @@ function DeviceMenu({ call, onOpenSettings, onClose }) {
       key={label}
       type="button"
       onClick={onPick}
-      className="w-full text-left text-sm px-3 py-2 rounded-lg truncate transition"
-      style={{ background: active ? 'rgba(118,85,245,0.22)' : 'transparent', color: active ? '#F4F3FF' : '#C9C7F5' }}
+      className="w-full min-h-[40px] text-left text-sm px-3 py-2 rounded-lg truncate transition"
+      style={{ background: active ? 'rgba(118,85,245,0.22)' : 'transparent', color: active ? '#F4F3FF' : '#999BBE' }}
     >
       {active ? '● ' : '○ '}{label}
     </button>
@@ -57,10 +57,10 @@ function DeviceMenu({ call, onOpenSettings, onClose }) {
   return (
     <div
       ref={ref}
-      className="call-pop absolute bottom-full mb-3 left-1/2 -translate-x-1/2 w-72 max-w-[88vw] rounded-2xl p-2 text-left"
-      style={{ background: '#161A38', border: '1px solid rgba(125,105,255,0.25)', boxShadow: '0 20px 50px rgba(0,0,0,0.55)' }}
+      className="call-pop absolute bottom-full mb-3 left-1/2 -translate-x-1/2 w-72 max-w-[calc(100vw-1.5rem)] max-h-[60vh] overflow-y-auto rounded-2xl p-2 text-left"
+      style={{ background: '#151832', border: '1px solid rgba(125,105,255,0.25)', boxShadow: '0 20px 50px rgba(0,0,0,0.55)' }}
     >
-      <div className="px-3 pt-1 pb-1 text-[10px] font-bold uppercase tracking-wider" style={{ color: '#9B8BFF' }}>
+      <div className="px-3 pt-1 pb-1 text-[10px] font-bold uppercase tracking-wider" style={{ color: '#7655F5' }}>
         <Headphones className="inline w-3 h-3 mr-1" />Hangkimenet
       </div>
       {devices.supportsOutputSelection ? (
@@ -72,7 +72,7 @@ function DeviceMenu({ call, onOpenSettings, onClose }) {
       ) : (
         <p className="px-3 pb-2 text-xs" style={{ color: '#999BBE' }}>Ez a böngésző nem engedi a kimenet váltását.</p>
       )}
-      <div className="px-3 pt-2 pb-1 text-[10px] font-bold uppercase tracking-wider" style={{ color: '#9B8BFF' }}>
+      <div className="px-3 pt-2 pb-1 text-[10px] font-bold uppercase tracking-wider" style={{ color: '#7655F5' }}>
         <Mic className="inline w-3 h-3 mr-1" />Mikrofon
       </div>
       {row(settings.inputDeviceId === 'default', 'Rendszer alapértelmezett', () => { updateCallSettings({ inputDeviceId: 'default' }); call.setInputDevice('default'); })}
@@ -81,8 +81,8 @@ function DeviceMenu({ call, onOpenSettings, onClose }) {
       <button
         type="button"
         onClick={() => { onClose(); onOpenSettings(); }}
-        className="w-full mt-1 text-xs font-semibold px-3 py-2 rounded-lg"
-        style={{ background: 'rgba(118,85,245,0.15)', color: '#C9C7F5' }}
+        className="w-full min-h-[40px] mt-1 text-xs font-semibold px-3 py-2 rounded-lg"
+        style={{ background: 'rgba(118,85,245,0.15)', color: '#F4F3FF' }}
       >
         További hangbeállítások…
       </button>
@@ -100,7 +100,7 @@ export default function CallControls({ call, muted, onToggleMute, onEnd, onOpenS
   };
 
   return (
-    <div className="relative flex items-end justify-center gap-3 sm:gap-5">
+    <div className="relative flex items-end justify-center gap-2 min-[400px]:gap-3 sm:gap-5 max-w-full">
       <RoundButton onClick={onToggleMute} active={muted} label={muted ? 'Némítva' : 'Mikrofon'}>
         {muted ? <MicOff className="w-5 h-5 sm:w-6 sm:h-6" /> : <Mic className="w-5 h-5 sm:w-6 sm:h-6" />}
       </RoundButton>

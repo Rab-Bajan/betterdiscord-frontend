@@ -63,8 +63,8 @@ function usePanel(socket, method, params) {
 function Status({ panel }) {
   return (
     <>
-      {panel.error && <div className="px-3 py-2 rounded-xl text-xs font-semibold" style={{ background: 'rgba(233,75,100,0.15)', color: '#fca5a5' }}>{panel.error}</div>}
-      {panel.message && <div className="px-3 py-2 rounded-xl text-xs font-semibold" style={{ background: 'rgba(40,201,151,0.14)', color: '#6ee7b7' }}>{panel.message}</div>}
+      {panel.error && <div className="px-3 py-2 rounded-xl text-xs font-semibold" style={{ background: 'rgba(233,75,100,0.15)', color: '#E94B64' }}>{panel.error}</div>}
+      {panel.message && <div className="px-3 py-2 rounded-xl text-xs font-semibold" style={{ background: 'rgba(40,201,151,0.14)', color: '#28C997' }}>{panel.message}</div>}
       {!panel.data && !panel.error && <div className="flex justify-center p-6"><Loader2 className="w-5 h-5 animate-spin text-[#7655F5]" /></div>}
     </>
   );
@@ -80,9 +80,9 @@ function ProfilePanel({ socket, lobbyId }) {
       <Status panel={panel} /><Status panel={{ ...friends, data: true }} />
       {d && (
         <>
-          <Card title={`${d.profile.username || ''} · ${d.profile.level}. szint · ${d.profile.badge}`} right={d.profile.title && <span className="text-xs font-bold text-amber-300">{d.profile.title}</span>}>
+          <Card title={`${d.profile.username || ''} · ${d.profile.level}. szint · ${d.profile.badge}`} right={d.profile.title && <span className="text-xs font-bold text-shark-gold">{d.profile.title}</span>}>
             <div className="flex flex-wrap gap-3 text-xs mb-2 text-white">{Object.entries(d.wallet).map(([k, v]) => <span key={k}>{CURRENCY_LABELS[k]}: <b>{v}</b></span>)}</div>
-            <div className="grid grid-cols-2 sm:grid-cols-3 gap-1 text-xs" style={{ color: '#c7d2fe' }}>
+            <div className="grid grid-cols-2 sm:grid-cols-3 gap-1 text-xs" style={{ color: '#F4F3FF' }}>
               {Object.entries(STAT_LABELS).map(([k, label]) => <div key={k} className="flex justify-between gap-2"><span style={{ color: '#999BBE' }}>{label}</span><b>{d.profile.stats[k] || 0}</b></div>)}
             </div>
           </Card>
@@ -251,7 +251,7 @@ function ClanPanel({ socket }) {
             ))}
           </Card>
           <Card title="Klánchat">
-            <div className="max-h-48 overflow-y-auto space-y-0.5 mb-2 select-text">{d.chat.map((c) => <div key={c.at + c.username} className="text-xs text-white"><b style={{ color: '#c7d2fe' }}>{c.username}:</b> {c.text}</div>)}</div>
+            <div className="max-h-48 overflow-y-auto space-y-0.5 mb-2 select-text">{d.chat.map((c) => <div key={c.at + c.username} className="text-xs text-white"><b style={{ color: '#F4F3FF' }}>{c.username}:</b> {c.text}</div>)}</div>
             <form className="flex gap-2" onSubmit={(e) => { e.preventDefault(); if (chat.trim()) panel.act('clanChat', { text: chat }).then(() => setChat('')); }}>
               <Input value={chat} onChange={(e) => setChat(e.target.value)} placeholder="Üzenet" className="flex-1" /><Btn type="submit">Küldés</Btn>
             </form>
@@ -367,7 +367,7 @@ function BasePanel({ socket }) {
           <Card title={`Bázis · védelem: ${d.defense}`} right={<Btn disabled={d.pending <= 0} onClick={() => panel.act('baseCollect', {}, (r) => `+${r.amount} érme`)}>Begyűjtés ({d.pending})</Btn>}>
             {d.buildings.length === 0 ? <Muted>Még nincs épületed.</Muted> : d.buildings.map((b) => (
               <div key={b.id} className="flex justify-between items-center text-xs py-1 text-white gap-2">
-                <span><b>{b.def.name}</b> {b.level}. szint · {b.health}/{b.maxHealth} élet{!b.ready && <span style={{ color: '#f0b232' }}> · épül: {Math.ceil((b.ready_at - d.now) / 1000)} mp</span>}</span>
+                <span><b>{b.def.name}</b> {b.level}. szint · {b.health}/{b.maxHealth} élet{!b.ready && <span style={{ color: '#F5B041' }}> · épül: {Math.ceil((b.ready_at - d.now) / 1000)} mp</span>}</span>
                 <span className="flex gap-1">
                   {b.health < b.maxHealth && <Btn kind="ghost" onClick={() => panel.act('baseRepair', { id: b.id }, 'Megjavítva.')}>Javítás</Btn>}
                   <Btn disabled={!b.ready || b.level >= b.def.maxLevel} onClick={() => panel.act('baseUpgrade', { id: b.id }, 'Fejlesztés elindult.')}>Fejlesztés ({b.def.cost * (b.level + 1)})</Btn>
@@ -486,7 +486,7 @@ function AdminPanel({ socket }) {
         <>
           <Card title="Szerver" right={<Btn kind="ghost" onClick={panel.reload}>Frissítés</Btn>}>
             <div className="text-xs text-white">Memória: {d.memoryMb} MB · Lobbik: {d.lobbies} · Futó meccsek: {d.matches.length}</div>
-            {d.matches.map((m) => <div key={m.id} className="text-xs" style={{ color: '#c7d2fe' }}>{MODE_LABELS[m.mode]} · {m.players} játékos · {m.time} mp · {JSON.stringify(m.score)}</div>)}
+            {d.matches.map((m) => <div key={m.id} className="text-xs" style={{ color: '#F4F3FF' }}>{MODE_LABELS[m.mode]} · {m.players} játékos · {m.time} mp · {JSON.stringify(m.score)}</div>)}
           </Card>
           <Card title="Beállítások">
             <div className="flex flex-wrap gap-2 items-center text-xs text-white">
@@ -508,7 +508,7 @@ function AdminPanel({ socket }) {
               <Btn kind="danger" onClick={() => panel.act('adminSuspend', { username: name, hours }, hours ? 'Felfüggesztve.' : 'Feloldva.')}>Felfüggesztés (óra)</Btn>
               <Btn kind="ghost" onClick={async () => setDetail(await panel.act('adminPlayer', { username: name }))}>Adatok</Btn>
             </div>
-            {detail && <pre className="text-[11px] mt-2 max-h-56 overflow-auto select-text" style={{ color: '#c7d2fe' }}>{JSON.stringify(detail, null, 1)}</pre>}
+            {detail && <pre className="text-[11px] mt-2 max-h-56 overflow-auto select-text" style={{ color: '#F4F3FF' }}>{JSON.stringify(detail, null, 1)}</pre>}
           </Card>
           <Card title="Jelentések">
             {d.reports.length === 0 ? <Muted>Nincs nyitott jelentés.</Muted> : d.reports.map((r) => <div key={r.id} className="flex justify-between items-center text-xs py-0.5 text-white gap-2"><span>{r.reporter} → {r.target}: {r.reason}</span><Btn kind="ghost" onClick={() => panel.act('adminCloseReport', { id: r.id })}>Lezárás</Btn></div>)}

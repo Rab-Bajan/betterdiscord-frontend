@@ -8,6 +8,7 @@ import BrowserView from './BrowserView';
 
 // A 3D motor csak a játék megnyitásakor töltődik le
 const GameView = lazy(() => import('./game/GameView'));
+const MiskolcEmpireView = lazy(() => import('./miskolcEmpire/MiskolcEmpireView'));
 import RoomTopBar from './voiceRoom/RoomTopBar';
 import RoomControlBar from './voiceRoom/RoomControlBar';
 import ActivityBanners from './voiceRoom/ActivityBanners';
@@ -42,6 +43,7 @@ export default function VoiceRoomView({
   onStopCasino,
   watchState,
   chessSession,
+  empireSession,
   onStartChess,
   onJoinChess,
   onMoveChess,
@@ -69,7 +71,7 @@ export default function VoiceRoomView({
   onClose,
   onOpenMobileSidebar
 }) {
-  // 'stage' | 'whiteboard' | 'code' | 'casino' | 'watch' | 'chess' | 'browser'
+  // 'stage' | 'whiteboard' | 'code' | 'casino' | 'watch' | 'chess' | 'empire' | 'browser'
   const [subView, setSubView] = useState('stage');
   const backToStage = () => setSubView('stage');
   const toggleView = (view) => setSubView((current) => (current === view ? 'stage' : view));
@@ -117,6 +119,12 @@ export default function VoiceRoomView({
             onReleaseControl={onReleaseBrowserControl}
             onStop={onStopBrowser}
           />
+        );
+      case 'empire':
+        return (
+          <Suspense fallback={<div className="flex-1 flex items-center justify-center text-sm" style={{ color: '#999BBE' }}>MiskolcEmpire betöltése...</div>}>
+            <MiskolcEmpireView socket={socket} currentUser={currentUser} channelId={channelId} channelSession={empireSession} onClose={backToStage} />
+          </Suspense>
         );
       case 'chess':
         return (
@@ -222,6 +230,7 @@ export default function VoiceRoomView({
         casinoActive={!!casinoSession?.active}
         watchActive={!!watchState?.active}
         chessActive={!!chessSession?.active}
+        empireActive={!!empireSession?.active}
         browserActive={!!browserSession?.active}
         gameActive={!!gameSession}
         onClose={onClose}
@@ -233,6 +242,7 @@ export default function VoiceRoomView({
         watchState={watchState}
         casinoSession={casinoSession}
         chessSession={chessSession}
+        empireSession={empireSession}
         browserSession={browserSession}
         gameSession={gameSession}
         onOpen={setSubView}
@@ -252,6 +262,7 @@ export default function VoiceRoomView({
         casinoActive={!!casinoSession?.active}
         watchActive={!!watchState?.active}
         chessActive={!!chessSession?.active}
+        empireActive={!!empireSession?.active}
         browserActive={!!browserSession?.active}
         gameActive={!!gameSession}
         onToggleMute={onToggleMute}

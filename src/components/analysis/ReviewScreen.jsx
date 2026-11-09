@@ -101,7 +101,7 @@ export default function ReviewScreen({ result }) {
               type="button"
               onClick={() => setShowBest((v) => !v)}
               className="ml-2 px-3 py-2 rounded-lg text-xs font-bold flex items-center gap-1.5 transition"
-              style={{ background: showingBest ? '#96BC4B' : '#1B2040', color: showingBest ? '#0B0C1E' : '#F4F3FF' }}
+              style={{ background: showingBest ? '#96BC4B' : '#1B2040', color: showingBest ? '#090A18' : '#F4F3FF' }}
               aria-pressed={showingBest}
             >
               <Lightbulb className="w-4 h-4" /> Legjobb lépés

@@ -8,19 +8,19 @@ const IDLE_BORDER = '1px solid rgba(125, 105, 255, 0.2)';
 // Az alsó sáv egységes gombja. `hoverable`: csak akkor kap hover-színt, ha nincs külön kiemelt állapota.
 function ControlButton({
   onClick, title, icon, label, background = REST_BG, border = IDLE_BORDER, color = '#F4F3FF',
-  hoverable = true, restBg = REST_BG, hoverBg = HOVER_BG, animation, shadow, padding = 'px-2.5 sm:px-4', extraClass = ''
+  hoverable = true, restBg = REST_BG, hoverBg = HOVER_BG, animation, shadow, padding = 'px-2.5 sm:px-4', extraClass = '', labelClass = 'hidden md:inline'
 }) {
   return (
     <button
       onClick={onClick}
       title={title}
-      className={`flex items-center gap-1.5 sm:gap-2 ${padding} py-2 sm:py-2.5 rounded-xl font-semibold text-xs sm:text-sm transition-all shadow flex-shrink-0 ${extraClass}`}
+      className={`flex items-center gap-1.5 sm:gap-2 ${padding} py-2 sm:py-2.5 min-h-[40px] rounded-xl whitespace-nowrap font-semibold text-xs sm:text-sm transition-all shadow flex-shrink-0 ${extraClass}`}
       style={{ background, border, color, animation, boxShadow: shadow }}
       onMouseOver={(e) => { if (hoverable) e.currentTarget.style.background = hoverBg; }}
       onMouseOut={(e) => { if (hoverable) e.currentTarget.style.background = restBg; }}
     >
       {icon}
-      <span className="hidden md:inline">{label}</span>
+      <span className={labelClass}>{label}</span>
     </button>
   );
 }
@@ -48,6 +48,7 @@ export default function RoomControlBar({
   casinoActive,
   watchActive,
   chessActive,
+  empireActive,
   browserActive,
   onToggleMute,
   onToggleDeafen,
@@ -65,7 +66,7 @@ export default function RoomControlBar({
   };
 
   return (
-    <div className="p-2 sm:p-4 flex items-center justify-center gap-1.5 sm:gap-3 flex-shrink-0 w-full overflow-x-auto scrollbar-none" style={{ background: '#101329', borderTop: '1px solid rgba(125, 105, 255, 0.12)' }}>
+    <div className="p-2 sm:p-4 pb-[max(0.5rem,env(safe-area-inset-bottom))] sm:pb-[max(1rem,env(safe-area-inset-bottom))] flex items-center justify-start [&>*:first-child]:ml-auto [&>*:last-child]:mr-auto [&>*:last-child]:sticky [&>*:last-child]:right-0 [&>*:last-child]:z-10 gap-1.5 sm:gap-2 2xl:gap-3 flex-shrink-0 w-full max-w-full overflow-x-auto scrollbar-none" style={{ background: '#101329', borderTop: '1px solid rgba(125, 105, 255, 0.12)' }}>
       <ControlButton
         onClick={onToggleMute}
         title={isMuted ? 'Mikrofon bekapcsolása' : 'Mikrofon némítása'}
@@ -111,6 +112,7 @@ export default function RoomControlBar({
       />
 
       <ControlButton
+        labelClass="hidden 2xl:inline"
         onClick={() => onToggleView('browser')}
         title={browserActive ? 'Közös Böngésző megnyitása' : 'Közös Böngésző indítása'}
         icon={<Globe className="w-5 h-5" style={{ color: subView === 'browser' ? 'white' : '#536CFF' }} />}
@@ -124,9 +126,10 @@ export default function RoomControlBar({
       />
 
       <ControlButton
+        labelClass="hidden 2xl:inline"
         onClick={() => onToggleView('whiteboard')}
         title="Közös Paint Rajztábla"
-        icon={<Paintbrush className="w-5 h-5" style={{ color: isPaint ? 'white' : '#f0b232' }} />}
+        icon={<Paintbrush className="w-5 h-5" style={{ color: isPaint ? 'white' : '#F5B041' }} />}
         label={`Paint ${whiteboardCount > 0 ? `(${whiteboardCount})` : ''}`}
         background={isPaint ? '#7655F5' : REST_BG}
         border={isPaint ? 'none' : IDLE_BORDER}
@@ -135,9 +138,10 @@ export default function RoomControlBar({
       />
 
       <ControlButton
+        labelClass="hidden 2xl:inline"
         onClick={() => onToggleView('code')}
         title="Közös Kód Editor"
-        icon={<Code2 className="w-5 h-5" style={{ color: isCode ? 'white' : '#22d3ee' }} />}
+        icon={<Code2 className="w-5 h-5" style={{ color: isCode ? 'white' : '#28C997' }} />}
         label="Kód Editor"
         background={isCode ? '#7655F5' : REST_BG}
         border={isCode ? 'none' : IDLE_BORDER}
@@ -146,18 +150,20 @@ export default function RoomControlBar({
       />
 
       <ControlButton
+        labelClass="hidden 2xl:inline"
         onClick={toggleCasino}
         title={casinoActive ? '3D Velvet Room Kaszinó megnyitása' : '3D Kaszinó indítása'}
         icon={<span className="text-base">🎰</span>}
         label={casinoActive ? 'Kaszinó (Élő)' : 'Kaszinó'}
         {...activityStyle({
           selected: subView === 'casino', live: casinoActive, pulse: false,
-          selectedBg: 'linear-gradient(135deg, #b45309, #a16207)',
-          liveBg: 'rgba(245, 176, 65, 0.15)', liveColor: '#f5b041', liveBorder: 'rgba(245, 176, 65, 0.4)'
+          selectedBg: 'linear-gradient(135deg, #F5B041, #d4922a)',
+          liveBg: 'rgba(245, 176, 65, 0.15)', liveColor: '#F5B041', liveBorder: 'rgba(245, 176, 65, 0.4)'
         })}
       />
 
       <ControlButton
+        labelClass="hidden 2xl:inline"
         onClick={() => onToggleView('watch')}
         title={watchActive ? 'Közös YouTube megnyitása' : 'Közös YouTube videó indítása'}
         icon={<span className="text-base">🔴</span>}
@@ -165,12 +171,13 @@ export default function RoomControlBar({
         extraClass="cursor-pointer"
         {...activityStyle({
           selected: subView === 'watch', live: watchActive,
-          selectedBg: 'linear-gradient(135deg, #dc2626, #e11d48)',
+          selectedBg: 'linear-gradient(135deg, #E94B64, #c93a52)',
           liveBg: 'rgba(233, 75, 100, 0.15)', liveColor: '#E94B64', liveBorder: 'rgba(233, 75, 100, 0.4)'
         })}
       />
 
       <ControlButton
+        labelClass="hidden 2xl:inline"
         onClick={() => onToggleView('chess')}
         title={chessActive ? 'Sakk aréna megnyitása' : '1v1 Sakk parti indítása'}
         icon={<span className="text-base">♟️</span>}
@@ -184,6 +191,21 @@ export default function RoomControlBar({
       />
 
       <ControlButton
+        labelClass="hidden 2xl:inline"
+        onClick={() => onToggleView('empire')}
+        title={empireActive ? 'MiskolcEmpire megnyitása' : 'MiskolcEmpire indítása'}
+        icon={<span className="text-base">⚔️</span>}
+        label={empireActive ? 'Empire (Élő)' : 'Empire'}
+        extraClass="cursor-pointer"
+        {...activityStyle({
+          selected: subView === 'empire', live: empireActive,
+          selectedBg: 'linear-gradient(135deg, #7655F5, #536CFF)',
+          liveBg: 'rgba(40, 201, 151, 0.15)', liveColor: '#28C997', liveBorder: 'rgba(40, 201, 151, 0.4)'
+        })}
+      />
+
+      <ControlButton
+        labelClass="hidden 2xl:inline"
         onClick={onOpenSpeedTest}
         title="Net Sebességteszt (Speed Test)"
         icon={<Activity className="w-5 h-5 animate-pulse" style={{ color: '#7655F5' }} />}

@@ -18,15 +18,15 @@ export default function VoiceConnectedBar({
         title="Hang szoba megnyitása"
       >
         <div className="w-2.5 h-2.5 rounded-full flex-shrink-0 animate-pulse" style={{ background: '#28C997' }} />
-        <div className="truncate">
+        <div className="min-w-0 flex-1">
           <div className="font-semibold flex items-center gap-1 leading-tight group-hover:underline" style={{ color: '#28C997' }}>
             <span>Hang csatlakoztatva</span>
             <Maximize2 className="w-3 h-3 opacity-0 group-hover:opacity-100 transition-opacity" />
           </div>
-          <div className="text-[11px] truncate flex items-center gap-1.5" style={{ color: '#999BBE' }}>
+          <div className="text-[11px] flex items-center gap-1.5 min-w-0" style={{ color: '#999BBE' }}>
             <Wifi className="w-3 h-3" style={{ color: '#28C997' }} />
-            <span>{channelName}</span>
-            <span style={{ color: 'rgba(153, 155, 190, 0.5)' }}>• RTC Csatlakozva</span>
+            <span className="truncate" title={channelName}>{channelName}</span>
+            <span className="hidden sm:inline whitespace-nowrap" style={{ color: 'rgba(153, 155, 190, 0.5)' }}>• RTC Csatlakozva</span>
           </div>
         </div>
       </div>
@@ -36,7 +36,7 @@ export default function VoiceConnectedBar({
         <button
           onClick={onToggleScreenShare}
           title={isScreenSharing ? 'Képernyőmegosztás leállítása' : 'Képernyő megosztása'}
-          className="w-7 h-7 rounded-lg flex items-center justify-center transition-all"
+          className="w-9 h-9 rounded-xl flex items-center justify-center transition-all"
           style={{
             background: isScreenSharing ? '#E94B64' : 'transparent',
             color: isScreenSharing ? 'white' : '#999BBE',
@@ -51,7 +51,7 @@ export default function VoiceConnectedBar({
         <button
           onClick={onDisconnect}
           title="Kapcsolat bontása (Kilépés a hangból)"
-          className="w-7 h-7 rounded-lg flex items-center justify-center transition-all"
+          className="w-9 h-9 rounded-xl flex items-center justify-center transition-all"
           style={{ color: '#999BBE' }}
           onMouseOver={e => { e.currentTarget.style.background = 'rgba(233, 75, 100, 0.15)'; e.currentTarget.style.color = '#E94B64'; }}
           onMouseOut={e => { e.currentTarget.style.background = 'transparent'; e.currentTarget.style.color = '#999BBE'; }}

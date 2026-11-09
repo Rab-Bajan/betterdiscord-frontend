@@ -15,7 +15,7 @@ export default function AnalysisProgress({ progress, game, onCancel }) {
 
       <div
         className="h-3 rounded-full overflow-hidden"
-        style={{ background: '#0d0f24' }}
+        style={{ background: '#101329' }}
         role="progressbar"
         aria-valuemin={0}
         aria-valuemax={100}

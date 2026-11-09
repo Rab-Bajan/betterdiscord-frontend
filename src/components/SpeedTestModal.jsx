@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
+import Avatar from './Avatar';
 import {
   Activity,
   ArrowDown,
@@ -171,15 +172,15 @@ export default function SpeedTestModal({
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 select-none" style={{ background: 'rgba(9, 10, 24, 0.85)', backdropFilter: 'blur(12px)' }}>
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4 pt-safe pb-safe select-none bg-black/60 backdrop-blur-md">
       <div className="rounded-2xl shadow-2xl max-w-lg w-full overflow-hidden flex flex-col max-h-[90vh]" style={{ background: '#101329', border: '1px solid rgba(125, 105, 255, 0.25)', boxShadow: '0 12px 40px rgba(0, 0, 0, 0.7)' }}>
         {/* Modal Fejléc */}
-        <div className="h-14 px-6 flex items-center justify-between flex-shrink-0" style={{ borderBottom: '1px solid rgba(125, 105, 255, 0.12)', background: '#101329' }}>
-          <div className="flex items-center gap-3">
-            <div className="w-8 h-8 rounded-xl flex items-center justify-center" style={{ background: 'rgba(118, 85, 245, 0.2)', color: '#7655F5' }}>
+        <div className="min-h-[56px] px-4 sm:px-6 py-2 flex items-center justify-between gap-2 flex-shrink-0" style={{ borderBottom: '1px solid rgba(125, 105, 255, 0.12)', background: '#101329' }}>
+          <div className="flex items-center gap-3 min-w-0">
+            <div className="w-8 h-8 rounded-xl flex items-center justify-center flex-shrink-0" style={{ background: 'rgba(118, 85, 245, 0.2)', color: '#7655F5' }}>
               <Activity className="w-5 h-5 animate-pulse" />
             </div>
-            <div>
+            <div className="min-w-0">
               <h2 className="text-base font-bold leading-tight" style={{ color: '#F4F3FF' }}>
                 Net Sebességteszt
               </h2>
@@ -191,7 +192,8 @@ export default function SpeedTestModal({
 
           <button
             onClick={onClose}
-            className="w-8 h-8 rounded-xl flex items-center justify-center transition-all"
+            title="Bezárás"
+            className="p-2 rounded-xl flex-shrink-0 flex items-center justify-center transition-all"
             style={{ color: '#999BBE' }}
             onMouseOver={e => { e.currentTarget.style.background = 'rgba(125, 105, 255, 0.15)'; e.currentTarget.style.color = '#F4F3FF'; }}
             onMouseOut={e => { e.currentTarget.style.background = 'transparent'; e.currentTarget.style.color = '#999BBE'; }}
@@ -201,10 +203,10 @@ export default function SpeedTestModal({
         </div>
 
         {/* Fülek (Tabs) */}
-        <div className="flex px-6 pt-2 flex-shrink-0 gap-4" style={{ background: 'rgba(9, 10, 24, 0.5)', borderBottom: '1px solid rgba(125, 105, 255, 0.12)' }}>
+        <div className="flex px-4 sm:px-6 pt-2 flex-shrink-0 gap-4 overflow-x-auto scrollbar-none" style={{ background: 'rgba(9, 10, 24, 0.5)', borderBottom: '1px solid rgba(125, 105, 255, 0.12)' }}>
           <button
             onClick={() => setActiveTab('test')}
-            className="pb-2.5 text-xs font-semibold flex items-center gap-1.5 transition-all"
+            className="pb-2.5 text-xs font-semibold flex items-center gap-1.5 transition-all whitespace-nowrap"
             style={{
               borderBottom: activeTab === 'test' ? '2px solid #7655F5' : '2px solid transparent',
               color: activeTab === 'test' ? '#7655F5' : '#999BBE',
@@ -216,7 +218,7 @@ export default function SpeedTestModal({
 
           <button
             onClick={() => setActiveTab('users')}
-            className="pb-2.5 text-xs font-semibold flex items-center gap-1.5 transition-all"
+            className="pb-2.5 text-xs font-semibold flex items-center gap-1.5 transition-all whitespace-nowrap"
             style={{
               borderBottom: activeTab === 'users' ? '2px solid #7655F5' : '2px solid transparent',
               color: activeTab === 'users' ? '#7655F5' : '#999BBE',
@@ -228,7 +230,7 @@ export default function SpeedTestModal({
         </div>
 
         {/* Modal Tartalom */}
-        <div className="p-6 overflow-y-auto flex-1">
+        <div className="p-4 sm:p-6 overflow-y-auto flex-1">
           {activeTab === 'test' ? (
             /* TAB 1: SAJÁT SEBESSÉGMÉRŐ */
             <div className="flex flex-col items-center">
@@ -288,7 +290,7 @@ export default function SpeedTestModal({
               {/* Fázis szöveges jelzése */}
               <div className="h-6 mb-4 flex items-center justify-center">
                 {testState === 'ping' && (
-                  <span className="text-xs font-semibold flex items-center gap-1.5 animate-pulse" style={{ color: '#f5b041' }}>
+                  <span className="text-xs font-semibold flex items-center gap-1.5 animate-pulse" style={{ color: '#F5B041' }}>
                     <Activity className="w-3.5 h-3.5" /> 1/3: Ping & Jitter mérése...
                   </span>
                 )}
@@ -318,7 +320,7 @@ export default function SpeedTestModal({
                   </span>
                   <span className="text-base font-bold" style={{
                     color: pingResult !== null
-                      ? pingResult < 40 ? '#28C997' : pingResult < 90 ? '#f5b041' : '#E94B64'
+                      ? pingResult < 40 ? '#28C997' : pingResult < 90 ? '#F5B041' : '#E94B64'
                       : '#999BBE'
                   }}>
                     {pingResult !== null ? `${pingResult} ms` : '—'}
@@ -390,7 +392,7 @@ export default function SpeedTestModal({
                     onMouseOver={e => e.currentTarget.style.background = '#242b50'}
                     onMouseOut={e => e.currentTarget.style.background = '#1B2040'}
                   >
-                    <Share2 className="w-4 h-4" style={{ color: '#f5b041' }} />
+                    <Share2 className="w-4 h-4" style={{ color: '#F5B041' }} />
                     <span className="hidden sm:inline">Megosztás Chatben</span>
                   </button>
                 )}
@@ -415,22 +417,17 @@ export default function SpeedTestModal({
                   >
                     {/* User infó */}
                     <div className="flex items-center gap-2.5 min-w-0">
-                      <div
-                        className="w-9 h-9 rounded-full flex items-center justify-center text-white text-xs font-bold flex-shrink-0"
-                        style={{ backgroundColor: u.avatarColor || '#7655F5' }}
-                      >
-                        {u.username.charAt(0).toUpperCase()}
-                      </div>
+                      <Avatar user={u} size="md" badgeBorderColor="#151832" />
                       <div className="min-w-0">
                         <div className="text-sm font-semibold truncate flex items-center gap-1.5" style={{ color: '#F4F3FF' }}>
-                          <span>{u.username}</span>
+                          <span className="truncate" title={u.username}>{u.username}</span>
                           {isSelf && (
                             <span className="text-[10px] px-1.5 py-0.5 rounded" style={{ color: '#999BBE', background: '#1B2040' }}>
                               Te
                             </span>
                           )}
                         </div>
-                        <div className="text-[11px] flex items-center gap-2" style={{ color: '#999BBE' }}>
+                        <div className="text-[11px] flex flex-wrap items-center gap-x-2" style={{ color: '#999BBE' }}>
                           {hasResult ? (
                             <>
                               <span className="flex items-center gap-0.5 font-medium" style={{ color: '#28C997' }}>
@@ -455,7 +452,7 @@ export default function SpeedTestModal({
                         type="button"
                         onClick={() => onRequestUserTest(u.id, u.username)}
                         title="Sebességteszt kérése a felhasználótól"
-                        className="px-3 py-1.5 rounded-lg text-xs font-semibold transition-all flex items-center gap-1.5 flex-shrink-0"
+                        className="px-3 py-2 min-h-[36px] rounded-xl text-xs font-semibold transition-all flex items-center gap-1.5 flex-shrink-0"
                         style={{ background: '#1B2040', color: '#F4F3FF', border: '1px solid rgba(125, 105, 255, 0.2)' }}
                         onMouseOver={e => e.currentTarget.style.background = '#242b50'}
                         onMouseOut={e => e.currentTarget.style.background = '#1B2040'}

@@ -111,7 +111,7 @@ function CodeBlock({ node }) {
   }, [node.code, isAnsi, grammar]);
 
   return (
-    <div className="md-codeblock group/code">
+    <div className="md-codeblock group/code max-w-full min-w-0 rounded-xl">
       {node.lang && <div className="md-codeblock-lang">{node.lang}</div>}
       <pre
         className={revealed ? undefined : 'md-codeblock-hidden'}
@@ -124,7 +124,7 @@ function CodeBlock({ node }) {
           text={copyText}
           title="Kód másolása"
           label="Másolás"
-          className="md-codeblock-copy opacity-0 group-hover/code:opacity-100 focus:opacity-100"
+          className="md-codeblock-copy opacity-100 sm:opacity-0 sm:group-hover/code:opacity-100 focus:opacity-100"
         />
       ) : (
         <button type="button" className="md-codeblock-reveal" onClick={() => setRevealed(true)}>
@@ -281,7 +281,7 @@ function renderBlocks(blocks) {
 function MessageContent({ text, className = '' }) {
   const blocks = useMemo(() => parseMessage(text), [text]);
   const jumbo = useMemo(() => isEmojiOnly(text), [text]);
-  return <div className={`md-root ${jumbo ? 'md-jumbo' : ''} ${className}`}>{renderBlocks(blocks)}</div>;
+  return <div className={`md-root min-w-0 max-w-full ${jumbo ? 'md-jumbo' : ''} ${className}`}>{renderBlocks(blocks)}</div>;
 }
 
 export default memo(MessageContent);

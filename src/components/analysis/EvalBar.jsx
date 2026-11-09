@@ -11,7 +11,7 @@ export default function EvalBar({ score, terminal = null, flipped = false }) {
   return (
     <div
       className="relative w-7 sm:w-8 rounded-md overflow-hidden flex-shrink-0 self-stretch"
-      style={{ background: '#1B1C33', border: '1px solid rgba(125, 105, 255, 0.2)' }}
+      style={{ background: '#1B2040', border: '1px solid rgba(125, 105, 255, 0.2)' }}
       role="img"
       aria-label={`Értékelés: ${label} (${whiteAhead ? 'fehér' : 'fekete'} előnyben)`}
     >

@@ -1,4 +1,5 @@
 import React, { useState } from 'react';
+import Avatar from './Avatar';
 import { User, Lock, Sparkles, LogIn, UserPlus, Shield, Eye, EyeOff } from 'lucide-react';
 
 const AVATAR_COLORS = [
@@ -66,9 +67,9 @@ export default function LoginModal({ onLogin, authError }) {
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-[#090A18]/95 backdrop-blur-md select-none">
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4 pt-safe pb-safe bg-black/60 backdrop-blur-md select-none">
       <div 
-        className="p-6 sm:p-8 rounded-2xl shadow-2xl max-w-md w-full bg-[#101329] border border-[#7655F5]/30 relative overflow-hidden"
+        className="p-6 sm:p-8 rounded-2xl shadow-2xl max-w-lg w-full max-h-[90vh] overflow-y-auto overflow-x-hidden bg-[#151832] border border-[#7655F5]/30 relative"
         style={{ boxShadow: '0 25px 60px rgba(9, 10, 24, 0.9), 0 0 40px rgba(118, 85, 245, 0.2)' }}
       >
         {/* Háttér fényeffekt */}
@@ -88,12 +89,18 @@ export default function LoginModal({ onLogin, authError }) {
             </div>
           </div>
 
-          <div
-            className="w-16 h-16 rounded-2xl flex items-center justify-center text-white text-2xl font-black shadow-lg mb-2 transition-all border border-white/20"
-            style={{ backgroundColor: selectedColor, boxShadow: `0 0 24px ${selectedColor}50` }}
-          >
-            {username.trim() ? username.trim().charAt(0).toUpperCase() : '🦈'}
-          </div>
+          {username.trim() ? (
+            <div className="mb-2 rounded-full transition-all" style={{ boxShadow: `0 0 24px ${selectedColor}50` }}>
+              <Avatar username={username.trim()} avatarColor={selectedColor} size="xl" />
+            </div>
+          ) : (
+            <div
+              className="w-[72px] h-[72px] rounded-full flex items-center justify-center text-white text-3xl font-black shadow-lg mb-2 transition-all border border-white/20"
+              style={{ backgroundColor: selectedColor, boxShadow: `0 0 24px ${selectedColor}50` }}
+            >
+              🦈
+            </div>
+          )}
           
           <h2 className="text-xl font-bold text-[#F4F3FF]">
             {mode === 'login' ? 'Üdvözlünk újra!' : mode === 'register' ? 'Fiók Regisztráció' : 'Vendég Belépés'}
@@ -108,11 +115,11 @@ export default function LoginModal({ onLogin, authError }) {
         </div>
 
         {/* Módváltó fülek: Bejelentkezés | Regisztráció */}
-        <div className="flex p-1 bg-[#151832] rounded-xl border border-[#7655F5]/20 mb-5">
+        <div className="flex p-1 bg-[#101329] rounded-xl border border-[#7655F5]/20 mb-5">
           <button
             type="button"
             onClick={() => { setMode('login'); setLocalError(''); }}
-            className={`flex-1 py-2 text-xs font-bold rounded-lg transition-all flex items-center justify-center gap-1.5 cursor-pointer ${
+            className={`flex-1 py-2.5 min-h-[40px] text-xs font-bold rounded-lg transition-all flex items-center justify-center gap-1.5 cursor-pointer ${
               mode === 'login' 
                 ? 'bg-gradient-to-r from-[#7655F5] to-[#536CFF] text-white shadow' 
                 : 'text-[#999BBE] hover:text-[#F4F3FF]'
@@ -124,7 +131,7 @@ export default function LoginModal({ onLogin, authError }) {
           <button
             type="button"
             onClick={() => { setMode('register'); setLocalError(''); }}
-            className={`flex-1 py-2 text-xs font-bold rounded-lg transition-all flex items-center justify-center gap-1.5 cursor-pointer ${
+            className={`flex-1 py-2.5 min-h-[40px] text-xs font-bold rounded-lg transition-all flex items-center justify-center gap-1.5 cursor-pointer ${
               mode === 'register' 
                 ? 'bg-gradient-to-r from-[#7655F5] to-[#536CFF] text-white shadow' 
                 : 'text-[#999BBE] hover:text-[#F4F3FF]'
@@ -137,9 +144,9 @@ export default function LoginModal({ onLogin, authError }) {
 
         {/* Hibaüzenet */}
         {displayError && (
-          <div className="mb-4 p-2.5 rounded-xl bg-[#E94B64]/15 border border-[#E94B64]/40 text-[#E94B64] text-xs font-semibold flex items-center gap-2">
+          <div className="mb-4 p-2.5 rounded-xl bg-[#E94B64]/15 border border-[#E94B64]/40 text-[#E94B64] text-xs font-semibold flex items-center gap-2" role="alert">
             <span>⚠️</span>
-            <span>{displayError}</span>
+            <span className="min-w-0 break-words">{displayError}</span>
           </div>
         )}
 
@@ -159,7 +166,7 @@ export default function LoginModal({ onLogin, authError }) {
                 }}
                 placeholder="Pl. Alex, GamerGabi..."
                 autoFocus
-                className="w-full pl-3.5 pr-10 py-2.5 rounded-xl bg-[#151832] border border-[#7655F5]/30 focus:border-[#7655F5] outline-none text-sm text-[#F4F3FF] font-medium transition"
+                className="w-full pl-3.5 pr-10 py-2.5 rounded-xl bg-[#101329] border border-[#7655F5]/30 focus:border-[#7655F5] outline-none text-sm text-[#F4F3FF] font-medium transition"
               />
               <User className="absolute right-3 top-3 w-4 h-4 text-[#999BBE]" />
             </div>
@@ -180,12 +187,12 @@ export default function LoginModal({ onLogin, authError }) {
                     setLocalError('');
                   }}
                   placeholder={mode === 'register' ? 'Legalább 4 karakter...' : 'Jelszavad...'}
-                  className="w-full pl-3.5 pr-10 py-2.5 rounded-xl bg-[#151832] border border-[#7655F5]/30 focus:border-[#7655F5] outline-none text-sm text-[#F4F3FF] font-medium transition"
+                  className="w-full pl-3.5 pr-10 py-2.5 rounded-xl bg-[#101329] border border-[#7655F5]/30 focus:border-[#7655F5] outline-none text-sm text-[#F4F3FF] font-medium transition"
                 />
                 <button
                   type="button"
                   onClick={() => setShowPassword(!showPassword)}
-                  className="absolute right-3 top-3 text-[#999BBE] hover:text-white transition cursor-pointer"
+                  className="absolute right-1 top-0 h-full px-2.5 flex items-center text-[#999BBE] hover:text-white transition cursor-pointer"
                 >
                   {showPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
                 </button>
@@ -199,13 +206,13 @@ export default function LoginModal({ onLogin, authError }) {
               <label className="block text-xs font-bold uppercase tracking-wider mb-1.5 text-[#999BBE]">
                 Profil Szín
               </label>
-              <div className="flex items-center gap-2 justify-center py-1">
+              <div className="flex flex-wrap items-center gap-2.5 justify-center py-1">
                 {AVATAR_COLORS.map((color) => (
                   <button
                     key={color}
                     type="button"
                     onClick={() => setSelectedColor(color)}
-                    className={`w-7 h-7 rounded-full transition-transform cursor-pointer ${
+                    className={`w-8 h-8 rounded-full transition-transform cursor-pointer ${
                       selectedColor === color
                         ? 'scale-125 ring-2 ring-white ring-offset-2 ring-offset-[#101329]'
                         : 'hover:scale-110 opacity-75 hover:opacity-100'
@@ -222,7 +229,7 @@ export default function LoginModal({ onLogin, authError }) {
             type="submit"
             className="w-full py-3 px-4 rounded-xl font-bold text-sm text-white bg-gradient-to-r from-[#7655F5] to-[#536CFF] hover:brightness-110 shadow-lg transition-all flex items-center justify-center gap-2 mt-2 cursor-pointer"
           >
-            <Sparkles className="w-4 h-4 text-amber-300" />
+            <Sparkles className="w-4 h-4 text-[#F5B041]" />
             <span>
               {mode === 'login' ? 'Bejelentkezés' : mode === 'register' ? 'Fiók Létrehozása' : 'Belépés Vendégként'}
             </span>

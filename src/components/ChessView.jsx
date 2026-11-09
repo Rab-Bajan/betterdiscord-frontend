@@ -1,5 +1,6 @@
 import React, { useState, useMemo } from 'react';
 import { Chess } from 'chess.js';
+import Avatar from './Avatar';
 import { 
   Trophy, 
   RotateCcw, 
@@ -160,7 +161,7 @@ export default function ChessView({
               onClick={() => onStart('white')}
               className="w-full py-3.5 px-4 rounded-xl font-semibold text-sm bg-gradient-to-r from-[#7655F5] to-[#536CFF] hover:brightness-110 text-white shadow-lg transition-all flex items-center justify-center gap-2 group cursor-pointer"
             >
-              <Crown className="w-4 h-4 text-amber-300 group-hover:scale-110 transition-transform" />
+              <Crown className="w-4 h-4 text-[#F5B041] group-hover:scale-110 transition-transform" />
               <span>Parti indítása (Fehérként kezdek)</span>
             </button>
 
@@ -184,7 +185,7 @@ export default function ChessView({
   return (
     <div className="flex-1 flex flex-col min-w-0 h-full overflow-hidden bg-[#090A18]/95 select-none relative">
       {/* Felső fejléc sáv */}
-      <div className="flex items-center justify-between px-4 sm:px-6 py-3 border-b border-[#7655F5]/20 bg-[#101329]/90 backdrop-blur-md z-10 flex-shrink-0">
+      <div className="flex items-center justify-between gap-2 px-4 sm:px-6 py-3 border-b border-[#7655F5]/20 bg-[#101329]/90 backdrop-blur-md z-10 flex-shrink-0">
         <div className="flex items-center gap-3 min-w-0">
           <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-[#7655F5] to-[#536CFF] flex items-center justify-center text-white text-lg flex-shrink-0 shadow-md">
             ♟️
@@ -236,7 +237,7 @@ export default function ChessView({
             <button
               onClick={onClose}
               title="Vissza a csatornához"
-              className="p-1.5 rounded-lg text-[#999BBE] hover:text-white hover:bg-[#1B2040] transition-colors cursor-pointer"
+              className="p-2 min-w-[40px] min-h-[40px] flex items-center justify-center rounded-lg text-[#999BBE] hover:text-white hover:bg-[#1B2040] transition-colors cursor-pointer"
             >
               <X className="w-4 h-4" />
             </button>
@@ -245,13 +246,13 @@ export default function ChessView({
       </div>
 
       {/* Fő tartalom: Sakk tábla és Információs sáv */}
-      <div className="flex-1 flex flex-col lg:flex-row items-center justify-center gap-4 sm:gap-6 p-2 sm:p-4 md:p-6 overflow-y-auto">
+      <div className="flex-1 min-h-0 flex flex-col lg:flex-row items-center lg:items-start justify-start lg:justify-center gap-4 sm:gap-6 p-2 sm:p-4 md:p-6 overflow-y-auto">
         
         {/* Bal oldali rész: A Sakk tábla */}
         <div className="flex flex-col items-center max-w-full">
           
           {/* Felső játékos kártya (Ellenfelem vagy a másik szín) */}
-          <div className="w-full max-w-[420px] sm:max-w-[480px] md:max-w-[520px] flex items-center justify-between px-3 py-2 bg-[#151832] border border-[#7655F5]/20 rounded-t-xl mb-1 shadow-sm">
+          <div className="w-full max-w-[min(80vw,480px)] md:max-w-[min(520px,70vh)] lg:max-w-[min(560px,75vh)] flex items-center justify-between px-3 py-2 bg-[#151832] border border-[#7655F5]/20 rounded-t-xl mb-1 shadow-sm">
             {boardFlipped ? (
               // Ha meg van fordítva a tábla, felül a Fehér van
               <PlayerCard
@@ -279,7 +280,7 @@ export default function ChessView({
 
           {/* Sakk tábla rács */}
           <div 
-            className="w-[92vw] h-[92vw] max-w-[420px] max-h-[420px] sm:w-[480px] sm:h-[480px] sm:max-w-[480px] sm:max-h-[480px] md:w-[520px] md:h-[520px] md:max-w-[520px] md:max-h-[520px] bg-[#101329] p-1.5 sm:p-2 rounded-xl shadow-2xl border-2 border-[#7655F5]/30 flex flex-col relative select-none"
+            className="w-[min(80vw,480px)] h-[min(80vw,480px)] md:w-[min(520px,70vh)] md:h-[min(520px,70vh)] lg:w-[min(560px,75vh)] lg:h-[min(560px,75vh)] flex-shrink-0 bg-[#101329] p-1.5 sm:p-2 rounded-xl shadow-2xl border-2 border-[#7655F5]/30 flex flex-col relative select-none"
             style={{ boxShadow: '0 20px 50px rgba(9, 10, 24, 0.8), 0 0 30px rgba(118, 85, 245, 0.15)' }}
           >
             {ranks.map((rank) => (
@@ -350,7 +351,7 @@ export default function ChessView({
           </div>
 
           {/* Alsó játékos kártya (Én vagy a kezdő szín) */}
-          <div className="w-full max-w-[420px] sm:max-w-[480px] md:max-w-[520px] flex items-center justify-between px-3 py-2 bg-[#151832] border border-[#7655F5]/20 rounded-b-xl mt-1 shadow-sm">
+          <div className="w-full max-w-[min(80vw,480px)] md:max-w-[min(520px,70vh)] lg:max-w-[min(560px,75vh)] flex items-center justify-between px-3 py-2 bg-[#151832] border border-[#7655F5]/20 rounded-b-xl mt-1 shadow-sm">
             {boardFlipped ? (
               // Ha meg van fordítva, lent a Fekete van
               <PlayerCard
@@ -388,8 +389,8 @@ export default function ChessView({
             </h3>
 
             {session.status === 'waiting' && (
-              <div className="bg-[#101329] border border-amber-500/30 rounded-lg p-3 text-center">
-                <p className="text-xs font-semibold text-amber-400 mb-2">
+              <div className="bg-[#101329] border border-[#F5B041]/30 rounded-lg p-3 text-center">
+                <p className="text-xs font-semibold text-[#F5B041] mb-2">
                   Várakozás a 2. játékosra...
                 </p>
                 {canJoinBlack && (
@@ -451,7 +452,7 @@ export default function ChessView({
             {/* Játék vége nézet */}
             {['checkmate', 'draw', 'resigned'].includes(session.status) && (
               <div className="bg-[#101329] border border-[#7655F5]/40 rounded-xl p-3 text-center space-y-2.5">
-                <Trophy className="w-8 h-8 text-amber-400 mx-auto" />
+                <Trophy className="w-8 h-8 text-[#F5B041] mx-auto" />
                 <div>
                   <div className="text-sm font-bold text-[#F4F3FF]">
                     {session.status === 'checkmate' && '🏆 SAKK-MATT!'}
@@ -468,7 +469,7 @@ export default function ChessView({
                 {isPlayer && (
                   <button
                     onClick={onRematch}
-                    className="w-full py-2 px-3 rounded-lg text-xs font-bold bg-gradient-to-r from-[#28C997] to-[#1bb585] text-white hover:brightness-110 shadow transition-all flex items-center justify-center gap-1.5 cursor-pointer"
+                    className="w-full py-2 px-3 rounded-lg text-xs font-bold bg-gradient-to-r from-[#28C997] to-[#28C997] text-white hover:brightness-110 shadow transition-all flex items-center justify-center gap-1.5 cursor-pointer"
                   >
                     <RotateCcw className="w-3.5 h-3.5" />
                     <span>Új játék / Visszavágó</span>
@@ -543,7 +544,7 @@ function PlayerCard({ player, colorName, isTurn, pieceIcon, isMe, canJoin, onJoi
         {canJoin && (
           <button
             onClick={onJoin}
-            className="px-2.5 py-1 rounded-lg text-xs font-bold bg-[#7655F5] hover:bg-[#6846e3] text-white transition-all shadow cursor-pointer"
+            className="px-2.5 py-1 rounded-lg text-xs font-bold bg-[#7655F5] hover:brightness-110 text-white transition-all shadow cursor-pointer"
           >
             Beszállás
           </button>
@@ -555,13 +556,8 @@ function PlayerCard({ player, colorName, isTurn, pieceIcon, isMe, canJoin, onJoi
   return (
     <div className="flex items-center justify-between w-full">
       <div className="flex items-center gap-2.5 min-w-0">
-        <div
-          className={`w-7 h-7 rounded-lg flex items-center justify-center text-xs font-bold text-white shadow relative ${
-            isTurn ? 'ring-2 ring-[#7655F5] ring-offset-1 ring-offset-[#151832]' : ''
-          }`}
-          style={{ background: player.avatarColor || '#7655F5' }}
-        >
-          {player.username?.charAt(0)?.toUpperCase()}
+        <div className="relative flex-shrink-0">
+          <Avatar user={player} size="sm" speaking={isTurn} />
           {isTurn && (
             <span className="absolute -top-1 -right-1 w-2.5 h-2.5 bg-[#28C997] rounded-full border-2 border-[#151832] animate-ping" />
           )}

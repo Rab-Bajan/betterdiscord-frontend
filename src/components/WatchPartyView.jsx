@@ -284,29 +284,29 @@ export default function WatchPartyView({
   return (
     <div
       ref={containerRef}
-      className="flex-1 flex flex-col bg-[#0b0813] overflow-hidden select-none border-t border-discord-dark relative"
+      className="flex-1 flex flex-col bg-[#090A18] overflow-hidden select-none border-t border-[#7655F5]/15 relative"
     >
       {/* 1. FEJLÉC SÁV */}
-      <div className="h-13 bg-[#130d22] border-b border-[#2b1b48] px-4 flex items-center justify-between shadow-md flex-shrink-0 z-20 gap-3">
+      <div className="h-13 bg-[#101329] border-b border-[#7655F5]/15 px-4 flex items-center justify-between shadow-md flex-shrink-0 z-20 gap-3">
         <div className="flex items-center gap-2.5 truncate">
-          <div className="w-8 h-8 rounded-lg bg-gradient-to-tr from-red-600 to-rose-600 flex items-center justify-center text-white shadow-md shadow-red-500/20 flex-shrink-0">
+          <div className="w-8 h-8 rounded-lg bg-gradient-to-tr from-[#E94B64] to-[#c93a52] flex items-center justify-center text-white shadow-md shadow-[#E94B64]/20 flex-shrink-0">
             <span className="text-base">🔴</span>
           </div>
           <div className="truncate">
             <div className="flex items-center gap-2">
-              <span className="font-extrabold text-transparent bg-clip-text bg-gradient-to-r from-red-300 via-rose-200 to-pink-200 text-sm tracking-wide">
+              <span className="font-extrabold text-transparent bg-clip-text bg-gradient-to-r from-[#F4F3FF] to-[#999BBE] text-sm tracking-wide">
                 YOUTUBE WATCH TOGETHER
               </span>
               {isSessionActive && (
-                <span className="text-[10px] bg-red-500/20 text-red-300 border border-red-500/40 px-2 py-0.2 rounded-full font-bold uppercase tracking-wider flex items-center gap-1 animate-pulse">
-                  <span className="w-1.5 h-1.5 rounded-full bg-red-400 inline-block"></span>
+                <span className="text-[10px] bg-[#E94B64]/20 text-[#E94B64] border border-[#E94B64]/40 px-2 py-0.2 rounded-full font-bold uppercase tracking-wider flex items-center gap-1 animate-pulse">
+                  <span className="w-1.5 h-1.5 rounded-full bg-[#E94B64] inline-block"></span>
                   ÉLŐ SZINKRON
                 </span>
               )}
             </div>
             {isSessionActive && (
-              <div className="text-[11px] text-discord-textMuted truncate">
-                Videó: <strong className="text-red-200">{watchState.title || watchState.url}</strong> • Indította: {watchState.startedBy || 'Valaki'}
+              <div className="text-[11px] text-[#999BBE] truncate">
+                Videó: <strong className="text-[#F4F3FF]">{watchState.title || watchState.url}</strong> • Indította: {watchState.startedBy || 'Valaki'}
               </div>
             )}
           </div>
@@ -314,19 +314,19 @@ export default function WatchPartyView({
 
         {/* Gyors YouTube link beviteli mező a fejlécben */}
         <div className="hidden lg:flex items-center gap-2 flex-1 max-w-xl mx-4">
-          <div className="flex-1 flex items-center bg-[#1c1333] border border-[#3d2763] rounded-lg px-2.5 py-1 focus-within:border-red-400 transition">
+          <div className="flex-1 flex items-center bg-[#1B2040] border border-[#7655F5]/20 rounded-lg px-2.5 py-1 focus-within:border-[#7655F5]/60 transition">
             <input
               type="text"
               value={inputUrl}
               onChange={(e) => setInputUrl(e.target.value)}
               onKeyDown={(e) => e.key === 'Enter' && handleStartMedia()}
               placeholder="Másolj be YouTube videó linket (pl. https://youtu.be/...)"
-              className="bg-transparent text-xs text-white placeholder-gray-400 focus:outline-none flex-1 truncate"
+              className="bg-transparent text-xs text-[#F4F3FF] placeholder-[#999BBE] focus:outline-none flex-1 truncate"
             />
             {inputUrl && (
               <button
                 onClick={() => setInputUrl('')}
-                className="text-gray-400 hover:text-white text-xs px-1"
+                className="text-[#999BBE] hover:text-white text-xs px-1"
               >
                 ×
               </button>
@@ -334,7 +334,7 @@ export default function WatchPartyView({
           </div>
           <button
             onClick={() => handleStartMedia()}
-            className="px-3 py-1.5 bg-gradient-to-r from-red-600 to-rose-600 hover:from-red-500 hover:to-rose-500 text-white rounded-lg text-xs font-bold shadow transition flex items-center gap-1.5 flex-shrink-0"
+            className="px-3 py-1.5 bg-gradient-to-r from-[#E94B64] to-[#c93a52] hover:brightness-110 text-white rounded-lg text-xs font-bold shadow transition flex items-center gap-1.5 flex-shrink-0"
           >
             <Play className="w-3.5 h-3.5 fill-current" />
             <span>Betöltés</span>
@@ -349,7 +349,7 @@ export default function WatchPartyView({
               <button
                 onClick={handleResync}
                 title="Videó időkód újraszinkronizálása a szobához"
-                className="p-1.5 rounded bg-[#1e1431] hover:bg-[#2c1d47] text-gray-300 hover:text-white transition border border-[#3b2361]"
+                className="p-2 min-w-[40px] min-h-[40px] flex items-center justify-center rounded-lg bg-[#1B2040] hover:bg-[#242b50] text-[#999BBE] hover:text-white transition border border-[#7655F5]/20"
               >
                 <RotateCcw className="w-4 h-4" />
               </button>
@@ -358,7 +358,7 @@ export default function WatchPartyView({
               <button
                 onClick={handleTriggerCountdown}
                 title="Közös visszaszámlálás indítása (3-2-1)"
-                className="flex items-center gap-1 px-2.5 py-1.5 rounded bg-amber-500/10 hover:bg-amber-500/20 text-amber-300 border border-amber-500/30 text-xs font-semibold transition"
+                className="flex items-center gap-1 px-2.5 py-2 min-h-[40px] rounded-lg bg-[#F5B041]/10 hover:bg-[#F5B041]/20 text-[#F5B041] border border-[#F5B041]/30 text-xs font-semibold transition"
               >
                 <Timer className="w-3.5 h-3.5 animate-pulse" />
                 <span className="hidden sm:inline">3-2-1 Szinkron</span>
@@ -367,7 +367,7 @@ export default function WatchPartyView({
               <button
                 onClick={toggleFullScreen}
                 title={isFullScreen ? 'Kilépés a teljes képernyőből' : 'Teljes képernyő'}
-                className="p-1.5 rounded bg-[#1e1431] hover:bg-[#2c1d47] text-red-200 hover:text-white transition border border-[#3b2361]"
+                className="p-2 min-w-[40px] min-h-[40px] flex items-center justify-center rounded-lg bg-[#1B2040] hover:bg-[#242b50] text-[#F4F3FF] transition border border-[#7655F5]/20"
               >
                 {isFullScreen ? <Minimize2 className="w-4 h-4" /> : <Maximize2 className="w-4 h-4" />}
               </button>
@@ -375,7 +375,7 @@ export default function WatchPartyView({
               <button
                 onClick={handleStopSession}
                 title="YouTube session leállítása mindenki számára"
-                className="flex items-center gap-1 px-2.5 py-1.5 rounded bg-red-950/70 hover:bg-red-900 border border-red-800/60 text-red-300 text-xs font-semibold transition"
+                className="flex items-center gap-1 px-2.5 py-2 min-h-[40px] rounded-lg bg-[#E94B64]/15 hover:bg-[#E94B64]/25 border border-[#E94B64]/30 text-[#E94B64] text-xs font-semibold transition"
               >
                 <PowerOff className="w-3.5 h-3.5" />
                 <span className="hidden sm:inline">Leállítás</span>
@@ -386,7 +386,7 @@ export default function WatchPartyView({
           <button
             onClick={onClose}
             title="Vissza a szobába (Hang és videó a háttérben megmarad)"
-            className="flex items-center gap-1.5 px-3 py-1.5 rounded bg-[#23173d] hover:bg-[#312053] text-gray-200 hover:text-white text-xs font-semibold transition border border-[#3f276b]"
+            className="flex items-center gap-1.5 px-3 py-2 min-h-[40px] rounded-lg bg-[#1B2040] hover:bg-[#242b50] text-[#F4F3FF] text-xs font-semibold transition border border-[#7655F5]/20"
           >
             <LogOut className="w-3.5 h-3.5" />
             <span className="hidden sm:inline">Vissza</span>
@@ -398,13 +398,13 @@ export default function WatchPartyView({
       {countdownNumber !== null && (
         <div className="absolute inset-0 z-50 flex items-center justify-center bg-black/75 backdrop-blur-md pointer-events-none animate-in fade-in duration-200">
           <div className="flex flex-col items-center gap-3">
-            <span className="text-xs font-bold uppercase tracking-widest text-amber-300 bg-amber-500/20 px-3 py-1 rounded-full border border-amber-500/30">
+            <span className="text-xs font-bold uppercase tracking-widest text-[#F5B041] bg-[#F5B041]/20 px-3 py-1 rounded-full border border-[#F5B041]/30">
               ⏱️ {countdownSender} szinkron visszaszámlálást indított
             </span>
-            <div className="text-8xl sm:text-9xl font-black text-transparent bg-clip-text bg-gradient-to-tr from-amber-400 via-red-400 to-rose-300 animate-bounce">
+            <div className="text-8xl sm:text-9xl font-black text-transparent bg-clip-text bg-gradient-to-tr from-[#F5B041] to-[#E94B64] animate-bounce">
               {countdownNumber === 0 ? '▶️ INDÍTÁS!' : countdownNumber}
             </div>
-            <span className="text-xs text-gray-300">
+            <span className="text-xs text-[#999BBE]">
               {countdownNumber === 0 ? 'Kattints a lejátszásra most!' : 'Készülj fel a lejátszásra...'}
             </span>
           </div>
@@ -430,38 +430,38 @@ export default function WatchPartyView({
       {/* 4. TARTALOM TERÜLET */}
       {!isSessionActive ? (
         /* KEZDŐ INDÍTÓ KÉPERNYŐ */
-        <div className="flex-1 flex flex-col items-center justify-center p-6 text-center relative overflow-y-auto bg-radial from-[#1e0d16] via-[#10080e] to-[#070407]">
-          <div className="max-w-xl w-full flex flex-col items-center gap-6 p-8 rounded-3xl bg-[#170a13]/90 border border-red-500/20 shadow-2xl backdrop-blur-2xl">
-            <div className="w-20 h-20 rounded-3xl bg-gradient-to-tr from-red-600 via-rose-600 to-red-500 flex items-center justify-center text-4xl shadow-xl shadow-red-500/30 border border-white/20 animate-pulse">
+        <div className="flex-1 min-h-0 flex flex-col items-center [justify-content:safe_center] p-6 text-center relative overflow-y-auto bg-[#090A18]">
+          <div className="max-w-xl w-full flex flex-col items-center gap-6 p-8 rounded-3xl bg-[#151832]/95 border border-[#7655F5]/20 shadow-2xl backdrop-blur-2xl">
+            <div className="w-20 h-20 rounded-3xl bg-gradient-to-tr from-[#E94B64] to-[#c93a52] flex items-center justify-center text-4xl shadow-xl shadow-[#E94B64]/30 border border-white/20 animate-pulse">
               🔴
             </div>
 
             <div>
-              <h2 className="text-2xl sm:text-3xl font-black text-transparent bg-clip-text bg-gradient-to-r from-red-200 via-rose-100 to-pink-200 tracking-wide">
+              <h2 className="text-2xl sm:text-3xl font-black text-transparent bg-clip-text bg-gradient-to-r from-[#F4F3FF] to-[#999BBE] tracking-wide">
                 YOUTUBE WATCH TOGETHER
               </h2>
-              <p className="text-red-100/70 text-xs sm:text-sm mt-1 max-w-md">
+              <p className="text-[#999BBE] text-xs sm:text-sm mt-1 max-w-md">
                 Nézzetek YouTube videókat és klipeket szinkronban a hangcsatorna tagjaival! Bárki indíthatja vagy megállíthatja a videót.
               </p>
             </div>
 
             {/* URL Beviteli Mező */}
             <div className="w-full space-y-3">
-              <div className="flex items-center bg-[#1d0c17] border-2 border-red-500/30 focus-within:border-red-400 rounded-xl px-3 py-2.5 transition">
-                <Link className="w-4 h-4 text-red-300 mr-2 flex-shrink-0" />
+              <div className="flex items-center bg-[#1B2040] border-2 border-[#7655F5]/30 focus-within:border-[#7655F5]/60 rounded-xl px-3 py-2.5 transition">
+                <Link className="w-4 h-4 text-[#E94B64] mr-2 flex-shrink-0" />
                 <input
                   type="text"
                   value={inputUrl}
                   onChange={(e) => setInputUrl(e.target.value)}
                   onKeyDown={(e) => e.key === 'Enter' && handleStartMedia()}
                   placeholder="Illeszd be a YouTube videó linkjét (pl. https://www.youtube.com/watch?v=...)"
-                  className="bg-transparent text-sm text-white placeholder-gray-400 focus:outline-none flex-1"
+                  className="bg-transparent text-sm text-[#F4F3FF] placeholder-[#999BBE] focus:outline-none flex-1"
                 />
               </div>
 
               <button
                 onClick={() => handleStartMedia()}
-                className="w-full py-3.5 px-6 rounded-xl bg-gradient-to-r from-red-600 via-rose-600 to-red-700 hover:from-red-500 hover:to-rose-500 text-white font-extrabold text-sm tracking-wide shadow-xl shadow-red-600/30 transform active:scale-[0.99] transition flex items-center justify-center gap-2 border border-white/20"
+                className="w-full py-3.5 px-6 rounded-xl bg-gradient-to-r from-[#E94B64] to-[#c93a52] hover:brightness-110 text-white font-extrabold text-sm tracking-wide shadow-xl shadow-[#E94B64]/30 transform active:scale-[0.99] transition flex items-center justify-center gap-2 border border-white/20"
               >
                 <Sparkles className="w-4 h-4" />
                 <span>KÖZÖS LEJÁTSZÁS INDÍTÁSA (1 KATTINTÁS)</span>
@@ -470,7 +470,7 @@ export default function WatchPartyView({
 
             {/* Ajánlott Gyorsindítók */}
             <div className="w-full space-y-2 pt-2 border-t border-white/10 text-left">
-              <div className="text-[11px] font-bold uppercase tracking-wider text-gray-400">
+              <div className="text-[11px] font-bold uppercase tracking-wider text-[#999BBE]">
                 Népszerű YouTube Videók:
               </div>
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-xs">
@@ -478,48 +478,48 @@ export default function WatchPartyView({
                   onClick={() =>
                     handleStartMedia('https://www.youtube.com/watch?v=jfKfPfyJRdk', 'Lofi Girl 24/7 Relax')
                   }
-                  className="p-2.5 rounded-xl bg-[#200d1a] hover:bg-[#2e1326] border border-white/5 flex items-center gap-2 text-left transition"
+                  className="p-2.5 rounded-xl bg-[#1B2040] hover:bg-[#242b50] border border-white/5 flex items-center gap-2 text-left transition"
                 >
                   <span className="text-xl">🎧</span>
                   <div className="truncate">
                     <strong className="text-white block truncate">Lofi Hip Hop Radio</strong>
-                    <span className="text-[10px] text-gray-400">24/7 Relax & Study Beats</span>
+                    <span className="text-[10px] text-[#999BBE]">24/7 Relax & Study Beats</span>
                   </div>
                 </button>
                 <button
                   onClick={() =>
                     handleStartMedia('https://www.youtube.com/watch?v=aqz-KE-bpKQ', 'Big Buck Bunny 4K')
                   }
-                  className="p-2.5 rounded-xl bg-[#200d1a] hover:bg-[#2e1326] border border-white/5 flex items-center gap-2 text-left transition"
+                  className="p-2.5 rounded-xl bg-[#1B2040] hover:bg-[#242b50] border border-white/5 flex items-center gap-2 text-left transition"
                 >
                   <span className="text-xl">🐰</span>
                   <div className="truncate">
                     <strong className="text-white block truncate">Big Buck Bunny (4K)</strong>
-                    <span className="text-[10px] text-gray-400">Animációs rövidfilm</span>
+                    <span className="text-[10px] text-[#999BBE]">Animációs rövidfilm</span>
                   </div>
                 </button>
                 <button
                   onClick={() =>
                     handleStartMedia('https://www.youtube.com/watch?v=4xDzrJKXOOY', 'Synthwave Radio Chill')
                   }
-                  className="p-2.5 rounded-xl bg-[#200d1a] hover:bg-[#2e1326] border border-white/5 flex items-center gap-2 text-left transition"
+                  className="p-2.5 rounded-xl bg-[#1B2040] hover:bg-[#242b50] border border-white/5 flex items-center gap-2 text-left transition"
                 >
                   <span className="text-xl">🌆</span>
                   <div className="truncate">
                     <strong className="text-white block truncate">Synthwave Radio</strong>
-                    <span className="text-[10px] text-gray-400">Cyberpunk Retro Beats</span>
+                    <span className="text-[10px] text-[#999BBE]">Cyberpunk Retro Beats</span>
                   </div>
                 </button>
                 <button
                   onClick={() =>
                     handleStartMedia('https://www.youtube.com/watch?v=TcMBFSGVi1c', 'Marvel Avengers Trailer')
                   }
-                  className="p-2.5 rounded-xl bg-[#200d1a] hover:bg-[#2e1326] border border-white/5 flex items-center gap-2 text-left transition"
+                  className="p-2.5 rounded-xl bg-[#1B2040] hover:bg-[#242b50] border border-white/5 flex items-center gap-2 text-left transition"
                 >
                   <span className="text-xl">🎬</span>
                   <div className="truncate">
                     <strong className="text-white block truncate">Avengers: Endgame Trailer</strong>
-                    <span className="text-[10px] text-gray-400">Hivatalos filmelőzetes</span>
+                    <span className="text-[10px] text-[#999BBE]">Hivatalos filmelőzetes</span>
                   </div>
                 </button>
               </div>
@@ -534,27 +534,27 @@ export default function WatchPartyView({
           </div>
 
           {/* ALSÓ VEZÉRLŐ ÉS REAKCIÓ SÁV */}
-          <div className="h-10 bg-[#0d0717] border-t border-[#23153c] px-4 flex items-center justify-between text-xs text-gray-300 z-10 flex-shrink-0">
+          <div className="min-h-[48px] py-1 gap-2 bg-[#101329] border-t border-[#7655F5]/15 px-4 flex items-center justify-between text-xs text-[#999BBE] z-10 flex-shrink-0">
             {/* Szinkron állapot */}
             <div className="flex items-center gap-2 truncate">
-              <span className="flex items-center gap-1 text-emerald-400 font-semibold">
+              <span className="flex items-center gap-1 text-[#28C997] font-semibold">
                 <Radio className="w-3.5 h-3.5 animate-pulse" />
                 <span>Szinkronban ({channelName || 'Szoba'})</span>
               </span>
-              <span className="text-gray-500">•</span>
-              <span className="text-gray-400 text-[11px] truncate">
+              <span className="text-[#999BBE]">•</span>
+              <span className="text-[#999BBE] text-[11px] truncate">
                 A Play, Pause és Seek műveletek valós időben szinkronizálódnak mindenkinek!
               </span>
             </div>
 
             {/* Lebegő reakció gombok */}
             <div className="flex items-center gap-1 flex-shrink-0">
-              <span className="text-[11px] text-gray-400 hidden sm:inline mr-1">Reakciók:</span>
+              <span className="text-[11px] text-[#999BBE] hidden sm:inline mr-1">Reakciók:</span>
               {['🍿', '🔥', '😂', '❤️', '😱', '👏'].map((emoji) => (
                 <button
                   key={emoji}
                   onClick={() => handleSendReaction(emoji)}
-                  className="w-7 h-7 rounded-full bg-white/5 hover:bg-white/20 active:scale-125 transition flex items-center justify-center text-sm"
+                  className="w-9 h-9 sm:w-8 sm:h-8 rounded-full bg-white/5 hover:bg-white/20 active:scale-125 transition flex items-center justify-center text-sm"
                   title={`Reakció küldése: ${emoji}`}
                 >
                   {emoji}
