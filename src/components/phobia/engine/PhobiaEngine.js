@@ -69,71 +69,41 @@ export class PhobiaEngine {
   /*                             INITIALIZATION                                 */
   /* -------------------------------------------------------------------------- */
 
-  _getWebGLContext(canvas) {
-    if (!canvas || typeof canvas.getContext !== 'function') return null;
-
-    const attributesList = [
-      { antialias: true, powerPreference: 'default', alpha: false, stencil: false },
-      { antialias: true, powerPreference: 'high-performance', alpha: false, stencil: false },
-      { antialias: false, alpha: false },
-      {}
-    ];
-
-    const contextTypes = ['webgl2', 'webgl', 'experimental-webgl'];
-
-    for (const attrs of attributesList) {
-      for (const type of contextTypes) {
-        try {
-          const ctx = canvas.getContext(type, attrs);
-          if (ctx) return ctx;
-        } catch (_) {}
-      }
-    }
-    return null;
-  }
-
   _initRenderer() {
-    let canvas = this.canvas;
-    let gl = this._getWebGLContext(canvas);
+    // Always create a fresh dedicated canvas element inside the container
+    // to prevent React StrictMode remounts or browser extensions from locking the context
+    const freshCanvas = document.createElement('canvas');
+    freshCanvas.className = this.canvas?.className || 'w-full h-full block cursor-crosshair focus:outline-none';
+    freshCanvas.tabIndex = 0;
 
-    // If canvas already has another context (e.g. extension called getContext('2d')),
-    // or failed to get WebGL on this canvas, create a brand-new fresh canvas element
-    if (!gl) {
-      const freshCanvas = document.createElement('canvas');
-      freshCanvas.className = canvas ? canvas.className : 'w-full h-full block cursor-crosshair focus:outline-none';
-      freshCanvas.tabIndex = 0;
-      if (canvas && canvas.parentNode) {
-        canvas.parentNode.replaceChild(freshCanvas, canvas);
-      } else if (this.container) {
-        this.container.appendChild(freshCanvas);
-      }
-      this.canvas = freshCanvas;
-      canvas = freshCanvas;
-      gl = this._getWebGLContext(canvas);
+    if (this.canvas && this.canvas.parentNode) {
+      this.canvas.parentNode.replaceChild(freshCanvas, this.canvas);
+    } else if (this.container) {
+      this.container.appendChild(freshCanvas);
     }
-
-    if (!gl) {
-      throw new Error(
-        'A WebGL nem indítható el a böngészőben. Kérjük, ellenőrizd a hardveres gyorsítást a böngésző beállításaiban (chrome://settings/system -> Hardveres gyorsítás bekapcsolása).'
-      );
-    }
+    this.canvas = freshCanvas;
 
     try {
       this.renderer = new THREE.WebGLRenderer({
         canvas: this.canvas,
-        context: gl,
         antialias: true,
         powerPreference: 'default',
         alpha: false,
         stencil: false
       });
-    } catch (err) {
-      console.warn('Initial WebGLRenderer failed, trying minimal renderer config:', err);
-      this.renderer = new THREE.WebGLRenderer({
-        canvas: this.canvas,
-        antialias: false,
-        alpha: false
-      });
+    } catch (err1) {
+      console.warn('Three.js WebGLRenderer default creation failed, falling back to minimal parameters:', err1);
+      try {
+        this.renderer = new THREE.WebGLRenderer({
+          canvas: this.canvas,
+          antialias: false,
+          alpha: false
+        });
+      } catch (err2) {
+        throw new Error(
+          'A WebGL2 grafikus motor nem tudott elindulni a böngészőben. Kérjük, engedélyezd a hardveres gyorsítást a beállításokban (chrome://settings/system).'
+        );
+      }
     }
 
     this.renderer.outputColorSpace = THREE.SRGBColorSpace;
@@ -648,8 +618,9 @@ export class PhobiaEngine {
 
     // Dispose renderer
     if (this.renderer) {
-      this.renderer.dispose();
-      this.renderer.forceContextLoss();
+      try {
+        this.renderer.dispose();
+      } catch (_) {}
       this.renderer = null;
     }
   }
