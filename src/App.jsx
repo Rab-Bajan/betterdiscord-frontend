@@ -208,6 +208,8 @@ export default function App() {
             onResignChess={activities.resignChess}
             onRematchChess={activities.rematchChess}
             onStopChess={activities.stopChess}
+            gameSession={activities.gameSessions[activeVoiceChannel]}
+            setPeerVolume={voice.setPeerVolume}
             browserSession={activities.browserSessions[activeVoiceChannel]}
             onStartBrowser={activities.startBrowser}
             onNavigateBrowser={activities.navigateBrowser}

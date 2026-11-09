@@ -23,6 +23,7 @@ export function useRoomActivities(socket, currentUser, activeVoiceChannel) {
   const [watchSessions, setWatchSessions] = useState({}); // channelId -> state
   const [chessSessions, setChessSessions] = useState({}); // channelId -> state
   const [browserSessions, setBrowserSessions] = useState({}); // channelId -> state
+  const [gameSessions, setGameSessions] = useState({}); // channelId -> összefoglaló
 
   const whiteboardsRef = useRef(whiteboards);
   whiteboardsRef.current = whiteboards;
@@ -75,6 +76,9 @@ export function useRoomActivities(socket, currentUser, activeVoiceChannel) {
       }
     },
 
+    'game:session-updated': ({ channelId, state }) =>
+      setOrDelete(setGameSessions, channelId, state),
+
     'browser:session-updated': ({ channelId, state }) =>
       setOrDelete(setBrowserSessions, channelId, state),
     'browser:state': (state) => {
@@ -111,6 +115,7 @@ export function useRoomActivities(socket, currentUser, activeVoiceChannel) {
     watchSessions,
     chessSessions,
     browserSessions,
+    gameSessions,
     // kaszinó
     startCasino: () => emitToRoom('casino:start-session', { username: currentUser?.username || 'Felhasználó' }),
     stopCasino: () => emitToRoom('casino:stop-session'),

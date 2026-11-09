@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, useCallback } from 'react';
 import { useSocketEvents } from './useSocketEvents';
 import { RTC_CONFIG } from '../config';
 import { playJoinSound, playLeaveSound, playMuteSound } from '../sounds';
@@ -630,7 +630,14 @@ export function useVoice(socket, { onScreenShareStart, onLeft } = {}) {
     socket.emit('voice:state-change', { isMuted: next ? true : isMuted, isDeafened: next });
   };
 
+  // Csak a már létező bejövő hang hangerejét állítja (játékon belüli csapat- és közelségi hang)
+  const setPeerVolume = useCallback((peerId, volume) => {
+    const audioEl = peersRef.current.get(peerId)?.audioEl;
+    if (audioEl) audioEl.volume = volume;
+  }, []);
+
   return {
+    setPeerVolume,
     activeVoiceChannel,
     isMuted,
     isDeafened,

@@ -24,9 +24,24 @@ function Banner({ background, borderColor, textColor, accentColor, icon, who, te
 }
 
 // Értesítő sávok: másik nézetben vagyunk, miközben a szobában fut valami
-export default function ActivityBanners({ subView, watchState, casinoSession, chessSession, browserSession, onOpen }) {
+export default function ActivityBanners({ subView, watchState, casinoSession, chessSession, browserSession, gameSession, onOpen }) {
   return (
     <>
+      {gameSession && subView !== 'game' && (
+        <Banner
+          background="linear-gradient(90deg, rgba(16, 44, 56, 0.9), rgba(12, 30, 40, 0.9))"
+          borderColor="rgba(94, 200, 255, 0.3)"
+          textColor="#bae6fd"
+          accentColor="#5ec8ff"
+          icon="🫧"
+          who={gameSession.startedBy || 'Valaki'}
+          text={gameSession.active ? 'meccset játszik a SUDS WAR-ban!' : `lobbit nyitott a SUDS WAR-hoz (${gameSession.playerCount} játékos)!`}
+          action="Megnyitás 🫧"
+          actionClass="text-black"
+          actionStyle={{ background: 'linear-gradient(135deg, #5ec8ff, #9bd14b)' }}
+          onAction={() => onOpen('game')}
+        />
+      )}
       {browserSession?.active && subView !== 'browser' && (
         <Banner
           background="linear-gradient(90deg, rgba(20, 28, 65, 0.9), rgba(15, 20, 48, 0.9))"

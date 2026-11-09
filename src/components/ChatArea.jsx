@@ -1,4 +1,4 @@
-import React, { useState, useRef, useEffect } from 'react';
+import React, { useState, useRef, useEffect, useLayoutEffect } from 'react';
 import {
   Hash,
   Send,
@@ -28,6 +28,10 @@ import {
 import { History, SlidersHorizontal } from 'lucide-react';
 import DMCallButton from './call/DMCallButton';
 import CallEventMessage from './call/CallEventMessage';
+import MessageContent from './chat/MessageContent';
+import CopyButton from './chat/CopyButton';
+import FormatToolbar, { runFormatShortcut } from './chat/FormatToolbar';
+import { hasMarkup } from '../utils/messageMarkup';
 
 const QUICK_EMOJIS = ['👋', '🔥', '😂', '🎉', '❤️', '🎮', '👍'];
 
@@ -87,8 +91,18 @@ export default function ChatArea({
   const [pendingAttachments, setPendingAttachments] = useState([]);
   const [isUploading, setIsUploading] = useState(false);
   const [lightboxImage, setLightboxImage] = useState(null);
+  const [showPreview, setShowPreview] = useState(true);
 
   const messagesEndRef = useRef(null);
+  const inputRef = useRef(null);
+
+  // A szövegmező a tartalmával együtt nő, egy határig
+  useLayoutEffect(() => {
+    const textarea = inputRef.current;
+    if (!textarea) return;
+    textarea.style.height = 'auto';
+    textarea.style.height = `${Math.min(textarea.scrollHeight, 200)}px`;
+  }, [inputText]);
 
   const handleReport = async (msg) => {
     const reason = window.prompt('Miért jelented ezt az üzenetet? (Az adminok csak ennek az üzenetnek a környezetét látják.)');
@@ -197,7 +211,15 @@ export default function ChatArea({
   };
 
   const handleKeyDown = (e) => {
-    if (e.key === 'Enter' && !e.shiftKey) {
+    if ((e.ctrlKey || e.metaKey) && !e.altKey && !e.shiftKey && runFormatShortcut(e.key, e.currentTarget, inputText, setInputText)) {
+      e.preventDefault();
+      return;
+    }
+
+    if (e.key === 'Enter' && !e.shiftKey && !e.nativeEvent.isComposing) {
+      // Nyitott kódblokkon belül az Enter új sort kezd
+      const beforeCaret = inputText.slice(0, e.currentTarget.selectionStart);
+      if ((beforeCaret.match(/```/g) || []).length % 2 === 1) return;
       e.preventDefault();
       handleSubmit(e);
     }
@@ -439,7 +461,7 @@ export default function ChatArea({
           return (
             <div
               key={msg.id}
-              className="flex items-start gap-4 px-3 py-2 rounded-xl group transition-all"
+              className="relative flex items-start gap-4 px-3 py-2 rounded-xl group transition-all"
               style={{
                 background: msg.isSystem ? 'rgba(118, 85, 245, 0.08)' : 'transparent',
                 borderLeft: msg.isSystem ? '3px solid #7655F5' : '3px solid transparent',
@@ -447,6 +469,16 @@ export default function ChatArea({
               onMouseOver={e => { if (!msg.isSystem) e.currentTarget.style.background = 'rgba(125, 105, 255, 0.04)'; }}
               onMouseOut={e => { if (!msg.isSystem) e.currentTarget.style.background = 'transparent'; }}
             >
+              {/* Üzenet műveletek */}
+              {msg.text && !msg.removedByAdmin && (
+                <div
+                  className="absolute -top-2 right-3 z-10 rounded-lg shadow-lg opacity-0 group-hover:opacity-100 focus-within:opacity-100 transition"
+                  style={{ background: '#151832', border: '1px solid rgba(125, 105, 255, 0.25)', color: '#999BBE' }}
+                >
+                  <CopyButton text={msg.text} title="Üzenet másolása" className="p-1.5 rounded-lg hover:text-white" />
+                </div>
+              )}
+
               {/* Avatar */}
               <div
                 className="w-10 h-10 rounded-2xl flex items-center justify-center text-white font-bold text-sm flex-shrink-0 shadow-md mt-0.5 overflow-hidden"
@@ -499,9 +531,7 @@ export default function ChatArea({
 
                 {/* Szöveges tartalom ha van */}
                 {msg.text && (
-                  <p className="text-sm mt-0.5 whitespace-pre-wrap break-words leading-relaxed select-text" style={{ color: '#F4F3FF' }}>
-                    {msg.text}
-                  </p>
+                  <MessageContent text={msg.text} className="text-sm mt-0.5" />
                 )}
 
                 {/* CSATOLT FÁJLOK MEGJELENÍTÉSE */}
@@ -686,9 +716,19 @@ export default function ChatArea({
           </div>
         )}
 
+        {showPreview && hasMarkup(inputText) && (
+          <div
+            className="px-4 py-2 mb-2 rounded-2xl max-h-40 overflow-y-auto"
+            style={{ background: '#101329', border: '1px solid rgba(125, 105, 255, 0.15)', color: '#F4F3FF' }}
+          >
+            <div className="text-[10px] font-bold uppercase tracking-wider mb-1" style={{ color: '#999BBE' }}>Előnézet</div>
+            <MessageContent text={inputText} className="text-sm" />
+          </div>
+        )}
+
         <form
           onSubmit={handleSubmit}
-          className={`px-4 py-3 flex items-center gap-3 shadow-lg transition-all ${
+          className={`px-4 py-2 flex flex-col gap-1.5 shadow-lg transition-all ${
             pendingAttachments.length > 0 || isUploading ? 'rounded-b-2xl' : 'rounded-2xl'
           }`}
           style={{
@@ -696,6 +736,15 @@ export default function ChatArea({
             border: '1px solid rgba(125, 105, 255, 0.2)',
           }}
         >
+          <FormatToolbar
+            textareaRef={inputRef}
+            value={inputText}
+            onChange={setInputText}
+            showPreview={showPreview}
+            onTogglePreview={() => setShowPreview((v) => !v)}
+          />
+
+          <div className="flex items-end gap-3">
           {/* Rejtett fájlválasztó input */}
           <input
             ref={fileInputRef}
@@ -718,8 +767,9 @@ export default function ChatArea({
             <Plus className="w-5 h-5" />
           </button>
 
-          <input
-            type="text"
+          <textarea
+            ref={inputRef}
+            rows={1}
             value={inputText}
             onChange={(e) => setInputText(e.target.value)}
             onKeyDown={handleKeyDown}
@@ -730,7 +780,7 @@ export default function ChatArea({
                 ? `Privát üzenet neki: @${dmPartner.username} (Húzz ide fájlt is)...`
                 : `Üzenet ide: #${channel ? channel.name : 'csatorna'} (Húzz ide fájlt is)...`
             }
-            className="flex-1 bg-transparent outline-none text-sm min-w-0"
+            className="flex-1 bg-transparent outline-none text-sm min-w-0 resize-none py-2 leading-5 select-text"
             style={{ color: '#F4F3FF' }}
           />
 
@@ -755,6 +805,7 @@ export default function ChatArea({
           >
             <Send className="w-4 h-4" />
           </button>
+          </div>
         </form>
       </div>
     </div>

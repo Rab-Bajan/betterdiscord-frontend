@@ -53,10 +53,12 @@ export default function BrowserView({
   const [showTextInput, setShowTextInput] = useState(false);
   const [customText, setCustomText] = useState('');
   const [isFocused, setIsFocused] = useState(false);
+  const [isStarting, setIsStarting] = useState(false);
 
   const containerRef = useRef(null);
   const viewportRef = useRef(null);
   const lastMoveSentRef = useRef(0);
+  const startTimerRef = useRef(null);
 
   const isActive = !!session?.active;
   const isController = session?.controller?.id === socket?.id;
@@ -68,6 +70,29 @@ export default function BrowserView({
       setAddressInput(session.currentUrl);
     }
   }, [session?.currentUrl]);
+
+  // Leállítás után ne a régi munkamenet utolsó képkockája látszódjon
+  useEffect(() => {
+    if (isActive) {
+      setIsStarting(false);
+      clearTimeout(startTimerRef.current);
+    } else {
+      setFrameData(null);
+    }
+  }, [isActive]);
+
+  useEffect(() => () => clearTimeout(startTimerRef.current), []);
+
+  // A szerver hiánya vagy hibája esetén se maradjon válasz nélkül az indítás
+  const startSession = (url) => {
+    setIsStarting(true);
+    clearTimeout(startTimerRef.current);
+    startTimerRef.current = setTimeout(() => {
+      setIsStarting(false);
+      setErrorMessage('A szerver nem indította el a böngészőt. Ellenőrizd, hogy fut-e a böngésző modul a szerveren.');
+    }, 20000);
+    onStart?.(url);
+  };
 
   // View enter és leave értesítés a szervernek
   useEffect(() => {
@@ -90,6 +115,8 @@ export default function BrowserView({
     };
 
     const handleError = ({ message }) => {
+      setIsStarting(false);
+      clearTimeout(startTimerRef.current);
       setErrorMessage(message || 'Hiba történt a böngészőben');
       setTimeout(() => setErrorMessage(null), 5000);
     };
@@ -145,7 +172,7 @@ export default function BrowserView({
     return () => document.removeEventListener('fullscreenchange', handleFsChange);
   }, []);
 
-  // Koordináták leképezése a natív 1280x720 viewportra
+  // A viewport a pontos 16:9-es képterület, így a koordináták és a kurzorok nem csúsznak el
   const getCoordinates = (e) => {
     if (!viewportRef.current) return null;
     const rect = viewportRef.current.getBoundingClientRect();
@@ -172,6 +199,7 @@ export default function BrowserView({
   // Egérkattintás
   const handleMouseDown = (e) => {
     if (!canInteract) return;
+    if (e.button === 1) e.preventDefault(); // a középső gomb ne indítson automatikus görgetést
     viewportRef.current?.focus();
     setIsFocused(true);
 
@@ -188,31 +216,45 @@ export default function BrowserView({
     });
   };
 
-  // Egérgörgő (Scroll)
-  const handleWheel = (e) => {
-    if (!canInteract) return;
-    e.preventDefault();
+  // Egérgörgő: a React passzív wheel figyelője nem tudná megakadályozni az oldal görgetését
+  useEffect(() => {
+    const viewport = viewportRef.current;
+    if (!viewport || !isActive || !canInteract) return undefined;
 
-    const coords = getCoordinates(e) || { x: 640, y: 360 };
-    socket?.emit('browser:scroll', {
-      channelId,
-      x: coords.x,
-      y: coords.y,
-      deltaX: e.deltaX,
-      deltaY: e.deltaY
-    });
-  };
+    const handleWheel = (e) => {
+      e.preventDefault();
+      const coords = getCoordinates(e) || { x: 640, y: 360 };
+      socket?.emit('browser:scroll', {
+        channelId,
+        x: coords.x,
+        y: coords.y,
+        deltaX: e.deltaX,
+        deltaY: e.deltaY
+      });
+    };
+
+    viewport.addEventListener('wheel', handleWheel, { passive: false });
+    return () => viewport.removeEventListener('wheel', handleWheel);
+  }, [isActive, canInteract, channelId, socket]);
 
   // Billentyűzet kezelés
   const handleKeyDown = (e) => {
     if (!canInteract || !isFocused) return;
+
+    // Az AltGr több billentyűzeten Ctrl+Alt-ként érkezik, de karaktert ír (pl. @ a magyar kiosztáson)
+    const altGraph = e.getModifierState?.('AltGraph');
+    const ctrlKey = e.ctrlKey && !altGraph;
+    const altKey = e.altKey && !altGraph;
+
+    // A Ctrl+V-t a paste esemény kezeli, így a helyi vágólap tartalma kerül a böngészőbe
+    if (ctrlKey && !altKey && !e.metaKey && e.key.toLowerCase() === 'v') return;
 
     // Speciális böngésző funkcióbillentyűk engedése / megelőzése
     if (['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'Space', 'Tab', 'Backspace', 'Enter'].includes(e.code)) {
       e.preventDefault();
     }
 
-    const modifiers = (e.altKey ? 1 : 0) | (e.ctrlKey ? 2 : 0) | (e.metaKey ? 4 : 0) | (e.shiftKey ? 8 : 0);
+    const modifiers = (altKey ? 1 : 0) | (ctrlKey ? 2 : 0) | (e.metaKey ? 4 : 0) | (e.shiftKey ? 8 : 0);
 
     socket?.emit('browser:key', {
       channelId,
@@ -223,13 +265,10 @@ export default function BrowserView({
       modifiers
     });
 
-    // Ha szimpla szöveges karakter
-    if (e.key.length === 1 && !e.ctrlKey && !e.altKey && !e.metaKey) {
-      socket?.emit('browser:key', {
-        channelId,
-        type: 'char',
-        text: e.key
-      });
+    // Az Enter csak char eseménnyel küld el űrlapot vagy kezd új sort a CDP-n keresztül
+    const text = e.key === 'Enter' ? '\r' : e.key.length === 1 && !ctrlKey && !altKey && !e.metaKey ? e.key : null;
+    if (text) {
+      socket?.emit('browser:key', { channelId, type: 'char', text });
     }
   };
 
@@ -244,12 +283,20 @@ export default function BrowserView({
     });
   };
 
+  const handlePaste = (e) => {
+    if (!canInteract) return;
+    const text = e.clipboardData?.getData('text');
+    if (!text) return;
+    e.preventDefault();
+    socket?.emit('browser:insert-text', { channelId, text });
+  };
+
   // Címsor Enter
   const handleAddressSubmit = (e) => {
     e.preventDefault();
     if (!addressInput.trim()) return;
     if (!isActive) {
-      onStart?.(addressInput.trim());
+      startSession(addressInput.trim());
     } else {
       onNavigate?.(addressInput.trim());
     }
@@ -500,29 +547,27 @@ export default function BrowserView({
         )}
 
         {isActive ? (
+          <div className="w-full h-full flex items-center justify-center overflow-hidden" style={{ containerType: 'size' }}>
           <div
             ref={viewportRef}
             tabIndex={0}
             onMouseMove={handleMouseMove}
             onMouseDown={handleMouseDown}
-            onWheel={handleWheel}
             onKeyDown={handleKeyDown}
             onKeyUp={handleKeyUp}
-            onContextMenu={(e) => {
-              e.preventDefault();
-              handleMouseDown(e);
-            }}
+            onPaste={handlePaste}
+            onContextMenu={(e) => e.preventDefault()}
             onFocus={() => setIsFocused(true)}
             onBlur={() => setIsFocused(false)}
-            className="w-full h-full relative flex items-center justify-center outline-none cursor-crosshair overflow-hidden"
-            style={{ touchAction: 'none' }}
+            className="relative flex items-center justify-center outline-none cursor-crosshair overflow-hidden"
+            style={{ touchAction: 'none', aspectRatio: '16 / 9', width: 'min(100cqw, calc(100cqh * 16 / 9))' }}
           >
             {frameData ? (
               <img
                 src={frameData}
                 alt="Shared Browser Screen"
                 draggable={false}
-                className="max-w-full max-h-full object-contain pointer-events-none select-none rounded-lg"
+                className="w-full h-full object-fill pointer-events-none select-none rounded-lg"
               />
             ) : (
               <div className="flex flex-col items-center gap-3 text-center p-6">
@@ -592,6 +637,7 @@ export default function BrowserView({
               </div>
             )}
           </div>
+          </div>
         ) : (
           /* Kezdőképernyő: még nem indult böngésző */
           <div className="max-w-xl w-full p-6 sm:p-8 flex flex-col items-center text-center">
@@ -629,12 +675,13 @@ export default function BrowserView({
                 />
                 <button
                   type="submit"
-                  className="px-6 py-3 rounded-xl font-bold text-sm text-white shadow-lg transition active:scale-95"
+                  disabled={isStarting}
+                  className="px-6 py-3 rounded-xl font-bold text-sm text-white shadow-lg transition active:scale-95 disabled:opacity-60"
                   style={{
                     background: 'linear-gradient(135deg, #7655F5, #536CFF)'
                   }}
                 >
-                  Indítás
+                  {isStarting ? 'Indítás...' : 'Indítás'}
                 </button>
               </div>
             </form>
@@ -648,9 +695,10 @@ export default function BrowserView({
                 {SUGGESTED_SITES.map((site) => (
                   <button
                     key={site.name}
+                    disabled={isStarting}
                     onClick={() => {
                       setAddressInput(site.url);
-                      onStart?.(site.url);
+                      startSession(site.url);
                     }}
                     className="px-3.5 py-2 rounded-xl text-xs font-semibold flex items-center gap-2 transition hover:scale-105"
                     style={{

@@ -1,10 +1,13 @@
-import React, { useState } from 'react';
+import React, { useState, lazy, Suspense } from 'react';
 import WhiteboardView from './WhiteboardView';
 import CodeEditorView from './CodeEditorView';
 import CasinoView from './CasinoView';
 import WatchPartyView from './WatchPartyView';
 import ChessView from './ChessView';
 import BrowserView from './BrowserView';
+
+// A 3D motor csak a játék megnyitásakor töltődik le
+const GameView = lazy(() => import('./game/GameView'));
 import RoomTopBar from './voiceRoom/RoomTopBar';
 import RoomControlBar from './voiceRoom/RoomControlBar';
 import ActivityBanners from './voiceRoom/ActivityBanners';
@@ -45,6 +48,8 @@ export default function VoiceRoomView({
   onResignChess,
   onRematchChess,
   onStopChess,
+  gameSession,
+  setPeerVolume,
   browserSession,
   onStartBrowser,
   onNavigateBrowser,
@@ -86,6 +91,12 @@ export default function VoiceRoomView({
 
   const renderMain = () => {
     switch (subView) {
+      case 'game':
+        return (
+          <Suspense fallback={<div className="flex-1 flex items-center justify-center text-sm" style={{ color: '#999BBE' }}>Játék betöltése...</div>}>
+            <GameView socket={socket} channelId={channelId} isAdmin={currentUser?.isAdmin === true} participants={participants} setPeerVolume={setPeerVolume} />
+          </Suspense>
+        );
       case 'browser':
         return (
           <BrowserView
@@ -212,6 +223,7 @@ export default function VoiceRoomView({
         watchActive={!!watchState?.active}
         chessActive={!!chessSession?.active}
         browserActive={!!browserSession?.active}
+        gameActive={!!gameSession}
         onClose={onClose}
         onOpenMobileSidebar={onOpenMobileSidebar}
       />
@@ -222,6 +234,7 @@ export default function VoiceRoomView({
         casinoSession={casinoSession}
         chessSession={chessSession}
         browserSession={browserSession}
+        gameSession={gameSession}
         onOpen={setSubView}
       />
 
@@ -240,6 +253,7 @@ export default function VoiceRoomView({
         watchActive={!!watchState?.active}
         chessActive={!!chessSession?.active}
         browserActive={!!browserSession?.active}
+        gameActive={!!gameSession}
         onToggleMute={onToggleMute}
         onToggleDeafen={onToggleDeafen}
         onToggleScreenShare={onToggleScreenShare}
