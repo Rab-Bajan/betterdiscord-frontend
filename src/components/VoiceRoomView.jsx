@@ -9,6 +9,7 @@ import BrowserView from './BrowserView';
 // A 3D motor csak a játék megnyitásakor töltődik le
 const GameView = lazy(() => import('./game/GameView'));
 const MiskolcEmpireView = lazy(() => import('./miskolcEmpire/MiskolcEmpireView'));
+const MiskolcPhobiaView = lazy(() => import('./phobia/MiskolcPhobiaView'));
 import RoomTopBar from './voiceRoom/RoomTopBar';
 import RoomControlBar from './voiceRoom/RoomControlBar';
 import ActivityBanners from './voiceRoom/ActivityBanners';
@@ -44,6 +45,9 @@ export default function VoiceRoomView({
   watchState,
   chessSession,
   empireSession,
+  phobiaSession,
+  onStartPhobia,
+  onStopPhobia,
   onStartChess,
   onJoinChess,
   onMoveChess,
@@ -124,6 +128,18 @@ export default function VoiceRoomView({
         return (
           <Suspense fallback={<div className="flex-1 flex items-center justify-center text-sm" style={{ color: '#999BBE' }}>MiskolcEmpire betöltése...</div>}>
             <MiskolcEmpireView socket={socket} currentUser={currentUser} channelId={channelId} channelSession={empireSession} onClose={backToStage} />
+          </Suspense>
+        );
+      case 'phobia':
+        return (
+          <Suspense fallback={<div className="flex-1 flex items-center justify-center text-sm" style={{ color: '#999BBE' }}>A MÉH Telep betöltése (MiskolcPhobia)...</div>}>
+            <MiskolcPhobiaView
+              socket={socket}
+              channelId={channelId}
+              currentUser={currentUser}
+              session={phobiaSession}
+              onClose={backToStage}
+            />
           </Suspense>
         );
       case 'chess':
@@ -231,6 +247,7 @@ export default function VoiceRoomView({
         watchActive={!!watchState?.active}
         chessActive={!!chessSession?.active}
         empireActive={!!empireSession?.active}
+        phobiaActive={!!phobiaSession?.active}
         browserActive={!!browserSession?.active}
         gameActive={!!gameSession}
         onClose={onClose}

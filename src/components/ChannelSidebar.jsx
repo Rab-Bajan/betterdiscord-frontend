@@ -41,6 +41,9 @@ export default function ChannelSidebar({
   empireSessions = {},
   isEmpireActive = false,
   onOpenEmpire,
+  phobiaSessions = {},
+  isPhobiaActive = false,
+  onOpenPhobia,
   browserSessions = {},
   dmPartners = [],
   activeDmPartnerId = null,
@@ -120,6 +123,28 @@ export default function ChannelSidebar({
               <span className="truncate font-medium">MiskolcEmpire</span>
               {Object.values(empireSessions || {}).some((s) => s?.active) && (
                 <span className="ml-auto w-2 h-2 rounded-full animate-pulse" style={{ background: '#28C997' }} title="Valahol épp folyik egy meccs"></span>
+              )}
+            </button>
+            )}
+            {(onOpenPhobia || onOpenVoiceView) && (
+            <button
+              onClick={() => {
+                if (onOpenPhobia) onOpenPhobia();
+                else if (onOpenVoiceView) onOpenVoiceView();
+              }}
+              className="w-full flex items-center gap-2.5 px-3 py-2 rounded-xl text-sm transition-all"
+              style={{
+                background: isPhobiaActive ? 'rgba(118, 85, 245, 0.2)' : 'transparent',
+                color: isPhobiaActive ? '#F4F3FF' : '#999BBE',
+                borderLeft: isPhobiaActive ? '2px solid #7655F5' : '2px solid transparent'
+              }}
+              onMouseOver={e => { if (!isPhobiaActive) { e.currentTarget.style.background = 'rgba(125, 105, 255, 0.08)'; e.currentTarget.style.color = '#F4F3FF'; } }}
+              onMouseOut={e => { if (!isPhobiaActive) { e.currentTarget.style.background = 'transparent'; e.currentTarget.style.color = '#999BBE'; } }}
+            >
+              <span className="w-4 h-4 flex-shrink-0 text-sm leading-4 text-center">🔦</span>
+              <span className="truncate font-medium">MiskolcPhobia</span>
+              {Object.values(phobiaSessions || {}).some((s) => s?.active) && (
+                <span className="ml-auto w-2 h-2 rounded-full animate-pulse" style={{ background: '#28C997' }} title="Valahol épp folyik egy szellemvadászat"></span>
               )}
             </button>
             )}
@@ -237,6 +262,15 @@ export default function ChannelSidebar({
                           title={`MiskolcEmpire folyamatban (${empireSessions[vc.id].startedBy})`}
                         >
                           <span>⚔️</span>
+                        </span>
+                      )}
+                      {phobiaSessions && phobiaSessions[vc.id]?.active && (
+                        <span
+                          className="text-[10px] px-1.5 py-0.5 rounded-full font-bold flex items-center gap-1 animate-pulse"
+                          style={{ background: 'rgba(245, 176, 65, 0.2)', color: '#F5B041', border: '1px solid rgba(245, 176, 65, 0.4)' }}
+                          title={`MiskolcPhobia folyamatban (${phobiaSessions[vc.id].startedBy || 'Szellemvadászat'})`}
+                        >
+                          <span>🔦</span>
                         </span>
                       )}
                       {participants.length > 0 && (

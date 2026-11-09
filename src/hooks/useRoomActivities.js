@@ -25,6 +25,7 @@ export function useRoomActivities(socket, currentUser, activeVoiceChannel) {
   const [empireSessions, setEmpireSessions] = useState({}); // channelId -> MiskolcEmpire összefoglaló
   const [browserSessions, setBrowserSessions] = useState({}); // channelId -> state
   const [gameSessions, setGameSessions] = useState({}); // channelId -> összefoglaló
+  const [phobiaSessions, setPhobiaSessions] = useState({}); // channelId -> MiskolcPhobia összefoglaló
 
   const whiteboardsRef = useRef(whiteboards);
   whiteboardsRef.current = whiteboards;
@@ -40,6 +41,7 @@ export function useRoomActivities(socket, currentUser, activeVoiceChannel) {
       if (data.chessSessions) setChessSessions(data.chessSessions);
       if (data.empireSessions) setEmpireSessions(data.empireSessions);
       if (data.browserSessions) setBrowserSessions(data.browserSessions);
+      if (data.phobiaSessions) setPhobiaSessions(data.phobiaSessions);
     },
 
     'whiteboard:list': (list) => {
@@ -90,6 +92,14 @@ export function useRoomActivities(socket, currentUser, activeVoiceChannel) {
       if (state?.channelId) {
         setBrowserSessions((prev) => ({ ...prev, [state.channelId]: state }));
       }
+    },
+
+    'phobia:session-updated': ({ channelId, state }) =>
+      setOrDelete(setPhobiaSessions, channelId, state),
+    'phobia:state': (state) => {
+      if (state?.channelId) {
+        setPhobiaSessions((prev) => ({ ...prev, [state.channelId]: state }));
+      }
     }
   });
 
@@ -122,9 +132,13 @@ export function useRoomActivities(socket, currentUser, activeVoiceChannel) {
     empireSessions,
     browserSessions,
     gameSessions,
+    phobiaSessions,
     // kaszinó
     startCasino: () => emitToRoom('casino:start-session', { username: currentUser?.username || 'Felhasználó' }),
     stopCasino: () => emitToRoom('casino:stop-session'),
+    // miskolc phobia
+    startPhobia: () => emitToRoom('phobia:start-session', { username: currentUser?.username || 'Nyomozó' }),
+    stopPhobia: () => emitToRoom('phobia:stop-session'),
     // sakk
     startChess: (colorPreference = 'white') => emitToRoom('chess:start', { colorPreference }),
     joinChess: () => emitToRoom('chess:join'),

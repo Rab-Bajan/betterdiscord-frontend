@@ -31,6 +31,7 @@ export default function RoomTopBar({
   watchActive,
   chessActive,
   empireActive,
+  phobiaActive,
   browserActive,
   gameActive,
   onClose,
@@ -190,6 +191,20 @@ export default function RoomTopBar({
           <span className="text-xs">⚔️</span>
           <span>MiskolcEmpire</span>
           {empireActive && <span className="w-2 h-2 rounded-full animate-pulse" style={{ background: '#28C997' }}></span>}
+        </ModeTab>
+
+        <ModeTab
+          active={subView === 'phobia'}
+          live={phobiaActive}
+          activeBg="linear-gradient(135deg, #7655F5, #536CFF)"
+          liveBg="rgba(245, 176, 65, 0.15)"
+          liveColor="#F5B041"
+          liveBorder="rgba(245, 176, 65, 0.3)"
+          onClick={() => onChangeView('phobia')}
+        >
+          <span className="text-xs">🔦</span>
+          <span>MiskolcPhobia</span>
+          {phobiaActive && <span className="w-2 h-2 rounded-full animate-pulse" style={{ background: '#28C997' }}></span>}
         </ModeTab>
       </div>
 
