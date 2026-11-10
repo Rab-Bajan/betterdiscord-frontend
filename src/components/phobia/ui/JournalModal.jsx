@@ -116,8 +116,10 @@ export default function JournalModal({
   matchResult = null,
   isAlive = true,
   sideTasks = [],
+  evidenceCount = 3, // how many evidences the active ghost leaves obtainable (1..3)
   onNewMatch = null // optional: 'Új küldetés' callback after a result
 }) {
+  const limit = Math.max(1, Math.min(3, Number(evidenceCount) || 3));
   const [activeTab, setActiveTab] = useState('evidence'); // 'evidence' | 'database' | 'photos' | 'verdict'
   const [selectedDbGhost, setSelectedDbGhost] = useState(GHOST_ARCHETYPES[0].id);
 
@@ -131,7 +133,13 @@ export default function JournalModal({
   // 3-State toggle helper: 0 -> 1 -> 2 -> 0
   const handleEvidenceClick = (evId) => {
     const current = evidenceState[evId] || 0;
-    const next = (current + 1) % 3;
+    let next = (current + 1) % 3;
+    // At most `limit` found evidences (the Mimic's fake orb is always an extra one)
+    if (next === 1) {
+      const foundNow = Object.entries(evidenceState).filter(([id, st]) => st === 1 && id !== evId).map(([id]) => id);
+      const cap = limit + (foundNow.includes('ghost_orbs') || evId === 'ghost_orbs' ? 1 : 0);
+      if (foundNow.length >= cap) next = 2;
+    }
     if (onToggleEvidence) {
       onToggleEvidence(evId, next);
     }
@@ -160,8 +168,10 @@ export default function JournalModal({
       }
     }
 
-    // Must NOT contain any 'Excluded' evidence
+    // Must NOT contain any 'Excluded' evidence. Only with all 3 evidences obtainable does a ruled-out
+    // evidence prove its absence; with fewer, the ghost may simply not be showing it.
     // (Special case: A Keresztapa is not excluded by Szellemgömb ruling out, because true evidence doesn't require it)
+    if (limit < 3) return true;
     for (const excluded of markedExcluded) {
       if (ghost.id === 'a_keresztapa' && excluded === 'ghost_orbs') {
         continue;
@@ -182,8 +192,9 @@ export default function JournalModal({
 
   // Side task calculation
   // Mirrors the server payout: 2500 Ft + max(1, completed side tasks) * 500 Ft (correct verdict only)
-  const doneSideTasks = (sideTasks || []).filter(t => t.completed).length;
-  const sideTasksReward = Math.max(1, doneSideTasks) * 500;
+  const doneList = (sideTasks || []).filter(t => t.completed);
+  const doneSideTasks = doneList.length;
+  const sideTasksReward = doneList.reduce((sum, t) => sum + (Number(t.reward) || 0), 0);
   const primaryReward = 2500;
   const finalPayout = primaryReward + sideTasksReward;
   const resultGhost = matchResult ? (matchResult.actualGhost || matchResult.ghostType) : '';
@@ -312,6 +323,12 @@ export default function JournalModal({
                     <Sparkles className="w-4 h-4 text-purple-400" />
                     7 Bizonyíték Típus
                   </h3>
+                  <span
+                    className="text-[11px] font-mono px-2 py-0.5 rounded-md bg-purple-900/50 border border-purple-500/40 text-purple-200"
+                    title="A szellem ennyi bizonyítékot hagy elérhetőnek"
+                  >
+                    Elérhető: {limit} / 3
+                  </span>
                   <span className="text-[11px] text-gray-400 font-mono">
                     Kattints a váltáshoz: [✓] / [✗] / [–]
                   </span>
@@ -369,7 +386,11 @@ export default function JournalModal({
                 <div className="p-3 rounded-xl bg-purple-950/20 border border-purple-800/30 text-xs text-purple-300/80 flex items-start gap-2">
                   <Info className="w-4 h-4 flex-shrink-0 mt-0.5 text-purple-400" />
                   <span>
-                    <strong>Tipp:</strong> A kizárt bizonyítékok automatikusan áthúzzák a kizárt szellemtípusokat a jobb oldali listában.
+                    {limit >= 3 ? (
+                      <><strong>Tipp:</strong> A kizárt bizonyítékok automatikusan áthúzzák a kizárt szellemtípusokat a jobb oldali listában.</>
+                    ) : (
+                      <><strong>Nehezített mód:</strong> csak {limit} bizonyíték elérhető, ezért a kizárás nem szűri a szellemeket. Figyeld a viselkedésüket is, és legfeljebb {limit} bizonyítékot jelölhetsz meg.</>
+                    )}
                   </span>
                 </div>
               </div>
@@ -672,7 +693,7 @@ export default function JournalModal({
                 </div>
 
                 <div className="flex justify-between items-center text-gray-300">
-                  <span>Mellékküldetések ({doneSideTasks} teljesítve, min. 1 számít):</span>
+                  <span>Mellékküldetések ({doneSideTasks} teljesítve):</span>
                   <span className="font-mono font-bold text-emerald-400">+{sideTasksReward} Ft</span>
                 </div>
 

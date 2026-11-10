@@ -324,6 +324,37 @@ export class PhobiaAudio {
   }
 
   /**
+   * One-shot HRTF panner at a world position (same 1.5m..25m linear model as
+   * createPositionalAudio). Shares the context listener that Three keeps on the camera.
+   */
+  _createSpatialPanner(pos, bus) {
+    const x = pos.x, y = pos.y, z = pos.z;
+    if (![x, y, z].every(Number.isFinite)) return null;
+    try {
+      const panner = this.context.createPanner();
+      panner.panningModel = 'HRTF';
+      panner.distanceModel = 'linear';
+      panner.refDistance = 1.5;
+      panner.maxDistance = 25.0;
+      panner.rolloffFactor = 1.0;
+      if (panner.positionX) {
+        panner.positionX.value = x;
+        panner.positionY.value = y;
+        panner.positionZ.value = z;
+      } else if (panner.setPosition) {
+        panner.setPosition(x, y, z);
+      }
+      panner.connect(bus);
+      // Sources are short one-shots; free the panner once they have ended
+      const t = setTimeout(() => { try { panner.disconnect(); } catch { /* ignore */ } }, 8000);
+      if (t && t.unref) t.unref();
+      return panner;
+    } catch {
+      return null;
+    }
+  }
+
+  /**
    * Resolves routing destination node for a sound playback.
    */
   _resolveDestination(options = {}) {
@@ -332,6 +363,10 @@ export class PhobiaAudio {
     }
     if (options.destinationNode) {
       return options.destinationNode;
+    }
+    if (options.position && this.context.createPanner) {
+      const panner = this._createSpatialPanner(options.position, options.bus === 'voice' ? this.voiceGain : this.sfxGain);
+      if (panner) return panner;
     }
     if (options.bus === 'voice') return this.voiceGain;
     if (options.bus === 'radio') return this.radioGain;

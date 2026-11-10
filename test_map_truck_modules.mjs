@@ -28,6 +28,15 @@ if (typeof document === 'undefined') {
             arc: () => {},
             fill: () => {},
             stroke: () => {},
+            clearRect: () => {},
+            save: () => {},
+            restore: () => {},
+            translate: () => {},
+            rotate: () => {},
+            scale: () => {},
+            measureText: () => ({ width: 40 }),
+            createRadialGradient: () => ({ addColorStop: () => {} }),
+            createLinearGradient: () => ({ addColorStop: () => {} }),
             fillStyle: '#000000',
             strokeStyle: '#000000',
             lineWidth: 1,
@@ -198,6 +207,20 @@ truck.updateWhiteboard({
   sideObjectives: [{ desc: 'EMF 5 mérése', bounty: 500, completed: true }]
 });
 assert(truck.whiteboardTex.version > wbInitVer, 'Whiteboard canvas updated with Hungarian objectives');
+
+// Contract shape: { primary: { textHu, done }, objectives: [{ id, textHu, done, rewardFt }] }
+const wbShapeVer = truck.whiteboardTex.version;
+truck.updateWhiteboard({
+  primary: { textHu: 'Határozd meg a szellem fajtáját', done: true },
+  objectives: [
+    { id: 'obj_emf5', textHu: 'Mérj EMF 5 jelzést', done: false, rewardFt: 600 },
+    { id: 'obj_photo', textHu: 'Fotózd le a szellemet', done: true, rewardFt: 1000 },
+    { id: 'obj_cold', textHu: 'Mérj fagypont alatti hőmérsékletet', done: false, rewardFt: 500 }
+  ]
+});
+assert(truck.whiteboardTex.version > wbShapeVer, 'Whiteboard accepts { primary, objectives } contract shape');
+truck.updateWhiteboard({ primary: null, objectives: [] });
+truck.updateWhiteboard();
 
 // Test Gate Button
 let gateOpenedViaButton = false;

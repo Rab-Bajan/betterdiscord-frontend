@@ -332,9 +332,14 @@ export class HingedDoor {
       this.currentAngle += Math.sign(angleDiff) * step;
     }
 
-    // Apply rotation to door mesh
+    // Apply rotation to door mesh around the hinge axis (trunk lids swing about X, doors about Y)
     if (this.doorMesh) {
-      this.doorMesh.rotation.y = this.currentAngle;
+      const ax = Math.abs(this.axis.x);
+      const ay = Math.abs(this.axis.y);
+      const az = Math.abs(this.axis.z);
+      if (ax > ay && ax > az) this.doorMesh.rotation.x = this.currentAngle;
+      else if (az > ay && az > ax) this.doorMesh.rotation.z = this.currentAngle;
+      else this.doorMesh.rotation.y = this.currentAngle;
     }
 
     this.updateCollider();
@@ -396,6 +401,7 @@ export class HidingSpot {
     this.isOpen = Boolean(options.isOpen);
     this.isOccupied = false;
     this.occupantId = null;
+    this.hasCustomCameraPos = Boolean(options.cameraInsidePos);
     this.cameraInsidePos = options.cameraInsidePos
       ? options.cameraInsidePos.clone()
       : this.bounds.getCenter(new THREE.Vector3());
@@ -427,11 +433,26 @@ export class HidingSpot {
     return this.bounds.containsPoint(position);
   }
 
-  canEnter(position) {
-    if (this.isOccupied) return false;
-    // Must be close to the hiding spot
+  canEnter(position, playerId = null) {
+    if (this.isOccupied && this.occupantId !== playerId) return false;
+    // Must be close to the hiding spot (horizontal distance: the player's feet are on the ground)
     const center = this.bounds.getCenter(new THREE.Vector3());
-    return position.distanceTo(center) <= 2.2;
+    return Math.hypot(position.x - center.x, position.z - center.z) <= 2.6;
+  }
+
+  /** Feet position inside the volume (ground level, centre of the footprint). */
+  getInteriorFloor(target = new THREE.Vector3()) {
+    const c = this.bounds.getCenter(target);
+    c.y = this.bounds.min.y;
+    return c;
+  }
+
+  /** Eye position inside the volume: lockers at head height, trunks low (the player curls up). */
+  getEyePosition(target = new THREE.Vector3()) {
+    if (this.hasCustomCameraPos) return target.copy(this.cameraInsidePos);
+    const c = this.bounds.getCenter(target);
+    c.y = Math.max(this.bounds.min.y + 0.4, Math.min(this.bounds.min.y + 1.6, this.bounds.max.y - 0.2));
+    return c;
   }
 
   enter(playerId) {

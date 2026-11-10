@@ -68,6 +68,7 @@ export default function PhobiaHUD({
   isLocked = true, // pointer lock state; false after start => pause strip
   teammates = [], // [{ id, username, sanity, alive, isSpeaking }]
   sideTasks = [], // [{ id, title|desc, reward, completed }]
+  primaryObjective = null, // { textHu|title, done|completed }
   isSpeaking = false, // local mic activity
   showControls = true
 }) {
@@ -228,6 +229,7 @@ export default function PhobiaHUD({
                 <div key={t.id || t.username} className={`flex items-center gap-1.5 ${t.alive === false ? 'opacity-40 line-through' : ''}`}>
                   <span className={`w-1.5 h-1.5 rounded-full ${t.isSpeaking ? 'bg-emerald-400 animate-pulse' : 'bg-gray-600'}`} />
                   <span className="truncate text-gray-200 flex-1">{t.username || 'Nyomozó'}</span>
+                  {t.hidden && t.alive !== false && <span className="text-[10px] text-indigo-300" title="Elbújt">🫥</span>}
                   {t.isSpeaking && <Mic className="w-3 h-3 text-emerald-400" />}
                   {typeof t.sanity === 'number' && (
                     <span className={`font-mono ${t.sanity > 50 ? 'text-emerald-400' : t.sanity > 25 ? 'text-amber-400' : 'text-red-400'}`}>
@@ -239,14 +241,31 @@ export default function PhobiaHUD({
             </div>
           )}
 
-          {/* Side tasks */}
-          {sideTasks.length > 0 && (
-            <div className="w-[190px] p-2 rounded-xl bg-black/60 backdrop-blur-md border border-gray-800 text-[11px] space-y-1 [@media(max-height:640px)]:hidden">
-              <div className="text-gray-400 font-bold">Feladatok {doneTasks}/{sideTasks.length}</div>
+          {/* Objectives: primary (identify the ghost) + side tasks with rewards */}
+          {(sideTasks.length > 0 || primaryObjective) && (
+            <div className="w-[210px] p-2 rounded-xl bg-black/60 backdrop-blur-md border border-gray-800 text-[11px] space-y-1.5 [@media(max-height:640px)]:hidden">
+              <div className="text-gray-400 font-bold flex items-center justify-between">
+                <span>Feladatok</span>
+                <span className="font-mono">{doneTasks}/{sideTasks.length}</span>
+              </div>
+              {primaryObjective && (() => {
+                const done = !!(primaryObjective.done ?? primaryObjective.completed);
+                return (
+                  <div className={`flex items-start gap-1.5 pb-1 border-b border-gray-800 ${done ? 'text-emerald-400' : 'text-amber-200'}`}>
+                    {done ? <CheckCircle2 className="w-3 h-3 mt-0.5 shrink-0" /> : <Eye className="w-3 h-3 mt-0.5 shrink-0 text-amber-400" />}
+                    <span className={`flex-1 font-semibold ${done ? 'line-through opacity-70' : ''}`}>
+                      {primaryObjective.textHu || primaryObjective.title || 'Azonosítsd a szellemet'}
+                    </span>
+                  </div>
+                );
+              })()}
               {sideTasks.map((t) => (
                 <div key={t.id} className={`flex items-start gap-1.5 ${t.completed ? 'text-emerald-400' : 'text-gray-300'}`}>
                   {t.completed ? <CheckCircle2 className="w-3 h-3 mt-0.5 shrink-0" /> : <Circle className="w-3 h-3 mt-0.5 shrink-0 text-gray-600" />}
-                  <span className={t.completed ? 'line-through opacity-70' : ''}>{t.title || t.desc}</span>
+                  <span className={`flex-1 ${t.completed ? 'line-through opacity-70' : ''}`}>{t.title || t.desc}</span>
+                  {typeof t.reward === 'number' && (
+                    <span className={`font-mono shrink-0 ${t.completed ? 'text-emerald-300' : 'text-amber-400'}`}>+{t.reward} Ft</span>
+                  )}
                 </div>
               ))}
             </div>

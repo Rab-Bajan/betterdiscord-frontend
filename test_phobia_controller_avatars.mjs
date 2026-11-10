@@ -9,7 +9,7 @@
 import * as THREE from 'three';
 import { PhobiaController, CONTROLLER_CONSTANTS } from './src/components/phobia/engine/PhobiaController.js';
 import { PhobiaAvatars, PhobiaAvatarInstance } from './src/components/phobia/engine/PhobiaAvatars.js';
-import { MapColliders, BoxCollider, SURFACE_TYPES } from './src/components/phobia/map/MapColliders.js';
+import { MapColliders, BoxCollider, SURFACE_TYPES, HidingSpot } from './src/components/phobia/map/MapColliders.js';
 
 let passedTests = 0;
 let totalTests = 0;
@@ -402,6 +402,64 @@ const nextTick = [
 ];
 avatars.handleTick(nextTick);
 assert(avatars.hasAvatar('peer_player_2') === false, 'Disconnected Peer 2 cleanly removed');
+
+// ============================================================================
+// Hiding spots: enter / exit flow
+// ============================================================================
+console.log('[Hiding spots]');
+{
+  const sent = [];
+  const hideColliders = new MapColliders();
+  const door = new HingedDoor({ id: 'door_t', pivot: new THREE.Vector3(9.65, 0, 5.3), closedAngle: 0, openAngle: 1.4, isOpen: true });
+  door.currentAngle = door.openAngle;
+  const spot = new HidingSpot({
+    id: 'test_locker',
+    bounds: new THREE.Box3(new THREE.Vector3(9.65, 0, 4.7), new THREE.Vector3(10.35, 2.1, 5.3)),
+    door,
+    isOpen: true
+  });
+  hideColliders.addHidingSpot(spot);
+  const hc = new PhobiaController({
+    camera: new THREE.PerspectiveCamera(),
+    scene: new THREE.Scene(),
+    mapColliders: hideColliders,
+    socket: { id: 'me', emit: (ev, p) => sent.push([ev, p]) },
+    roomId: 'r1',
+    initialPosition: [10.0, 0, 6.2]
+  });
+  const changes = [];
+  hc.onHideChange = (c) => changes.push(c.hidden);
+  hc.setLookAngles(0, 0); // looking towards -z, at the locker
+
+  hc.update(0.016);
+  assert(hc.currentInteractable && hc.currentInteractable.type === 'hiding_spot', 'Looking at a locker offers the hiding prompt');
+  assert(hideColliders.doors.has('door_t') && hc.currentInteractable.type !== 'door', 'Cabinet door is not a plain door target');
+
+  hc.interact();
+  assert(hc.isHiding === true, 'E inside range enters the hiding spot');
+  assert(sent.some(([ev, p]) => ev === 'phobia:hide' && p.spotId === 'test_locker' && p.hidden === true), 'phobia:hide hidden=true sent');
+  assert(spot.isOccupied && door.isOpen === false, 'Spot occupied and door closed while hidden');
+  assert(Math.abs(hc.position.x - 10.0) < 0.01 && Math.abs(hc.position.z - 5.0) < 0.01, 'Player placed inside the cabinet');
+
+  hc.keys.KeyW = true;
+  const pz = hc.position.z;
+  for (let i = 0; i < 20; i++) hc.update(0.05);
+  assert(Math.abs(hc.position.z - pz) < 1e-6, 'Movement is locked while hidden');
+  hc._onMouseMove({ movementX: -100000, movementY: 0 });
+  assert(Math.abs(hc.yaw - hc.hiding.outYaw) <= CONTROLLER_CONSTANTS.HIDE_YAW_LIMIT + 1e-6, 'Look range limited to the slit');
+  for (let i = 0; i < 60; i++) { hideColliders.update(0.05); }
+  assert(hideColliders.isPlayerStealthHidden(hc.position).isHidden === true, 'Closed door + inside volume breaks line of sight');
+  assert(sent.filter(([ev]) => ev === 'phobia:player-move').some(([, p]) => p.hidden === true && p.hidingSpotId === 'test_locker'), 'Move packets carry the hidden state');
+
+  hc.keys.KeyW = false;
+  hc.hideCooldown = 0;
+  hc.interact();
+  assert(hc.isHiding === false, 'E again leaves the hiding spot');
+  assert(Math.abs(hc.position.z - 6.2) < 1e-6 && Math.abs(hc.position.x - 10.0) < 1e-6, 'Exit restores the previous position');
+  assert(sent.some(([ev, p]) => ev === 'phobia:hide' && p.hidden === false), 'phobia:hide hidden=false sent');
+  assert(!spot.isOccupied && changes.join() === 'true,false', 'Spot freed and callbacks fired');
+  hc.dispose();
+}
 
 // Cleanup and disposal
 avatars.dispose();

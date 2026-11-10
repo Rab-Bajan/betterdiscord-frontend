@@ -15,6 +15,7 @@
  */
 
 import * as THREE from 'three';
+import { createHumanFigure, createPlayerMaterials, FIGURE } from '../visual/HumanFigure.js';
 
 /**
  * Creates a canvas texture for the overhead player nameplate billboard.
@@ -103,6 +104,7 @@ export class PhobiaAvatarInstance {
     // Animation & Bobbing
     this.swingTimer = 0.0;
     this.isMoving = false;
+    this._lastPos = this.currentPosition.clone();
 
     // Build 3D Model Hierarchy
     this.rootGroup = new THREE.Group();
@@ -114,173 +116,40 @@ export class PhobiaAvatarInstance {
   }
 
   _buildProceduralModel() {
-    // 1. Legs Group (Pivoting at hip y = 0.82m)
-    this.legsGroup = new THREE.Group();
-    this.legsGroup.name = 'LegsGroup';
+    // Articulated human figure (see visual/HumanFigure.js): hips + legs (thigh, knee, foot), torso with
+    // shoulders / elbows / hands, neck and head. The hi-vis vest takes the player's avatar colour.
+    let vest = 0xff6600;
+    try {
+      vest = new THREE.Color(this.avatarColor).getHex();
+    } catch (_) {}
+    this.figure = createHumanFigure(createPlayerMaterials(vest));
+    this.rootGroup.add(this.figure.root);
 
-    const trouserMat = new THREE.MeshStandardMaterial({
-      color: 0x22262d,
-      roughness: 0.8
-    });
-    const bootMat = new THREE.MeshStandardMaterial({
-      color: 0x141416,
-      roughness: 0.9,
-      metalness: 0.2
-    });
+    // Keep the legacy handles other modules / tests rely on
+    this.legsGroup = this.figure.hips;
+    this.torsoGroup = this.figure.torso;
+    this.leftLeg = this.figure.leftLeg;
+    this.rightLeg = this.figure.rightLeg;
+    this.leftArm = this.figure.leftArm;
+    this.rightArm = this.figure.rightArm;
+    this.headPivot = this.figure.headPivot;
 
-    const legGeom = new THREE.BoxGeometry(0.14, 0.74, 0.16);
-    const bootGeom = new THREE.BoxGeometry(0.15, 0.12, 0.22);
-
-    // Left Leg
-    this.leftLeg = new THREE.Group();
-    this.leftLeg.position.set(-0.12, 0.78, 0);
-    const leftLegMesh = new THREE.Mesh(legGeom, trouserMat);
-    leftLegMesh.position.y = -0.37;
-    leftLegMesh.castShadow = true;
-    const leftBootMesh = new THREE.Mesh(bootGeom, bootMat);
-    leftBootMesh.position.set(0, -0.70, 0.03);
-    leftBootMesh.castShadow = true;
-    this.leftLeg.add(leftLegMesh);
-    this.leftLeg.add(leftBootMesh);
-
-    // Right Leg
-    this.rightLeg = new THREE.Group();
-    this.rightLeg.position.set(0.12, 0.78, 0);
-    const rightLegMesh = new THREE.Mesh(legGeom, trouserMat);
-    rightLegMesh.position.y = -0.37;
-    rightLegMesh.castShadow = true;
-    const rightBootMesh = new THREE.Mesh(bootGeom, bootMat);
-    rightBootMesh.position.set(0, -0.70, 0.03);
-    rightBootMesh.castShadow = true;
-    this.rightLeg.add(rightLegMesh);
-    this.rightLeg.add(rightBootMesh);
-
-    this.legsGroup.add(this.leftLeg);
-    this.legsGroup.add(this.rightLeg);
-    this.rootGroup.add(this.legsGroup);
-
-    // 2. Torso Group (y = 0.82m)
-    this.torsoGroup = new THREE.Group();
-    this.torsoGroup.name = 'TorsoGroup';
-    this.torsoGroup.position.set(0, 0.82, 0);
-
-    // Base dark sweater
-    const sweaterMat = new THREE.MeshStandardMaterial({
-      color: 0x1c1e24,
-      roughness: 0.7
-    });
-    const torsoMesh = new THREE.Mesh(new THREE.BoxGeometry(0.40, 0.54, 0.24), sweaterMat);
-    torsoMesh.position.y = 0.27;
-    torsoMesh.castShadow = true;
-    this.torsoGroup.add(torsoMesh);
-
-    // High-Visibility Hazard Vest ('Láthatósági mellény')
-    // Safety orange / fluorescent yellow vest with silver reflective stripes
-    const vestMat = new THREE.MeshStandardMaterial({
-      color: 0xff6600, // Vibrant safety orange
-      roughness: 0.5,
-      metalness: 0.1
-    });
-    const stripeMat = new THREE.MeshStandardMaterial({
-      color: 0xeeeeee,
-      roughness: 0.15,
-      metalness: 0.95, // High specular retro-reflectivity
-      emissive: 0x222222
-    });
-
-    const vestMesh = new THREE.Mesh(new THREE.BoxGeometry(0.42, 0.44, 0.26), vestMat);
-    vestMesh.position.y = 0.26;
-    vestMesh.castShadow = true;
-    this.torsoGroup.add(vestMesh);
-
-    // Horizontal reflective stripes on vest
-    const stripeUpper = new THREE.Mesh(new THREE.BoxGeometry(0.43, 0.05, 0.27), stripeMat);
-    stripeUpper.position.y = 0.36;
-    const stripeLower = new THREE.Mesh(new THREE.BoxGeometry(0.43, 0.05, 0.27), stripeMat);
-    stripeLower.position.y = 0.18;
-    this.torsoGroup.add(stripeUpper);
-    this.torsoGroup.add(stripeLower);
-
-    // 3. Arms
-    const armGeom = new THREE.BoxGeometry(0.11, 0.55, 0.12);
-
-    // Left Arm
-    this.leftArm = new THREE.Group();
-    this.leftArm.position.set(-0.26, 0.50, 0);
-    const leftArmMesh = new THREE.Mesh(armGeom, vestMat);
-    leftArmMesh.position.y = -0.24;
-    leftArmMesh.castShadow = true;
-    this.leftArm.add(leftArmMesh);
-    this.torsoGroup.add(this.leftArm);
-
-    // Right Arm (holds tool or tracks flashlight)
-    this.rightArm = new THREE.Group();
-    this.rightArm.position.set(0.26, 0.50, 0);
-    const rightArmMesh = new THREE.Mesh(armGeom, vestMat);
-    rightArmMesh.position.y = -0.24;
-    rightArmMesh.castShadow = true;
-    this.rightArm.add(rightArmMesh);
-    this.torsoGroup.add(this.rightArm);
-
-    // 4. Neck & Head Pivot (pitches up/down [-81°, +81°])
-    this.headPivot = new THREE.Group();
-    this.headPivot.name = 'HeadPivot';
-    this.headPivot.position.set(0, 0.56, 0);
-
-    const skinMat = new THREE.MeshStandardMaterial({
-      color: 0xdfb498,
-      roughness: 0.6
-    });
-    const headMesh = new THREE.Mesh(new THREE.BoxGeometry(0.20, 0.22, 0.20), skinMat);
-    headMesh.position.y = 0.12;
-    headMesh.castShadow = true;
-    this.headPivot.add(headMesh);
-
-    // Dark beanie / security cap
-    const capMat = new THREE.MeshStandardMaterial({
-      color: 0x1b1c20,
-      roughness: 0.9
-    });
-    const capMesh = new THREE.Mesh(new THREE.BoxGeometry(0.22, 0.10, 0.22), capMat);
-    capMesh.position.y = 0.20;
-    this.headPivot.add(capMesh);
-
-    // White LED Headlamp on forehead
-    const lampCasingMat = new THREE.MeshStandardMaterial({ color: 0x222222, metalness: 0.8 });
-    const lampLensMat = new THREE.MeshStandardMaterial({
-      color: 0xffffff,
-      emissive: 0xffffff,
-      emissiveIntensity: 1.5
-    });
-
-    const lampCasing = new THREE.Mesh(new THREE.BoxGeometry(0.08, 0.05, 0.05), lampCasingMat);
-    lampCasing.position.set(0, 0.16, 0.11);
-    const lampLens = new THREE.Mesh(new THREE.CylinderGeometry(0.02, 0.02, 0.02, 8), lampLensMat);
-    lampLens.rotation.x = Math.PI / 2;
-    lampLens.position.set(0, 0.16, 0.136);
-
-    this.headPivot.add(lampCasing);
-    this.headPivot.add(lampLens);
-
-    // Synchronized 3D Flashlight Spotlight
+    // Synchronized 3D Flashlight Spotlight (mounted on the headlamp)
     this.flashlight = new THREE.SpotLight(0xfffaee, 2.5);
     this.flashlight.angle = Math.PI / 6; // 30 degrees cone
     this.flashlight.penumbra = 0.35;
     this.flashlight.distance = 18.0;
     this.flashlight.decay = 2.0;
     this.flashlight.castShadow = false; // Keep shadow casting budgeted for local player & floodlights
-    this.flashlight.position.set(0, 0.16, 0.14);
+    this.flashlight.position.set(0, 0.17, 0.13);
 
     this.flashlightTarget = new THREE.Object3D();
-    this.flashlightTarget.position.set(0, 0.16, 5.0);
+    this.flashlightTarget.position.set(0, 0.17, 5.0);
     this.headPivot.add(this.flashlightTarget);
     this.flashlight.target = this.flashlightTarget;
     this.headPivot.add(this.flashlight);
 
     this.flashlight.visible = this.flashlightOn;
-
-    this.torsoGroup.add(this.headPivot);
-    this.rootGroup.add(this.torsoGroup);
 
     // 5. Overhead Floating Nameplate Billboard
     this.nameplateTexture = createNameplateTexture(this.username, this.sanity);
@@ -292,7 +161,7 @@ export class PhobiaAvatarInstance {
       });
       this.nameplateSprite = new THREE.Sprite(spriteMat);
       this.nameplateSprite.scale.set(1.4, 0.35, 1.0);
-      this.nameplateSprite.position.set(0, 1.95, 0);
+      this.nameplateSprite.position.set(0, 2.05, 0);
       this.rootGroup.add(this.nameplateSprite);
     }
   }
@@ -380,34 +249,19 @@ export class PhobiaAvatarInstance {
       this.headPivot.rotation.x = this.currentPitch;
     }
 
-    // 4. Crouching Offset Lerp
-    const targetTorsoY = this.crouched ? 0.42 : 0.82;
-    if (this.torsoGroup) {
-      this.torsoGroup.position.y = THREE.MathUtils.lerp(this.torsoGroup.position.y, targetTorsoY, factor);
-    }
-
-    // 5. Walking / Running Swing Animation
+    // 4./5. Crouch, walk / sprint cycle, bob and flashlight arm are all driven by the figure rig
     const distMoved = this.currentPosition.distanceTo(this.targetPosition);
-    this.isMoving = distMoved > 0.02;
-
-    if (this.isMoving && this.alive) {
-      const swingSpeed = this.sprinting ? 14.0 : 9.0;
-      this.swingTimer += dt * swingSpeed;
-
-      const legAngle = Math.sin(this.swingTimer) * (this.sprinting ? 0.65 : 0.45);
-      const armAngle = Math.sin(this.swingTimer) * (this.sprinting ? 0.55 : 0.35);
-
-      if (this.leftLeg) this.leftLeg.rotation.x = legAngle;
-      if (this.rightLeg) this.rightLeg.rotation.x = -legAngle;
-      if (this.leftArm) this.leftArm.rotation.x = -armAngle;
-      if (this.rightArm) this.rightArm.rotation.x = armAngle;
-    } else {
-      // Smoothly return limbs to neutral pose
-      if (this.leftLeg) this.leftLeg.rotation.x = THREE.MathUtils.lerp(this.leftLeg.rotation.x, 0, factor);
-      if (this.rightLeg) this.rightLeg.rotation.x = THREE.MathUtils.lerp(this.rightLeg.rotation.x, 0, factor);
-      if (this.leftArm) this.leftArm.rotation.x = THREE.MathUtils.lerp(this.leftArm.rotation.x, 0, factor);
-      if (this.rightArm) this.rightArm.rotation.x = THREE.MathUtils.lerp(this.rightArm.rotation.x, 0, factor);
-    }
+    const speed = dt > 0 ? this.currentPosition.distanceTo(this._lastPos) / dt : 0;
+    this._lastPos.copy(this.currentPosition);
+    this.isMoving = distMoved > 0.02 || speed > 0.4;
+    this.swingTimer += this.isMoving ? dt : 0;
+    this.figure.animate(dt, {
+      moving: this.isMoving && this.alive,
+      sprinting: this.sprinting,
+      crouched: this.crouched,
+      holdLight: this.flashlightOn && this.alive && !this.sprinting
+    });
+    if (this.headPivot) this.headPivot.rotation.x = this.currentPitch;
 
     // 6. Alive / Dead Appearance
     if (!this.alive) {
@@ -427,6 +281,8 @@ export class PhobiaAvatarInstance {
       this.nameplateTexture.dispose();
       this.nameplateTexture = null;
     }
+
+    this.figure?.dispose();
 
     // Traverse and dispose all geometries & materials
     this.rootGroup.traverse((obj) => {

@@ -18,6 +18,10 @@
 
 import * as THREE from 'three';
 import { BoxCollider, SURFACE_TYPES } from './MapColliders.js';
+import { getPBRMaterial } from '../visual/ProceduralTextures.js';
+import { applyWorldUVs, mergeParts, lathe, createContactShadows } from '../visual/GeometryKit.js';
+import { P, tube } from '../visual/YardProps.js';
+import { createToolViewmodel } from '../items/ToolDefinitions.js';
 
 export class TruckEnvironment {
   constructor(options = {}) {
@@ -67,49 +71,48 @@ export class TruckEnvironment {
     this.buildGateButton();
     this.buildCountdownTimer();
     this.buildColliders();
+    this.buildTruckDetailing();
+    applyWorldUVs(this.group);
+  }
+
+  /** Free canvas textures and geometry owned by the truck (shared library textures are freed elsewhere). */
+  dispose() {
+    for (const t of [this.surveillanceTex, this.sanityTex, this.activityTex, this.whiteboardTex, this.timerTex]) t?.dispose();
+    this.group.traverse((o) => {
+      if (o.geometry) o.geometry.dispose();
+      const mats = Array.isArray(o.material) ? o.material : o.material ? [o.material] : [];
+      mats.forEach((m) => {
+        if (m.map && m.map.isCanvasTexture) m.map.dispose();
+        m.dispose();
+      });
+    });
   }
 
   /* -------------------------------------------------------------
    * MATERIALS & TEXTURES
    * ----------------------------------------------------------- */
   initTruckMaterials() {
-    this.matWhitePaint = new THREE.MeshStandardMaterial({
-      color: 0xdddddd,
-      roughness: 0.35,
-      metalness: 0.2
-    });
-    this.matDarkMetal = new THREE.MeshStandardMaterial({
-      color: 0x222428,
-      roughness: 0.6,
-      metalness: 0.7
-    });
-    this.matRubber = new THREE.MeshStandardMaterial({
-      color: 0x151517,
-      roughness: 0.85,
-      metalness: 0.05
-    });
-    this.matChrome = new THREE.MeshStandardMaterial({
-      color: 0xcccccc,
-      roughness: 0.15,
-      metalness: 0.95
-    });
+    // Shared procedural PBR materials (cached in the texture library)
+    this.matWhitePaint = getPBRMaterial('paint', { color: 0xe6e6e0, tile: 1.2, normalScale: 0.6 });
+    this.matDarkMetal = getPBRMaterial('metalPlate', { color: 0x2c2f36, tile: 0.9 });
+    this.matCheckerFloor = getPBRMaterial('metalPlate', { color: 0x3a3d44, tile: 0.6, normalScale: 1.6 });
+    this.matRubber = new THREE.MeshStandardMaterial({ color: 0x151517, roughness: 0.9, metalness: 0.05 });
+    this.matChrome = new THREE.MeshStandardMaterial({ color: 0xd0d4d8, roughness: 0.15, metalness: 1.0 });
     this.matGlass = new THREE.MeshStandardMaterial({
       color: 0x111622,
-      roughness: 0.1,
+      roughness: 0.08,
       metalness: 0.9,
       transparent: true,
       opacity: 0.65
     });
-    this.matWoodDesk = new THREE.MeshStandardMaterial({
-      color: 0x4a3728,
-      roughness: 0.7,
-      metalness: 0.1
-    });
+    this.matWoodDesk = getPBRMaterial('wood', { color: 0x4a3728, tile: 1.0 });
     this.matCork = new THREE.MeshStandardMaterial({
       color: 0x8a6d48,
       roughness: 0.9,
       metalness: 0.0
     });
+    this.matLampEmit = new THREE.MeshStandardMaterial({ color: 0xffffff, emissive: 0xfff4d0, emissiveIntensity: 1.2, roughness: 0.3 });
+    this.matTailLamp = new THREE.MeshStandardMaterial({ color: 0x881111, emissive: 0x330404, emissiveIntensity: 0.6, roughness: 0.3 });
   }
 
   /* -------------------------------------------------------------
@@ -129,7 +132,7 @@ export class TruckEnvironment {
 
     // Cargo Floor (Dark ribbed metal)
     const floorGeo = new THREE.BoxGeometry(cargoW, wallThickness, cargoL);
-    const floorMesh = new THREE.Mesh(floorGeo, this.matDarkMetal);
+    const floorMesh = new THREE.Mesh(floorGeo, this.matCheckerFloor);
     floorMesh.position.set(0, 0.3, cargoZ);
     floorMesh.receiveShadow = true;
     truckBody.add(floorMesh);
@@ -253,8 +256,16 @@ export class TruckEnvironment {
     truckBody.add(headlightR);
 
     // 3. Wheels & Undercarriage
-    const wheelGeo = new THREE.CylinderGeometry(0.38, 0.38, 0.24, 16);
-    wheelGeo.rotateZ(Math.PI / 2);
+    // Tyre with shoulder, tread blocks and sidewall lettering ridge (lathe), steel wheel with lug nuts
+    const tyreProfile = [[0.2, -0.12], [0.33, -0.12], [0.37, -0.1], [0.38, -0.06], [0.38, 0.06], [0.37, 0.1], [0.33, 0.12], [0.2, 0.12], [0.2, 0.09], [0.31, 0.09], [0.31, -0.09], [0.2, -0.09]];
+    const wheelGeo = mergeParts([
+      { geometry: lathe(tyreProfile, 20), position: [0, 0, 0], rotation: [0, 0, Math.PI / 2] },
+      ...Array.from({ length: 20 }, (_, i) => P.box(0.2, 0.018, 0.06, 0, 0.385 * Math.cos((i / 20) * Math.PI * 2), 0.385 * Math.sin((i / 20) * Math.PI * 2), (i / 20) * Math.PI * 2, 0, 0)) // tread blocks
+    ], { tile: 0.8 });
+    const hubGeo = mergeParts([
+      P.cyl(0.21, 0.21, 0.04, 14, 0, 0, 0, 0, 0, Math.PI / 2), P.cyl(0.07, 0.07, 0.07, 10, 0, 0, 0, 0, 0, Math.PI / 2),
+      ...Array.from({ length: 5 }, (_, i) => P.cyl(0.018, 0.018, 0.06, 6, 0.02, 0.12 * Math.cos((i / 5) * Math.PI * 2), 0.12 * Math.sin((i / 5) * Math.PI * 2), 0, 0, Math.PI / 2))
+    ], { tile: 0.6 });
 
     const wheelPositions = [
       [-1.15, 0.38, cargoZ - 1.2],
@@ -266,12 +277,11 @@ export class TruckEnvironment {
     wheelPositions.forEach(([wx, wy, wz]) => {
       const wheel = new THREE.Mesh(wheelGeo, this.matRubber);
       wheel.position.set(wx, wy, wz);
+      wheel.castShadow = true;
       truckBody.add(wheel);
 
-      // Steel hubcap
-      const hub = new THREE.Mesh(new THREE.CylinderGeometry(0.18, 0.18, 0.26, 12), this.matChrome);
-      hub.rotateZ(Math.PI / 2);
-      hub.position.set(wx, wy, wz);
+      const hub = new THREE.Mesh(hubGeo, this.matChrome);
+      hub.position.set(wx + Math.sign(wx) * 0.06, wy, wz);
       truckBody.add(hub);
     });
 
@@ -499,8 +509,6 @@ export class TruckEnvironment {
     this.group.add(boardGroup);
 
     this.updateWhiteboard({
-      ghostName: 'Lakatos Ármándó',
-      ghostResponse: 'Mindenkinek válaszol',
       primaryCompleted: false,
       sideObjectives: [
         { desc: 'Fotózd le a szellemet', bounty: 1000, completed: false },
@@ -576,9 +584,31 @@ export class TruckEnvironment {
       { id: 'palinka_flask', nameHu: 'Házi Pálinkás Laposüveg', type: 'palinka', pos: [-0.05, 0.18, 0.0] }
     ];
 
+    const modelFor = {
+      flashlight: 'flashlight_t1', uv_light: 'uv_light', thermometer: 'thermometer', emf_reader: 'emf_reader', spirit_box: 'spirit_box',
+      camera: 'photo_camera', book: 'ghost_writing_book', video_cam: 'video_camera', crucifix: 'mobile_jesus', smudge: 'smudge_sticks', palinka: 'sanity_palinka'
+    };
+    const shelfTops = [1.36, 0.96, 0.56, 0.16];
     toolDefs.forEach(tool => {
-      const mesh = this.createToolMesh(tool.type, tool.nameHu);
-      mesh.position.set(tool.pos[0], tool.pos[1], tool.pos[2]);
+      let mesh;
+      if (modelFor[tool.type]) {
+        // Real tool model resting on its shelf; lights inside the models are removed (static display only)
+        mesh = createToolViewmodel(modelFor[tool.type]);
+        const lights = [];
+        mesh.traverse((o) => { if (o.isLight) lights.push(o); });
+        lights.forEach((l) => l.parent && l.parent.remove(l));
+        const horizontal = tool.type === 'flashlight' || tool.type === 'uv_light';
+        mesh.rotation.y = horizontal ? Math.PI / 2 : Math.PI / 2 + (tool.pos[2] > 0 ? -0.2 : 0.2);
+        mesh.updateMatrixWorld(true);
+        const box = new THREE.Box3().setFromObject(mesh);
+        const top = shelfTops.reduce((a, b) => (Math.abs(b - tool.pos[1]) < Math.abs(a - tool.pos[1]) ? b : a));
+        mesh.position.set(tool.pos[0], top + 0.012 - box.min.y, tool.pos[2]);
+        mesh.userData = {};
+      } else {
+        mesh = this.createToolMesh(tool.type, tool.nameHu);
+        mesh.position.set(tool.pos[0], tool.pos[1], tool.pos[2]);
+        if (tool.type === 'dots') mesh.add(this._projectorProp());
+      }
       mesh.userData = {
         isPickup: true,
         itemId: tool.id,
@@ -591,6 +621,15 @@ export class TruckEnvironment {
       this.interactiveObjects.push(mesh);
       this.rackItemMeshes.set(tool.id, mesh);
     });
+  }
+
+  /** Compact D.O.T.S. projector prop for the shelf (the real model is a 7 m laser matrix). */
+  _projectorProp() {
+    const g = new THREE.Mesh(
+      mergeParts([P.rbox(0.12, 0.06, 0.1, 0.01, 0, 0.03, 0), P.cyl(0.022, 0.022, 0.03, 12, 0, 0.035, -0.06, Math.PI / 2, 0, 0), P.cyl(0.008, 0.008, 0.02, 8, 0.04, 0.07, 0.01)]),
+      this.matDarkMetal
+    );
+    return g;
   }
 
   createToolMesh(type, label) {
@@ -775,6 +814,130 @@ export class TruckEnvironment {
   }
 
   /* -------------------------------------------------------------
+   * DETAILING (merged per material: a handful of draw calls)
+   * Truck local frame: cargo floor y = 0.3, cargo z -2.2 .. 1.4, cab to z = 3.0, walls at x = +/-1.15
+   * ----------------------------------------------------------- */
+  buildTruckDetailing() {
+    const g = new THREE.Group();
+    g.name = 'Truck_Detailing';
+    const add = (parts, mat, shadow = false) => {
+      const m = new THREE.Mesh(mergeParts(parts, { tile: 1.2 }), mat);
+      m.castShadow = shadow;
+      g.add(m);
+      return m;
+    };
+    const cargoZ = -0.4;
+    const cabZ = 2.2;
+
+    // ---- exterior bodywork (white paint)
+    const paint = [];
+    for (let i = 0; i < 6; i++) { // stamped vertical ribs on the port wall, outside face
+      paint.push(P.rbox(0.03, 1.8, 0.1, 0.01, -1.18, 1.4, -2.0 + i * 0.6));
+    }
+    for (const z of [-1.8, -1.4]) paint.push(P.rbox(0.03, 1.8, 0.1, 0.01, 1.18, 1.4, z));
+    for (const z of [0.6, 1.0]) paint.push(P.rbox(0.03, 1.8, 0.1, 0.01, 1.18, 1.4, z));
+    for (let i = 0; i < 5; i++) paint.push(P.rbox(2.3, 0.04, 0.08, 0.01, 0, 2.56, -2.0 + i * 0.8)); // roof ribs
+    for (const [wx, wz] of [[-1.15, cargoZ - 1.2], [1.15, cargoZ - 1.2], [-1.15, cabZ + 0.2], [1.15, cabZ + 0.2]]) {
+      paint.push({ geometry: new THREE.TorusGeometry(0.47, 0.035, 5, 14, Math.PI), position: [wx + Math.sign(wx) * 0.02, 0.38, wz], rotation: [0, Math.PI / 2, 0] }); // wheel-arch flares
+    }
+    paint.push(P.rbox(2.3, 0.18, 0.18, 0.03, 0, 0.55, 3.0), P.rbox(2.0, 0.32, 0.06, 0.02, 0, 0.95, 3.02)); // cab nose + bonnet front
+    paint.push(P.box(0.05, 0.9, 0.05, 1.18, 1.5, cabZ + 0.7), P.box(0.05, 0.9, 0.05, -1.18, 1.5, cabZ + 0.7)); // A-pillars hint
+    add(paint, this.matWhitePaint, true);
+
+    // ---- dark trim: bumpers, skid plate, roof rack, mirrors, handles, rails, wipers, exhaust
+    const dark = [
+      P.rbox(2.4, 0.28, 0.22, 0.05, 0, 0.36, 3.08), P.rbox(2.4, 0.2, 0.18, 0.04, 0, 0.3, -2.3), P.box(2.0, 0.08, 3.2, 0, 0.22, -0.4), // bumpers + underbody
+      tube([-1.0, 2.7, -2.0], [-1.0, 2.7, 0.9], 0.02), tube([1.0, 2.7, -2.0], [1.0, 2.7, 0.9], 0.02), // roof rack rails
+      P.box(2.0, 0.03, 0.04, 0, 2.7, -1.9), P.box(2.0, 0.03, 0.04, 0, 2.7, -1.0), P.box(2.0, 0.03, 0.04, 0, 2.7, -0.1), P.box(2.0, 0.03, 0.04, 0, 2.7, 0.8),
+      P.cyl(0.015, 0.015, 0.1, 6, -1.0, 2.64, -2.0), P.cyl(0.015, 0.015, 0.1, 6, 1.0, 2.64, -2.0), P.cyl(0.015, 0.015, 0.1, 6, -1.0, 2.64, 0.9), P.cyl(0.015, 0.015, 0.1, 6, 1.0, 2.64, 0.9),
+      P.rbox(0.06, 0.24, 0.16, 0.02, -1.3, 1.55, cabZ + 0.55), P.rbox(0.06, 0.24, 0.16, 0.02, 1.3, 1.55, cabZ + 0.55), // mirrors
+      tube([-1.15, 1.5, cabZ + 0.5], [-1.28, 1.55, cabZ + 0.55], 0.012), tube([1.15, 1.5, cabZ + 0.5], [1.28, 1.55, cabZ + 0.55], 0.012),
+      tube([1.2, 0.5, cargoZ - 0.6], [1.2, 0.5, cargoZ + 0.6], 0.025), tube([1.2, 2.3, cargoZ - 0.6], [1.2, 2.3, cargoZ + 0.6], 0.02), // sliding door rails
+      tube([-0.45, 1.55, cabZ + 0.83], [0.05, 1.3, cabZ + 0.95], 0.008), tube([0.45, 1.55, cabZ + 0.83], [0.95, 1.3, cabZ + 0.95], 0.008), // wipers
+      P.cyl(0.04, 0.04, 0.7, 8, -0.7, 0.28, -2.0, Math.PI / 2, 0, 0), // exhaust
+      P.box(1.4, 0.05, 0.02, 0, 0.7, 3.2), P.box(1.4, 0.05, 0.02, 0, 0.8, 3.2), P.box(1.4, 0.05, 0.02, 0, 0.9, 3.2), // grille slats
+      P.box(0.5, 0.07, 0.02, 0.5, 1.2, -2.31), // rear door gap
+      P.rbox(0.8, 0.5, 0.6, 0.04, 0.4, 2.85, -1.2), P.cyl(0.18, 0.18, 0.06, 14, 0.4, 3.12, -1.2) // roof AC unit
+    ];
+    add(dark, this.matDarkMetal, true);
+
+    // ---- satellite dish and antennas on the roof
+    const dish = new THREE.Mesh(
+      mergeParts([{ geometry: lathe([[0.0001, 0.0], [0.08, 0.01], [0.17, 0.045], [0.26, 0.1], [0.255, 0.1], [0.165, 0.04], [0.0001, 0.0]], 16), position: [0, 0.18, 0], rotation: [0.9, 0, 0] }]),
+      this.matWhitePaint
+    );
+    dish.material = this.matWhitePaint;
+    dish.position.set(-0.6, 2.7, -1.5);
+    g.add(dish);
+    add([P.cyl(0.02, 0.03, 0.2, 8, -0.6, 2.62, -1.5), tube([-0.6, 2.72, -1.5], [-0.6, 2.95, -1.35], 0.012), P.cyl(0.02, 0.02, 0.05, 6, -0.6, 2.97, -1.34),
+      tube([0.8, 2.6, 0.6], [0.8, 3.7, 0.6], 0.01), tube([-0.8, 2.6, 0.3], [-0.8, 3.3, 0.3], 0.008), P.sphere(0.03, 1, 1, 1, 0.8, 3.7, 0.6, 6)], this.matDarkMetal);
+
+    // ---- chrome: door handles, hub rings, grille emblem, fuel flap
+    add([
+      P.rbox(0.03, 0.05, 0.18, 0.01, 1.22, 1.3, cargoZ + 0.7), P.rbox(0.03, 0.05, 0.18, 0.01, 1.22, 1.3, cargoZ - 0.7), // sliding-door handles
+      P.rbox(0.18, 0.05, 0.03, 0.01, -0.25, 1.3, -2.32), P.rbox(0.18, 0.05, 0.03, 0.01, 0.25, 1.3, -2.32), // rear door handles
+      P.rbox(0.3, 0.1, 0.02, 0.02, 0, 0.82, 3.21), P.rbox(0.03, 0.05, 0.14, 0.01, -1.19, 1.35, cabZ + 0.1), P.rbox(0.03, 0.05, 0.14, 0.01, 1.19, 1.35, cabZ + 0.1),
+      P.cyl(0.05, 0.05, 0.02, 10, -1.19, 0.9, -1.6, 0, 0, Math.PI / 2) // fuel cap
+    ], this.matChrome);
+
+    // ---- glass: cab side windows, rear door windows, headlight lenses
+    add([
+      P.box(0.03, 0.6, 1.0, 1.18, 1.5, cabZ + 0.1), P.box(0.03, 0.6, 1.0, -1.18, 1.5, cabZ + 0.1),
+      P.box(0.4, 0.5, 0.03, -0.55, 1.5, -2.31), P.box(0.4, 0.5, 0.03, 0.55, 1.5, -2.31)
+    ], this.matGlass);
+
+    // ---- lamps: tail lights, headlight reflector rings, interior tube housing
+    add([P.rbox(0.12, 0.36, 0.05, 0.02, -1.08, 0.9, -2.3), P.rbox(0.12, 0.36, 0.05, 0.02, 1.08, 0.9, -2.3), P.rbox(0.06, 0.1, 0.05, 0.02, -0.85, 0.25, 3.12), P.rbox(0.06, 0.1, 0.05, 0.02, 0.85, 0.25, 3.12)], this.matTailLamp);
+
+    // ---- interior: ceiling fixture and conduits, wall cable trays, fire extinguisher, first aid box, floor mat, wall ribs
+    const interior = [
+      P.rbox(1.5, 0.06, 0.16, 0.02, 0, 2.5, -0.4), tube([-0.9, 2.46, -2.15], [-0.9, 2.46, 1.3], 0.02), tube([0.9, 2.46, -2.15], [0.9, 2.46, 1.3], 0.02),
+      tube([-1.08, 2.0, -2.1], [-1.08, 2.0, -0.2], 0.018), tube([-1.08, 2.0, 0.6], [-1.08, 2.0, 1.3], 0.018), P.box(0.04, 0.12, 0.3, 1.08, 1.9, 1.0), // cable runs + junction box
+      P.cyl(0.07, 0.07, 0.4, 12, 0.95, 1.0, 1.3), P.cyl(0.03, 0.04, 0.06, 8, 0.95, 1.23, 1.3), tube([0.95, 1.26, 1.3], [0.78, 1.0, 1.3], 0.012), // extinguisher
+      P.rbox(0.3, 0.22, 0.09, 0.015, 0.3, 1.0, 1.31)
+    ];
+    for (let i = 0; i < 5; i++) interior.push(P.rbox(0.04, 1.7, 0.12, 0.01, 1.1, 1.15, -2.0 + i * 0.4 - (i > 2 ? 0 : 0))); // inner wall ribs (starboard rear)
+    for (let i = 0; i < 6; i++) interior.push(P.rbox(0.04, 1.7, 0.12, 0.01, -1.09, 1.15, -2.0 + i * 0.6)); // port wall ribs
+    add(interior, this.matDarkMetal);
+    add([P.box(0.18, 0.1, 0.02, 0.3, 1.0, 1.35), P.rbox(0.24, 0.15, 0.04, 0.01, 0.3, 1.0, 1.325)], new THREE.MeshStandardMaterial({ color: 0xcc2222, roughness: 0.5 })); // first-aid cross box
+    add([P.cyl(0.07, 0.07, 0.4, 12, 0.95, 1.0, 1.3)], new THREE.MeshStandardMaterial({ color: 0xbb1111, roughness: 0.4, metalness: 0.5 }));
+    add([P.box(0.9, 0.012, 3.2, 0.1, 0.35, -0.4)], this.matRubber); // rubber floor runner
+    add([P.rbox(1.4, 0.07, 0.2, 0.03, 0, 2.47, -0.4)], this.matLampEmit);
+
+    // ---- desk detailing (desk group is at (-0.75, 0.3, -1.2)): bezel, stand, vents, radio, lamp, papers, mug handle
+    const desk = [
+      P.rbox(0.46, 0.42, 0.03, 0.01, 0.05, 0.95, -0.108), P.box(0.1, 0.12, 0.12, 0.05, 0.78, -0.28), P.rbox(0.2, 0.03, 0.2, 0.01, 0.05, 0.74, -0.28),
+      P.rbox(0.5, 0.5, 0.45, 0.02, 0.0, 0.47, 0.2), // drawer pedestal under the desk
+      P.rbox(0.28, 0.08, 0.2, 0.01, 0.05, 0.79, 0.15), P.cyl(0.015, 0.015, 0.04, 8, 0.1, 0.84, 0.15), P.cyl(0.015, 0.015, 0.04, 8, 0.0, 0.84, 0.15), // CB radio on the desk
+      tube([-0.3, 0.76, 0.5], [-0.3, 1.05, 0.55], 0.008), tube([-0.3, 1.05, 0.55], [-0.15, 1.15, 0.4], 0.008), P.cyl(0.05, 0.08, 0.06, 10, -0.12, 1.15, 0.38, 0.5, 0, 0), // desk lamp
+      P.box(0.002, 0.2, 0.002, 0.2, 0.8, 0.1)
+    ];
+    for (let i = 0; i < 8; i++) desk.push(P.box(0.3, 0.012, 0.006, 0.05, 0.99 - i * 0.025, -0.45)); // vent slots on monitor rear
+    for (let i = 0; i < 3; i++) desk.push(P.box(0.42, 0.14, 0.01, 0, 0.5 - i * 0.16 + 0.1, 0.43)); // drawer fronts
+    const deskMesh = add(desk, this.matDarkMetal, true);
+    deskMesh.position.set(-0.75, 0.3, -1.2);
+    add([P.rbox(0.3, 0.003, 0.22, 0.001, 0.2, 0.755, 0.12, 0, 0.2, 0), P.rbox(0.22, 0.003, 0.3, 0.001, 0.0, 0.757, 0.3, 0, -0.1, 0)], new THREE.MeshStandardMaterial({ color: 0xe8e4d8, roughness: 0.9 })).position.set(-0.75, 0.3, -1.2);
+    add([P.torus(0.025, 0.006, 5, 10, 0.245, 0.78, 0.45, 0, 0, 0)], new THREE.MeshStandardMaterial({ color: 0xaa2222, roughness: 0.3 })).position.set(-0.75, 0.3, -1.2);
+
+    // ---- display frames: bolts, brackets and a marker tray
+    const bolts = [];
+    for (const [cx, cy, cz, hw, hh] of [[-0.45, 1.6, 1.35, 0.45, 0.275], [0.55, 1.55, 1.35, 0.475, 0.375], [0, 2.1, 1.34, 0.24, 0.09]]) {
+      for (const sx of [-1, 1]) for (const sy of [-1, 1]) {
+        const lx = sx * (hw - 0.02);
+        const ly = sy * (hh - 0.02);
+        bolts.push(P.cyl(0.008, 0.008, 0.012, 6, cx + lx, cy + ly, cz - 0.03, Math.PI / 2, 0, 0));
+      }
+    }
+    add(bolts, this.matChrome);
+
+    // ---- gate button guard cage
+    const guard = [tube([1.095, 1.34, 0.5], [1.095, 1.34, 0.7], 0.008), tube([1.095, 1.16, 0.5], [1.095, 1.16, 0.7], 0.008), tube([1.07, 1.34, 0.5], [1.07, 1.16, 0.5], 0.008), tube([1.07, 1.34, 0.7], [1.07, 1.16, 0.7], 0.008)];
+    add(guard, this.matDarkMetal);
+
+    this.group.add(g);
+  }
+
+  /* -------------------------------------------------------------
    * COLLIDERS
    * ----------------------------------------------------------- */
   buildColliders() {
@@ -808,12 +971,12 @@ export class TruckEnvironment {
       max: new THREE.Vector3(p.x + 1.25, p.y + 2.5, p.z - 2.1)
     }));
 
-    // Right starboard wall front section (leaving door open at z: -0.4 to +0.8)
+    // Right starboard wall front section (door opening local z: -1.0 to +0.2, matching the visible sliding-door gap)
     this.colliders.push(new BoxCollider({
       id: 'truck_starboard_front',
       tag: 'vehicle',
       surface: SURFACE_TYPES.METAL,
-      min: new THREE.Vector3(p.x + 1.05, p.y, p.z + 0.8),
+      min: new THREE.Vector3(p.x + 1.05, p.y, p.z + 0.2),
       max: new THREE.Vector3(p.x + 1.25, p.y + 2.5, p.z + 1.4)
     }));
 
@@ -823,7 +986,7 @@ export class TruckEnvironment {
       tag: 'vehicle',
       surface: SURFACE_TYPES.METAL,
       min: new THREE.Vector3(p.x + 1.05, p.y, p.z - 2.2),
-      max: new THREE.Vector3(p.x + 1.25, p.y + 2.5, p.z - 0.6)
+      max: new THREE.Vector3(p.x + 1.25, p.y + 2.5, p.z - 1.0)
     }));
 
     // Interior desk collider
@@ -1091,9 +1254,24 @@ export class TruckEnvironment {
     const w = this.whiteboardCanvas.width;
     const h = this.whiteboardCanvas.height;
 
-    // White dry-erase background with slight texture
-    ctx.fillStyle = '#f6f7fa';
+    // Accept both shapes: { primary: { textHu, done }, objectives: [{ id, textHu, done, rewardFt }] }
+    // and the legacy { primaryCompleted, sideObjectives: [{ desc, bounty, completed }] }
+    const primary = data.primary && typeof data.primary === 'object' ? data.primary : null;
+    const primaryDone = primary ? !!primary.done : !!data.primaryCompleted;
+    const primaryText = (primary && primary.textHu) || 'Határozd meg a szellem fajtáját';
+    const side = Array.isArray(data.objectives)
+      ? data.objectives.filter(Boolean).map((o) => ({ text: o.textHu || o.desc || '', reward: o.rewardFt ?? o.bounty ?? 0, done: !!(o.done ?? o.completed) }))
+      : (data.sideObjectives || [
+        { desc: 'Fotózd le a szellemet', bounty: 1000, completed: false },
+        { desc: 'Mérj 0.0°C alatti hőmérsékletet', bounty: 500, completed: false },
+        { desc: 'Akadályozz meg vadászatot Mobile Jesus-szal', bounty: 800, completed: false }
+      ]).map((o) => ({ text: o.desc || o.textHu || '', reward: o.bounty ?? o.rewardFt ?? 0, done: !!(o.completed ?? o.done) }));
+
+    // Dry-erase surface with faint ghosting of old marker strokes
+    ctx.fillStyle = '#f4f5f8';
     ctx.fillRect(0, 0, w, h);
+    ctx.fillStyle = 'rgba(120, 130, 150, 0.06)';
+    for (let i = 0; i < 9; i++) ctx.fillRect(20 + ((i * 97) % 500), 70 + ((i * 53) % 380), 90 + ((i * 31) % 120), 6);
 
     // Header
     ctx.fillStyle = '#111827';
@@ -1107,36 +1285,74 @@ export class TruckEnvironment {
     ctx.lineTo(w - 30, 60);
     ctx.stroke();
 
-    // Known ghost info section
-    ctx.fillStyle = '#1e293b';
-    ctx.font = 'bold 18px sans-serif';
-    ctx.fillText(`Szellem neve: ${data.ghostName || 'Ismeretlen'}`, 30, 95);
-    ctx.font = '16px sans-serif';
-    ctx.fillText(`Viselkedés: ${data.ghostResponse || 'Mindenkinek válaszol'}`, 30, 122);
+    // Known ghost info section (only shown if provided)
+    let y = 95;
+    if (data.ghostName) {
+      ctx.fillStyle = '#1e293b';
+      ctx.font = 'bold 18px sans-serif';
+      ctx.fillText(`Szellem neve: ${data.ghostName}`, 30, y);
+      y += 27;
+      if (data.ghostResponse) {
+        ctx.font = '16px sans-serif';
+        ctx.fillText(`Viselkedés: ${data.ghostResponse}`, 30, y);
+        y += 27;
+      }
+    }
 
-    // Primary Objective
-    ctx.fillStyle = '#0f766e';
+    // Simple word wrap
+    const wrap = (text, x, startY, maxW, lineH, maxLines = 2) => {
+      const words = String(text).split(' ');
+      let line = '';
+      let yy = startY;
+      let lines = 0;
+      for (const word of words) {
+        const test = line ? `${line} ${word}` : word;
+        if (ctx.measureText(test).width > maxW && line) {
+          ctx.fillText(line, x, yy);
+          line = word;
+          yy += lineH;
+          if (++lines >= maxLines) break;
+        } else {
+          line = test;
+        }
+      }
+      if (lines < maxLines) ctx.fillText(line, x, yy);
+      return yy + lineH;
+    };
+    const checkbox = (x, yy, done, color) => {
+      ctx.strokeStyle = color;
+      ctx.lineWidth = 3;
+      ctx.strokeRect(x, yy - 17, 20, 20);
+      if (done) {
+        ctx.beginPath();
+        ctx.moveTo(x + 3, yy - 7);
+        ctx.lineTo(x + 9, yy);
+        ctx.lineTo(x + 24, yy - 20);
+        ctx.stroke();
+      }
+    };
+
+    // Primary objective
+    y = Math.max(y + 18, 150);
+    ctx.fillStyle = primaryDone ? '#15803d' : '#0f766e';
     ctx.font = 'bold 19px sans-serif';
-    const primCheck = data.primaryCompleted ? '[X]' : '[ ]';
-    ctx.fillText(`${primCheck} Fő feladat: Határozd meg a szellem fajtáját (+2,000 Ft)`, 30, 180);
+    checkbox(30, y, primaryDone, ctx.fillStyle);
+    y = wrap(`Fő feladat: ${primaryText} (+2,000 Ft)`, 64, y, w - 100, 24, 2);
 
-    // Secondary Objectives
+    // Secondary objectives
+    y += 18;
     ctx.fillStyle = '#334155';
     ctx.font = 'bold 18px sans-serif';
-    ctx.fillText('Mellékfeladatok:', 30, 230);
-
-    const sideTasks = data.sideObjectives || [
-      { desc: 'Fotózd le a szellemet', bounty: 1000, completed: false },
-      { desc: 'Mérj 0.0°C alatti hőmérsékletet', bounty: 500, completed: false },
-      { desc: 'Akadályozz meg vadászatot Mobile Jesus-szal', bounty: 800, completed: false }
-    ];
+    ctx.fillText('Mellékfeladatok:', 30, y);
+    y += 16;
 
     ctx.font = '16px sans-serif';
-    sideTasks.forEach((t, i) => {
-      const check = t.completed ? '[X]' : '[ ]';
-      const taskY = 270 + i * 42;
-      ctx.fillStyle = t.completed ? '#15803d' : '#1e293b';
-      ctx.fillText(`${check} ${i + 1}. ${t.desc} (+${t.bounty} Ft)`, 45, taskY);
+    side.slice(0, 5).forEach((t, i) => {
+      y += 26;
+      const col = t.done ? '#15803d' : '#1e293b';
+      ctx.fillStyle = col;
+      checkbox(45, y, t.done, col);
+      y = wrap(`${i + 1}. ${t.text}${t.reward ? ` (+${t.reward} Ft)` : ''}`, 78, y, w - 120, 21, 2);
     });
 
     // Warning note in Hungarian

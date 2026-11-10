@@ -19,6 +19,8 @@
  *   * Light switch: [E] Villanykapcsoló
  *   * Breaker knife switch: [E] Főkapcsoló fel / le
  *   * Locker / Trunk: [E] Bújás / Nyitás
+ * - Hiding in lockers / car trunks: E enters (camera inside, looking out through a door slit, movement
+ *   locked, door closed), E again leaves and restores the previous position. Sends `phobia:hide`.
  * - Item throwing/dropping on G key: launches held item with 5 m/s forward impulse + gravity.
  * - 12 Hz multiplayer position sync via Socket.IO.
  */
@@ -41,6 +43,8 @@ export const CONTROLLER_CONSTANTS = {
   MAX_PITCH_DEG: 81.0,   // clamped pitch limit [-81°, +81°]
   MAX_PITCH_RAD: (81.0 * Math.PI) / 180.0, // ~1.4137 rad
   INTERACTION_RANGE: 2.4, // meters
+  HIDE_YAW_LIMIT: 0.6,    // rad: look range while hidden (about +-35 degrees)
+  HIDE_PITCH_LIMIT: 0.3,  // rad
   THROW_FORWARD_IMPULSE: 5.0, // m/s
   THROW_UPWARD_IMPULSE: 1.8,  // m/s
   GRAVITY: -9.81,        // m/s^2
@@ -61,6 +65,12 @@ export class PhobiaController {
     this.roomId = options.roomId || 'default_phobia_room';
     this.groundMeshes = options.groundMeshes || [];
     this.interactiveProps = options.interactiveProps || [];
+
+    // Hiding state: { spot, restPos, restYaw, restPitch, outYaw } while inside a locker / trunk
+    this.hiding = null;
+    this.hideCooldown = 0.0;
+    this.onHideChange = options.onHideChange || null; // ({ hidden, spot })
+    this.getSelfId = options.getSelfId || null; // () => socket id of the local player
 
     // Controller active state
     this.enabled = options.enabled !== undefined ? options.enabled : true;
@@ -297,7 +307,14 @@ export class PhobiaController {
   }
 
   _clampPitch() {
-    const limit = CONTROLLER_CONSTANTS.MAX_PITCH_RAD;
+    let limit = CONTROLLER_CONSTANTS.MAX_PITCH_RAD;
+    if (this.hiding) {
+      // Peeking through the door slit: narrow field of view around the outward direction
+      limit = CONTROLLER_CONSTANTS.HIDE_PITCH_LIMIT;
+      const d = Math.atan2(Math.sin(this.yaw - this.hiding.outYaw), Math.cos(this.yaw - this.hiding.outYaw));
+      const lim = CONTROLLER_CONSTANTS.HIDE_YAW_LIMIT;
+      this.yaw = this.hiding.outYaw + Math.max(-lim, Math.min(lim, d));
+    }
     if (this.pitch > limit) this.pitch = limit;
     if (this.pitch < -limit) this.pitch = -limit;
   }
@@ -318,6 +335,18 @@ export class PhobiaController {
 
     // Apply rotation order YXZ: Yaw (Y) then Pitch (X)
     this.camera.rotation.set(this.pitch, this.yaw, 0, 'YXZ');
+
+    if (this.hiding) {
+      // Inside the cabinet: eye at the slit, nudged towards the door
+      const eye = this.hiding.spot.getEyePosition(new THREE.Vector3());
+      const lean = 0.12;
+      this.camera.position.set(
+        eye.x + Math.sin(this.hiding.outYaw + Math.PI) * lean,
+        eye.y,
+        eye.z + Math.cos(this.hiding.outYaw + Math.PI) * lean
+      );
+      return;
+    }
 
     // Camera sits at feet position + eye height
     this.camera.position.set(
@@ -352,8 +381,8 @@ export class PhobiaController {
       }
     }
 
-    // Interaction trigger on E
-    if (code === 'KeyE') {
+    // Interaction trigger on E (a held key must not toggle hiding spots back and forth)
+    if (code === 'KeyE' && !event.repeat) {
       this.interact();
     }
 
@@ -702,7 +731,12 @@ export class PhobiaController {
 
     // 1. Check Hinged Doors in MapColliders
     if (this.mapColliders && this.mapColliders.doors) {
+      const spotDoors = new Set();
+      if (this.mapColliders.hidingSpots) {
+        for (const spot of this.mapColliders.hidingSpots.values()) if (spot.door) spotDoors.add(spot.door);
+      }
       for (const door of this.mapColliders.doors.values()) {
+        if (spotDoors.has(door)) continue; // cabinet doors are driven by the hiding spot, not as plain doors
         let isHit = false;
         let testDist = Infinity;
 
@@ -735,16 +769,26 @@ export class PhobiaController {
       }
     }
 
-    // 2. Check Hiding Spots (Lockers / Car trunks)
-    if (this.mapColliders && this.mapColliders.hidingSpots) {
+    // 2. Hiding Spots (Lockers / Car trunks): inside = exit prompt, outside = must be near AND looking at it
+    if (this.hiding) {
+      closestTarget = { type: 'hiding_exit', spot: this.hiding.spot };
+      closestDist = 0;
+      promptText = '[E] Kilépés a rejtekhelyről';
+    } else if (this.mapColliders && this.mapColliders.hidingSpots) {
+      const toSpot = new THREE.Vector3();
       for (const spot of this.mapColliders.hidingSpots.values()) {
         const spotCenter = spot.bounds.getCenter(new THREE.Vector3());
-        const spotDist = camPos.distanceTo(spotCenter);
-        if (spotDist <= CONTROLLER_CONSTANTS.INTERACTION_RANGE && spotDist < closestDist) {
-          closestDist = spotDist;
-          closestTarget = { type: 'hiding_spot', spot };
-          promptText = '[E] Bújás / Nyitás';
-        }
+        toSpot.subVectors(spotCenter, camPos);
+        const spotDist = toSpot.length();
+        if (spotDist > CONTROLLER_CONSTANTS.INTERACTION_RANGE || spotDist >= closestDist) continue;
+        // Facing test: the crosshair must point roughly at the cabinet (or we are practically touching it)
+        const facing = spotDist < 0.6 || toSpot.normalize().dot(camDir) > 0.82;
+        if (!facing) continue;
+        closestDist = spotDist;
+        closestTarget = { type: 'hiding_spot', spot };
+        promptText = spot.isOccupied && spot.occupantId !== this._selfId()
+          ? '[E] Foglalt rejtekhely'
+          : (spot.type === 'car_trunk' ? '[E] Elbújás a csomagtartóban' : '[E] Elbújás a szekrényben');
       }
     }
 
@@ -758,7 +802,7 @@ export class PhobiaController {
       if (propGroup) candidateMeshes.push(...propGroup.children);
     }
 
-    if (candidateMeshes.length > 0) {
+    if (candidateMeshes.length > 0 && !this.hiding) {
       const hits = this.raycaster.intersectObjects(candidateMeshes, true);
       if (hits.length > 0 && hits[0].distance < closestDist) {
         const hit = hits[0];
@@ -770,7 +814,17 @@ export class PhobiaController {
 
         const uData = (obj && isInteractiveData(obj.userData)) ? obj.userData : null;
         const action = uData ? PhobiaController.resolveAction(uData) : null;
-        if (uData && action) {
+        if (uData && action === 'toggle_hiding') {
+          // The cabinet body points at its HidingSpot: same flow as the proximity check above
+          const spot = this.mapColliders?.getHidingSpot?.(uData.targetId);
+          if (spot) {
+            closestDist = hit.distance;
+            closestTarget = { type: 'hiding_spot', spot };
+            promptText = spot.isOccupied && spot.occupantId !== this._selfId()
+              ? '[E] Foglalt rejtekhely'
+              : (spot.type === 'car_trunk' ? '[E] Elbújás a csomagtartóban' : '[E] Elbújás a szekrényben');
+          }
+        } else if (uData && action) {
           closestDist = hit.distance;
           closestTarget = { type: action, action, object: obj, userData: uData };
           promptText = uData.promptHu || uData.prompt || PhobiaController.defaultPrompt(action, uData);
@@ -845,10 +899,13 @@ export class PhobiaController {
       return true;
     }
 
-    // 2. Hiding spot
+    // 2. Hiding spot: enter / leave
+    if (target.type === 'hiding_exit') {
+      this.exitHidingSpot();
+      return true;
+    }
     if (target.type === 'hiding_spot' && target.spot) {
-      target.spot.toggle();
-      if (this.onInteract) this.onInteract(target);
+      this.enterHidingSpot(target.spot);
       return true;
     }
 
@@ -896,6 +953,89 @@ export class PhobiaController {
     return false;
   }
 
+  _selfId() {
+    return (this.getSelfId && this.getSelfId()) || (this.socket && this.socket.id) || 'local';
+  }
+
+  get isHiding() {
+    return !!this.hiding;
+  }
+
+  /**
+   * Climbs into a locker / trunk: remembers where we stood, puts the camera inside looking out,
+   * closes the door behind us and locks movement until exitHidingSpot().
+   */
+  enterHidingSpot(spot) {
+    if (!spot || this.hiding || this.hideCooldown > 0) return false;
+    if (!spot.canEnter(this.position, this._selfId())) return false;
+
+    const center = spot.bounds.getCenter(new THREE.Vector3());
+    let dx = this.position.x - center.x;
+    let dz = this.position.z - center.z;
+    if (dx * dx + dz * dz < 0.0025) {
+      // Standing on top of it: face away from the current look direction
+      dx = Math.sin(this.yaw);
+      dz = Math.cos(this.yaw);
+    }
+    // Camera forward at yaw is (-sin yaw, -cos yaw): look from the cabinet towards where we came from
+    const outYaw = Math.atan2(-dx, -dz);
+
+    this.hiding = {
+      spot,
+      restPos: this.position.clone(),
+      restYaw: this.yaw,
+      restPitch: this.pitch,
+      outYaw
+    };
+    spot.enter(this._selfId());
+    spot.close(); // door shut while hidden: breaks the ghost's line of sight
+
+    const floor = spot.getInteriorFloor(new THREE.Vector3());
+    this.position.copy(floor);
+    this.velocity.set(0, 0, 0);
+    this.isSprinting = false;
+    this.isMoving = false;
+    this.isCrouching = false;
+    this.keys.ShiftLeft = this.keys.ShiftRight = this.keys.KeyC = this.keys.ControlLeft = false;
+    this.keys.KeyW = this.keys.KeyA = this.keys.KeyS = this.keys.KeyD = false;
+    this.keys.ArrowUp = this.keys.ArrowDown = this.keys.ArrowLeft = this.keys.ArrowRight = false;
+    this.yaw = outYaw;
+    this.pitch = 0;
+    if (this.viewmodelGroup) this.viewmodelGroup.visible = false;
+    this._updateCameraTransform();
+
+    if (this.socket && this.socket.emit) {
+      this.socket.emit('phobia:hide', { roomId: this.roomId, spotId: spot.id, hidden: true });
+    }
+    if (this.onHideChange) this.onHideChange({ hidden: true, spot });
+    this.currentPrompt = undefined; // force the prompt callback to refresh
+    return true;
+  }
+
+  /** Leaves the hiding spot and puts the player back where they stood before entering. */
+  exitHidingSpot() {
+    const h = this.hiding;
+    if (!h) return false;
+    this.hiding = null;
+    this.hideCooldown = 0.5;
+
+    h.spot.open();
+    h.spot.exit();
+    this.position.copy(h.restPos);
+    this.velocity.set(0, 0, 0);
+    this.yaw = h.outYaw;
+    this.pitch = 0;
+    if (this.viewmodelGroup) this.viewmodelGroup.visible = true;
+    this._updateCameraTransform();
+
+    if (this.socket && this.socket.emit) {
+      this.socket.emit('phobia:hide', { roomId: this.roomId, spotId: h.spot.id, hidden: false });
+    }
+    if (this.onHideChange) this.onHideChange({ hidden: false, spot: h.spot });
+    this.currentPrompt = undefined;
+    return true;
+  }
+
   toggleFlashlight() {
     if (this.onFlashlightToggle) {
       this.onFlashlightToggle();
@@ -913,6 +1053,19 @@ export class PhobiaController {
     if (!delta || delta <= 0) return;
     // Cap maximum delta to prevent tunneling through colliders during frame drops
     const dt = Math.min(delta, 0.1);
+    if (this.hideCooldown > 0) this.hideCooldown = Math.max(0, this.hideCooldown - dt);
+
+    if (this.hiding) {
+      // Hidden: movement locked, camera fixed inside the cabinet
+      this.velocity.set(0, 0, 0);
+      this.isMoving = false;
+      this.isSprinting = false;
+      this._updateCameraTransform();
+      this._updateThrownPhysics(dt);
+      this._updateInteractionRaycast();
+      this._emitNetworkSync(dt);
+      return;
+    }
 
     // 1. Process Crouch Toggle/Hold
     const crouchKey = this.keys.KeyC || this.keys.ControlLeft;
@@ -1065,6 +1218,10 @@ export class PhobiaController {
     this._updateInteractionRaycast();
 
     // 10. 12 Hz Multiplayer Network Sync Emit
+    this._emitNetworkSync(dt);
+  }
+
+  _emitNetworkSync(dt) {
     if (this.socket && this.socket.emit && !this.networkSuspended) {
       this.syncTimer += dt;
       if (this.syncTimer >= this.syncInterval) {
@@ -1079,9 +1236,8 @@ export class PhobiaController {
           crouched: this.isCrouching,
           sprinting: this.isSprinting,
           isInsideTruck: isSafe,
-          hidden: this.mapColliders && typeof this.mapColliders.isPlayerStealthHidden === 'function'
-            ? !!this.mapColliders.isPlayerStealthHidden(this.position).isHidden
-            : false,
+          hidden: !!this.hiding,
+          hidingSpotId: this.hiding ? this.hiding.spot.id : null,
           currentZone
         });
       }

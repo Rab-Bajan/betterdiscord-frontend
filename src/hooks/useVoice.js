@@ -26,6 +26,7 @@ export function useVoice(socket, { onScreenShareStart, onLeft } = {}) {
   const cameraSendersRef = useRef(new Map()); // peerId -> RTCRtpSender[]
   const audioContainerRef = useRef(null);
   const audioContextRef = useRef(null);
+  const spatialCtxRef = useRef(null); // közös AudioContext a térbeli (játékon belüli) hanghoz
   const analyserRef = useRef(null);
   const speakingIntervalRef = useRef(null);
   const isSpeakingRef = useRef(false);
@@ -55,10 +56,13 @@ export function useVoice(socket, { onScreenShareStart, onLeft } = {}) {
     if (audioContextRef.current?.state === 'suspended') {
       audioContextRef.current.resume().catch(() => {});
     }
+    if (spatialCtxRef.current?.state === 'suspended') {
+      spatialCtxRef.current.resume().catch(() => {});
+    }
     let allOk = true;
     peersRef.current.forEach(({ audioEl }, peerId) => {
       if (!audioEl) return;
-      audioEl.muted = isDeafenedRef.current;
+      if (!peersRef.current.get(peerId)?.spatial) audioEl.muted = isDeafenedRef.current;
       audioEl.play()?.catch((err) => {
         console.warn(`[WebRTC] Audio play warning (${peerId}):`, err);
         allOk = false;
@@ -91,6 +95,125 @@ export function useVoice(socket, { onScreenShareStart, onLeft } = {}) {
   }, []);
 
   // ---------- Peer kapcsolatok ----------
+  // ---------- Térbeli hang (MiskolcPhobia) ----------
+  // Lánc: MediaStreamSource -> highpass -> lowpass -> HRTF panner -> gain -> süketítés-gain -> kimenet.
+  // A MediaStream-nek a (némított) audio elemhez csatolva kell maradnia, különben a Chromium
+  // nem ad hangot a WebAudio-nak.
+  const SPATIAL_REF = 1.5;
+  const SPATIAL_MAX = 25;
+
+  const teardownSpatial = (peerData) => {
+    const sp = peerData?.spatial;
+    if (!sp) return;
+    try { sp.src.disconnect(); } catch (e) {}
+    try { sp.out.disconnect(); } catch (e) {}
+    peerData.spatial = null;
+  };
+
+  const getSpatialCtx = () => {
+    let ctx = spatialCtxRef.current;
+    if (!ctx || ctx.state === 'closed') {
+      const Ctx = window.AudioContext || window.webkitAudioContext;
+      if (!Ctx) return null;
+      ctx = new Ctx();
+      spatialCtxRef.current = ctx;
+    }
+    if (ctx.state === 'suspended') ctx.resume().catch(() => {});
+    return ctx;
+  };
+
+  const setParam = (param, value, ctx) => {
+    if (!param) return;
+    try { param.setTargetAtTime(value, ctx.currentTime, 0.04); } catch (e) { param.value = value; }
+  };
+
+  const applySpatial = (peerData) => {
+    const cfg = peerData.spatialCfg;
+    const ctx = getSpatialCtx();
+    if (!cfg || !ctx || !peerData.remoteStream) return;
+
+    let sp = peerData.spatial;
+    if (sp && sp.stream !== peerData.remoteStream) {
+      teardownSpatial(peerData);
+      sp = null;
+    }
+    if (!sp) {
+      const src = ctx.createMediaStreamSource(peerData.remoteStream);
+      const hp = ctx.createBiquadFilter();
+      hp.type = 'highpass';
+      hp.frequency.value = 20;
+      const lp = ctx.createBiquadFilter();
+      lp.type = 'lowpass';
+      lp.frequency.value = 22050;
+      const panner = ctx.createPanner();
+      panner.panningModel = 'HRTF';
+      panner.distanceModel = 'linear';
+      panner.refDistance = SPATIAL_REF;
+      panner.maxDistance = SPATIAL_MAX;
+      panner.rolloffFactor = 1;
+      const gain = ctx.createGain();
+      const out = ctx.createGain();
+      src.connect(hp); hp.connect(lp); lp.connect(panner); panner.connect(gain); gain.connect(out);
+      out.connect(ctx.destination);
+      sp = { stream: peerData.remoteStream, src, hp, lp, panner, gain, out };
+      peerData.spatial = sp;
+    }
+
+    // Normál út némítva, hogy ne szóljon duplán, de a stream csatolva marad
+    peerData.audioEl.muted = true;
+    peerData.audioEl.play()?.catch(() => {});
+
+    const radio = !!cfg.radio;
+    const l = cfg.listener;
+    if (l) {
+      const L = ctx.listener;
+      const fx = -Math.sin(l.yaw || 0);
+      const fz = -Math.cos(l.yaw || 0);
+      if (L.positionX) {
+        setParam(L.positionX, l.x, ctx); setParam(L.positionY, l.y, ctx); setParam(L.positionZ, l.z, ctx);
+        setParam(L.forwardX, fx, ctx); setParam(L.forwardY, 0, ctx); setParam(L.forwardZ, fz, ctx);
+        setParam(L.upX, 0, ctx); setParam(L.upY, 1, ctx); setParam(L.upZ, 0, ctx);
+      } else if (L.setPosition) {
+        L.setPosition(l.x, l.y, l.z);
+        L.setOrientation(fx, 0, fz, 0, 1, 0);
+      }
+    }
+    // Rádió: nem pozicionális (a panner a hallgatónál ül), sávszűrt hang
+    const px = radio && l ? l.x : cfg.x;
+    const py = radio && l ? l.y : cfg.y;
+    const pz = radio && l ? l.z : cfg.z;
+    if (sp.panner.positionX) {
+      setParam(sp.panner.positionX, px, ctx); setParam(sp.panner.positionY, py, ctx); setParam(sp.panner.positionZ, pz, ctx);
+    } else if (sp.panner.setPosition) {
+      sp.panner.setPosition(px, py, pz);
+    }
+    setParam(sp.hp.frequency, radio ? 450 : 20, ctx);
+    setParam(sp.lp.frequency, radio ? 3200 : cfg.muffled ? 700 : 22050, ctx);
+    const g = cfg.gain ?? (cfg.muffled ? 0.45 : 1);
+    setParam(sp.gain.gain, g, ctx);
+    setParam(sp.out.gain, isDeafenedRef.current ? 0 : 1, ctx);
+  };
+
+  // cfg: { x, y, z, listener: { x, y, z, yaw } } vagy null (visszaáll a normál hang).
+  // Opcionális: muffled (falon át), gain (0 = néma), radio (nem pozicionális, rádiószűrt).
+  const setPeerSpatial = useCallback((peerId, cfg) => {
+    const peerData = peersRef.current.get(peerId);
+    if (!peerData) return;
+    if (!cfg) {
+      peerData.spatialCfg = null;
+      if (peerData.spatial) {
+        teardownSpatial(peerData);
+        if (peerData.audioEl) {
+          peerData.audioEl.muted = isDeafenedRef.current;
+          peerData.audioEl.play()?.catch(() => {});
+        }
+      }
+      return;
+    }
+    peerData.spatialCfg = cfg;
+    try { applySpatial(peerData); } catch (e) { console.warn('[WebRTC] Térbeli hang hiba:', e); }
+  }, []);
+
   const cleanupPeer = (peerId) => {
     const peerData = peersRef.current.get(peerId);
     if (peerData) {
@@ -104,6 +227,7 @@ export function useVoice(socket, { onScreenShareStart, onLeft } = {}) {
           pc.close();
         }
       } catch (e) {}
+      teardownSpatial(peerData);
       if (peerData.audioEl) {
         try {
           peerData.audioEl.srcObject = null;
@@ -121,6 +245,10 @@ export function useVoice(socket, { onScreenShareStart, onLeft } = {}) {
   const cleanupAllPeers = () => {
     [...peersRef.current.keys()].forEach(cleanupPeer);
     peersRef.current.clear();
+    if (spatialCtxRef.current) {
+      spatialCtxRef.current.close?.().catch?.(() => {});
+      spatialCtxRef.current = null;
+    }
     pendingIceRef.current.clear();
     screenSendersRef.current.clear();
     cameraSendersRef.current.clear();
@@ -215,9 +343,10 @@ export function useVoice(socket, { onScreenShareStart, onLeft } = {}) {
       if (event.track.kind === 'audio') {
         peerData.remoteStream = stream;
         audioEl.srcObject = stream;
+        if (peerData.spatialCfg) applySpatial(peerData);
 
         const playAudio = () => {
-          audioEl.muted = isDeafenedRef.current;
+          audioEl.muted = peerData.spatial ? true : isDeafenedRef.current;
           audioEl.play().catch((err) => {
             console.warn(`[WebRTC] Bejövő hang lejátszása blokkolva (${peerId}):`, err);
             setAutoplayBlocked(true);
@@ -238,7 +367,7 @@ export function useVoice(socket, { onScreenShareStart, onLeft } = {}) {
 
     pc.onconnectionstatechange = () => {
       if (pc.connectionState === 'connected' && audioEl.srcObject) {
-        audioEl.muted = isDeafenedRef.current;
+        audioEl.muted = peerData.spatial ? true : isDeafenedRef.current;
         audioEl.play().catch(() => setAutoplayBlocked(true));
       }
     };
@@ -625,7 +754,14 @@ export function useVoice(socket, { onScreenShareStart, onLeft } = {}) {
     const next = !isDeafened;
     setIsDeafened(next);
     playMuteSound(next);
-    peersRef.current.forEach(({ audioEl }) => { if (audioEl) audioEl.muted = next; });
+    peersRef.current.forEach((peerData) => {
+      if (peerData.spatial) {
+        const ctx = spatialCtxRef.current;
+        if (ctx) setParam(peerData.spatial.out.gain, next ? 0 : 1, ctx);
+      } else if (peerData.audioEl) {
+        peerData.audioEl.muted = next;
+      }
+    });
     localStreamRef.current?.getAudioTracks().forEach((t) => { t.enabled = !next && !isMuted; });
     socket.emit('voice:state-change', { isMuted: next ? true : isMuted, isDeafened: next });
   };
@@ -638,6 +774,7 @@ export function useVoice(socket, { onScreenShareStart, onLeft } = {}) {
 
   return {
     setPeerVolume,
+    setPeerSpatial,
     activeVoiceChannel,
     isMuted,
     isDeafened,

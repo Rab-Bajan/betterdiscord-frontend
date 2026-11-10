@@ -47,8 +47,6 @@ export default function VoiceRoomView({
   chessSession,
   empireSession,
   phobiaSession,
-  onStartPhobia,
-  onStopPhobia,
   onStartChess,
   onJoinChess,
   onMoveChess,
@@ -57,6 +55,7 @@ export default function VoiceRoomView({
   onStopChess,
   gameSession,
   setPeerVolume,
+  setPeerSpatial,
   browserSession,
   onStartBrowser,
   onNavigateBrowser,
@@ -169,6 +168,7 @@ export default function VoiceRoomView({
               channelId={channelId}
               currentUser={currentUser}
               session={phobiaSession}
+              setPeerSpatial={setPeerSpatial}
               onClose={backToStage}
             />
           </Suspense>
@@ -281,8 +281,6 @@ export default function VoiceRoomView({
         phobiaActive={!!phobiaSession?.active}
         browserActive={!!browserSession?.active}
         gameActive={!!gameSession}
-        onStartPhobia={onStartPhobia}
-        onStopPhobia={onStopPhobia}
         onClose={onClose}
         onOpenMobileSidebar={onOpenMobileSidebar}
       />

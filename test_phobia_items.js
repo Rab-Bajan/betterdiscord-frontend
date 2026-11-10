@@ -479,6 +479,28 @@ assert.strictEqual(itemSystem.placedItems.get('srv_emf_1').userData.itemId, 'srv
 itemSystem.syncServerItems([]);
 assert.strictEqual(itemSystem.placedItems.has('srv_emf_1'), false, 'Resync must remove stale server items');
 
+// World sync: incremental updates (late join / other players)
+itemSystem.applyWorldItem('spawned', { id: 'w1', type: 'emf_reader', x: 1, y: 0, z: 2, rx: 0, ry: 0.5, rz: 0 }, false);
+assert.ok(itemSystem.placedItems.has('w1'), 'Remote spawn must create the item');
+itemSystem.applyWorldItem('spawned', { id: 'w1', type: 'emf_reader', x: 1, y: 0, z: 2 }, false);
+assert.strictEqual([...itemSystem.placedItems.keys()].filter((k) => k === 'w1').length, 1, 'Repeated spawn must not duplicate');
+itemSystem.applyWorldItem('moved', { id: 'w1', type: 'emf_reader', x: 4, y: 0.1, z: 5 }, false);
+assert.strictEqual(itemSystem.placedItems.get('w1').position.x, 4, 'Remote move must reposition the item');
+itemSystem.applyWorldItem('removed', { id: 'w1', type: 'emf_reader' }, false);
+assert.ok(!itemSystem.placedItems.has('w1'), 'Remote removal must delete the item');
+
+// Own drop: the server echo re-keys the local mesh instead of spawning a second one
+const emitted = [];
+itemSystem.socket = { emit: (ev, payload) => emitted.push([ev, payload]) };
+const localMesh = itemSystem.spawnPlacedWorldItem('emf_reader', new THREE.Vector3(2, 0, 2));
+itemSystem.trackLocalDrop();
+const before = itemSystem.placedItems.size;
+itemSystem.applyWorldItem('spawned', { id: 'srv_own_1', type: 'emf_reader', x: 9, y: 0, z: 9 }, true);
+assert.strictEqual(itemSystem.placedItems.size, before, 'Own spawn echo must not double spawn');
+assert.strictEqual(itemSystem.placedItems.get('srv_own_1'), localMesh, 'Local mesh must be re-keyed to the server id');
+assert.ok(emitted.some(([ev, p]) => ev === 'phobia:item-moved' && p.itemId === 'srv_own_1'), 'Settled drop must be reported with phobia:item-moved');
+itemSystem.socket = null;
+
 // Clean disposal
 itemSystem.dispose();
 

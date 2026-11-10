@@ -21,6 +21,8 @@ import { ScrapYardMap } from './map/ScrapYardMap.js';
 import { TruckEnvironment } from './map/TruckEnvironment.js';
 import { MapColliders } from './map/MapColliders.js';
 import { ElectricalSystem } from './systems/ElectricalSystem.js';
+import { EnvironmentalPhysics } from './systems/EnvironmentalPhysics.js';
+import { usePhobiaVoice } from './audio/usePhobiaVoice.js';
 import { PhobiaAudio } from './audio/PhobiaAudio.js';
 import { ItemSystem } from './items/ItemSystem.js';
 import { normalizeToolType } from './items/ToolDefinitions.js';
@@ -28,6 +30,8 @@ import { normalizeToolType } from './items/ToolDefinitions.js';
 import PhobiaHUD from './ui/PhobiaHUD.jsx';
 import JournalModal, { EVIDENCE_TYPES, GHOST_ARCHETYPES } from './ui/JournalModal.jsx';
 import SpectatorView from './ui/SpectatorView.jsx';
+import LobbyScreen from './ui/LobbyScreen.jsx';
+import HideOverlay from './ui/HideOverlay.jsx';
 
 // --- Client <-> server id mapping ---------------------------------------------------------
 // Hinged doors on the map use local ids, the authoritative server uses its own door table.
@@ -52,11 +56,15 @@ const EXTRA_LIGHTS = [
 ];
 const YARD_SWITCH_POS = [-1.2, 1.3, -10.0];
 
-const DEFAULT_SIDE_TASKS = [
-  { id: 'freezing_temp', title: 'Mérj 0.0°C alatti fagypontot a hőmérővel', reward: 500, completed: false },
-  { id: 'emf_5', title: 'Észlelj 5-ös szintű EMF paranormalitást', reward: 500, completed: false },
-  { id: 'crucifix_block', title: 'Akadályozz meg egy vadászatot Mobil Jézussal', reward: 750, completed: false }
-];
+const DEFAULT_SETTINGS = { evidenceCount: 3, startingSanity: 100 };
+
+/** Server objective { id, textHu, done, rewardFt } -> HUD / journal task shape. */
+const toTask = (o) => ({
+  id: o?.id,
+  title: o?.textHu || o?.title || o?.desc || '',
+  reward: typeof o?.rewardFt === 'number' ? o.rewardFt : o?.reward,
+  completed: !!(o?.done ?? o?.completed)
+});
 
 const EMPTY_EVIDENCE = {
   emf_5: 0,
@@ -121,20 +129,14 @@ function buildGhostEntity(engine) {
   const material = engine.createGhostMaterial();
   const group = new THREE.Group();
   group.name = 'GhostEntity';
-  const body = new THREE.Mesh(new THREE.CapsuleGeometry(0.32, 1.0, 6, 14), material);
-  body.position.y = 0.95;
-  const head = new THREE.Mesh(new THREE.SphereGeometry(0.22, 16, 12), material);
-  head.position.y = 1.78;
-  const skirt = new THREE.Mesh(new THREE.ConeGeometry(0.5, 0.9, 14, 1, true), material);
-  skirt.position.y = 0.45;
-  skirt.rotation.x = Math.PI;
-  group.add(body, head, skirt);
+  const fig = engine.createGhostFigure(material);
+  group.add(fig.group);
   group.visible = false;
   const glow = new THREE.PointLight(0x61a6fa, 0.0, 9, 2);
   glow.position.y = 1.2;
   group.add(glow);
   engine.ghostGroup.add(group);
-  return { group, material, glow, target: new THREE.Vector3(5, 0, 8), dissolve: 1.0, wantVisible: false, yaw: 0 };
+  return { group, material, glow, fig, target: new THREE.Vector3(5, 0, 8), dissolve: 1.0, wantVisible: false, yaw: 0 };
 }
 
 export default function MiskolcPhobiaView({
@@ -142,6 +144,7 @@ export default function MiskolcPhobiaView({
   channelId,
   currentUser,
   session,
+  setPeerSpatial,
   onClose
 }) {
   const containerRef = useRef(null);
@@ -159,6 +162,8 @@ export default function MiskolcPhobiaView({
   const itemSystemRef = useRef(null);
   const ghostRef = useRef(null);
   const switchLightsRef = useRef(new Map()); // switchId -> lightId[]
+  const physicsRef = useRef(null);
+  const hiddenPeersRef = useRef(new Set()); // socket ids currently hidden in a locker / trunk
 
   // Mutable mirrors of React state, read from the 60 fps update hook / socket handlers (no stale closures)
   const huntRef = useRef(false);
@@ -204,7 +209,18 @@ export default function MiskolcPhobiaView({
   const [spectatorIdx, setSpectatorIdx] = useState(0);
   const [teammates, setTeammates] = useState([]);
   const [isSpeaking, setIsSpeaking] = useState(false);
-  const [sideTasks, setSideTasks] = useState(DEFAULT_SIDE_TASKS);
+  const [sideTasks, setSideTasks] = useState([]);
+  const [primaryObjective, setPrimaryObjective] = useState(null);
+
+  // Lobby / session meta (null status = no session snapshot received yet)
+  const [sessionStatus, setSessionStatus] = useState(null);
+  const [settings, setSettings] = useState(DEFAULT_SETTINGS);
+  const [hostSocketId, setHostSocketId] = useState(null);
+  const [lobbyPlayers, setLobbyPlayers] = useState([]);
+  const [selfId, setSelfId] = useState(socket?.id || null);
+
+  // Hiding
+  const [hiddenSpotName, setHiddenSpotName] = useState(null); // non-null while we are inside a locker / trunk
 
   const setHunt = useCallback((v) => {
     huntRef.current = v;
@@ -213,11 +229,6 @@ export default function MiskolcPhobiaView({
   const setSanityBoth = useCallback((v) => {
     sanityRef.current = v;
     setSanity(v);
-  }, []);
-  const completeTask = useCallback((id) => {
-    setSideTasks((prev) => (prev.some((t) => t.id === id && !t.completed)
-      ? prev.map((t) => (t.id === id ? { ...t, completed: true } : t))
-      : prev));
   }, []);
 
   const crosshairPrompt = itemPrompt || controllerPrompt;
@@ -234,6 +245,7 @@ export default function MiskolcPhobiaView({
     let avatars = null;
     let electrical = null;
     let audio = null;
+    let physics = null;
 
     try {
       // 1. Core WebGL Engine (creates and owns its <canvas> inside the mount div)
@@ -269,6 +281,19 @@ export default function MiskolcPhobiaView({
       truckRef.current = truck;
       engine.worldMeshGroup.add(truck.group);
       for (const col of truck.colliders) mapColliders.addCollider(col);
+
+      // 5b. Throwable scrap props (server snapshot is the only source, no local defaults)
+      physics = new EnvironmentalPhysics({
+        scene: engine.scene,
+        mapColliders,
+        socket,
+        roomId: channelId,
+        seedDefaults: false,
+        onPlaySound: (sfxKey, pos) => {
+          if (audio && typeof audio.playSpatialSFX === 'function') audio.playSpatialSFX(sfxKey, pos);
+        }
+      });
+      physicsRef.current = physics;
 
       // 6. Master Electrical System (+ extra pole lamps for server lights the map lacks)
       electrical = new ElectricalSystem({
@@ -318,6 +343,11 @@ export default function MiskolcPhobiaView({
         requireLock: true,
         interactiveProps,
         doorIdMap: CLIENT_TO_SERVER_DOOR,
+        getSelfId: () => socket?.id || null,
+        onHideChange: ({ hidden, spot }) => {
+          setHiddenSpotName(hidden ? (spot?.name || 'Rejtekhely') : null);
+          if (hidden) itemSystemRef.current?.cancelPlacementMode?.();
+        },
         resolveSwitchLights: (u) => switchLights.get(u?.switchId) || [],
         onInteractionPrompt: (prompt, target) => {
           if (!prompt) {
@@ -357,7 +387,7 @@ export default function MiskolcPhobiaView({
           pickupTargets: [truck.group],
           socket,
           roomId: channelId,
-          isEnabled: () => !!controllerRef.current?.isLocked && !journalRef.current && aliveRef.current,
+          isEnabled: () => !!controllerRef.current?.isLocked && !controllerRef.current?.isHiding && !journalRef.current && aliveRef.current,
           onInventoryChange: (newInv, slot) => {
             setInventory([...newInv]);
             setActiveSlot(slot);
@@ -387,6 +417,7 @@ export default function MiskolcPhobiaView({
         truck.update(delta, elapsed);
         map.update(delta, elapsed);
         electrical.update(delta);
+        physics?.update(delta);
         avatars.update(delta);
         if (itemSys) {
           itemSys.update(delta, controller.isSprinting ? 5.0 : (controller.isMoving ? 3.0 : 0));
@@ -403,6 +434,7 @@ export default function MiskolcPhobiaView({
           const dx = g.target.x - g.group.position.x;
           const dz = g.target.z - g.group.position.z;
           if (dx * dx + dz * dz > 0.0004) g.yaw = Math.atan2(dx, dz);
+          g.fig?.update(delta, { moving: dx * dx + dz * dz > 0.0004, hunting: huntRef.current });
           g.group.position.x += dx * Math.min(1, 8 * delta);
           g.group.position.z += dz * Math.min(1, 8 * delta);
           g.group.position.y = 0.05 + Math.sin(elapsed * 2.0) * 0.08;
@@ -438,7 +470,7 @@ export default function MiskolcPhobiaView({
       engine.registerUpdateHook(updateFn);
 
       if (import.meta.env?.DEV) {
-        window.__phobia = { engine, controller, map, truck, electrical, avatars, itemSys, audio, ghost, THREE };
+        window.__phobia = { engine, controller, map, truck, electrical, physics, avatars, itemSys, audio, ghost, THREE };
       }
 
       engine.start();
@@ -451,10 +483,12 @@ export default function MiskolcPhobiaView({
     return () => {
       // Dispose gameplay systems first, the engine (scene + renderer) last
       const safe = (fn) => { try { fn(); } catch (err) { console.warn('Error during Phobia cleanup:', err); } };
+      safe(() => ghostRef.current?.fig?.dispose?.());
       safe(() => itemSys?.dispose?.());
       safe(() => controller?.dispose?.());
       safe(() => avatars?.dispose?.());
       safe(() => electrical?.dispose?.());
+      safe(() => physics?.dispose?.());
       safe(() => audio?.dispose?.());
       safe(() => engine?.destroy?.());
       engineRef.current = null;
@@ -462,6 +496,7 @@ export default function MiskolcPhobiaView({
       itemSystemRef.current = null;
       avatarsRef.current = null;
       electricalRef.current = null;
+      physicsRef.current = null;
       audioRef.current = null;
       mapRef.current = null;
       truckRef.current = null;
@@ -505,36 +540,121 @@ export default function MiskolcPhobiaView({
     }
   }, []);
 
+  // Objectives: HUD panel + truck whiteboard (same data)
+  const applyObjectives = useCallback((primary, objectives) => {
+    const list = Array.isArray(objectives) ? objectives : [];
+    const tasks = list.filter(Boolean).map(toTask);
+    setSideTasks(tasks);
+    const prim = primary && typeof primary === 'object' ? primary : null;
+    setPrimaryObjective(prim);
+    truckRef.current?.updateWhiteboard?.({
+      primary: prim,
+      objectives: list,
+      primaryCompleted: !!prim?.done,
+      sideObjectives: tasks.map((t) => ({ desc: t.title, bounty: t.reward, completed: t.completed }))
+    });
+  }, []);
+
+  // Lobby / match meta shared by session-init and session-updated summaries
+  const applySessionMeta = useCallback((snap) => {
+    if (!snap) return;
+    setSessionStatus((prev) => (typeof snap.status === 'string' ? snap.status : (prev || 'active')));
+    if (snap.settings && typeof snap.settings === 'object') setSettings({ ...DEFAULT_SETTINGS, ...snap.settings });
+    if (snap.hostSocketId !== undefined) setHostSocketId(snap.hostSocketId || null);
+    if (Array.isArray(snap.players)) {
+      setLobbyPlayers(snap.players.filter(Boolean).map((p) => ({
+        id: p.id || p.socketId,
+        username: p.username,
+        avatarColor: p.avatarColor
+      })));
+    }
+  }, []);
+
   // Applies a full server session snapshot (join, reconnect, new match)
   const applySessionSnapshot = useCallback((snap) => {
     if (!snap) return;
+    applySessionMeta(snap);
     electricalRef.current?.syncFromServer({ breakerOn: snap.breakerOn, activeLights: snap.activeLights });
     if (snap.doors) {
-      for (const [id, d] of Object.entries(snap.doors)) applyServerDoor(id, d.open);
+      for (const [id, d] of Object.entries(snap.doors)) applyServerDoor(id, d?.open);
     }
     if (typeof snap.graceTimer === 'number') setGracePeriodSeconds(snap.graceTimer);
     if (typeof snap.gateOpen === 'boolean') setGateOpen(snap.gateOpen);
     applyEquipmentShelf(snap.equipmentShelf);
     if (Array.isArray(snap.droppedItems)) itemSystemRef.current?.syncServerItems(snap.droppedItems);
-    if (Array.isArray(snap.sideTasks)) {
-      setSideTasks(snap.sideTasks.map((t) => ({
-        id: t.id,
-        title: t.title || t.desc,
-        reward: t.reward,
-        completed: !!t.completed
-      })));
+    if (Array.isArray(snap.scrapProps)) physicsRef.current?.syncFromServer(snap.scrapProps);
+    if (Array.isArray(snap.objectives) || snap.primaryObjective) {
+      applyObjectives(snap.primaryObjective, snap.objectives);
+    } else if (Array.isArray(snap.sideTasks)) {
+      applyObjectives(null, snap.sideTasks.map((t) => ({ id: t.id, textHu: t.title || t.desc, rewardFt: t.reward, done: !!t.completed })));
     }
-  }, [applyServerDoor, applyEquipmentShelf]);
+  }, [applyServerDoor, applyEquipmentShelf, applySessionMeta, applyObjectives]);
 
   // 2. SOCKET.IO MULTIPLAYER SYNCHRONIZATION (12 Hz Authoritative Loop)
   useEffect(() => {
     if (!socket || !channelId) return undefined;
 
-    socket.emit('phobia:init-session', initPayload());
+    socket.emit('phobia:init-session', initPayload({ lobby: true }));
+    setSelfId(socket.id || null);
 
-    const handleConnect = () => socket.emit('phobia:init-session', initPayload());
+    const handleConnect = () => {
+      setSelfId(socket.id || null);
+      socket.emit('phobia:init-session', initPayload({ lobby: true }));
+    };
 
-    const handleSessionInit = (data) => applySessionSnapshot(data?.session);
+    const handleSessionInit = (data) => {
+      setSelfId(socket.id || null);
+      applySessionSnapshot(data?.session);
+    };
+
+    // Lobby: roster, settings and host changes
+    const handleSessionUpdated = (d) => applySessionMeta(d?.state);
+    const handleSettingsUpdated = (d) => {
+      if (!d) return;
+      if (d.settings && typeof d.settings === 'object') setSettings({ ...DEFAULT_SETTINGS, ...d.settings });
+      if (d.hostSocketId !== undefined) setHostSocketId(d.hostSocketId || null);
+    };
+    const handlePlayerJoined = (d) => {
+      const p = d?.player;
+      const id = p?.id || p?.socketId;
+      if (!id) return;
+      setLobbyPlayers((prev) => (prev.some((x) => x.id === id) ? prev : [...prev, { id, username: p.username, avatarColor: p.avatarColor }]));
+    };
+    const handlePlayerLeft = (d) => {
+      if (d?.socketId) setLobbyPlayers((prev) => prev.filter((x) => x.id !== d.socketId));
+    };
+
+    const handleObjectives = (d) => applyObjectives(d?.primary, d?.objectives);
+
+    // Hiding: other players' lockers / trunks are occupied while they are inside
+    const handlePlayerHide = (d) => {
+      if (!d || !d.socketId) return;
+      const spot = d.spotId ? mapCollidersRef.current?.getHidingSpot?.(d.spotId) : null;
+      if (d.hidden) {
+        hiddenPeersRef.current.add(d.socketId);
+        if (spot && d.socketId !== socket.id) { spot.enter(d.socketId); spot.close(); }
+      } else {
+        hiddenPeersRef.current.delete(d.socketId);
+        if (spot && d.socketId !== socket.id) { spot.exit(); spot.open(); }
+      }
+      // The server ended our own hiding (we moved away): leave the cabinet locally too
+      if (d.socketId === socket.id && !d.hidden) controllerRef.current?.exitHidingSpot?.();
+    };
+
+    // World items: everybody sees the same items / props. Own actions are already applied locally.
+    const handleWorldItem = (d) => {
+      const item = d?.item;
+      if (!item || !item.id) return;
+      const isSelf = !!d.actorSocketId && d.actorSocketId === socket.id;
+      const isScrap = String(item.type || '').startsWith('scrap_') || physicsRef.current?.props?.has(item.id);
+      if (isScrap) {
+        // Ghost throws fly through the item-thrown event; only settled transforms are applied here
+        if (isSelf || d.impulse) return;
+        physicsRef.current?.applyWorldItem(d.action, item);
+        return;
+      }
+      itemSystemRef.current?.applyWorldItem(d.action, item, isSelf);
+    };
 
     const handleShelfUpdated = (d) => applyEquipmentShelf(d?.shelf);
 
@@ -582,9 +702,32 @@ export default function MiskolcPhobiaView({
         playersRef.current = tickData.players;
         avatarsRef.current?.updateFromTick(tickData.players, selfId);
 
+        // Hidden players: their avatar is inside the cabinet (not visible) and the spot is taken
+        const hiddenNow = new Set();
+        for (const p of tickData.players) {
+          if (p.id === selfId) continue;
+          const hidden = !!p.hidingSpotId && p.alive !== false;
+          if (hidden) {
+            hiddenNow.add(p.id);
+            const spot = mapCollidersRef.current?.getHidingSpot?.(p.hidingSpotId);
+            if (spot && !spot.isOccupied) { spot.enter(p.id); spot.close(); }
+          }
+          const av = avatarsRef.current?.avatars?.get(p.id);
+          if (av?.rootGroup) av.rootGroup.visible = !hidden;
+        }
+        for (const id of hiddenPeersRef.current) {
+          if (id !== selfId && !hiddenNow.has(id)) {
+            hiddenPeersRef.current.delete(id);
+            for (const spot of mapCollidersRef.current?.hidingSpots?.values?.() || []) {
+              if (spot.occupantId === id) { spot.exit(); spot.open(); }
+            }
+          }
+        }
+        hiddenNow.forEach((id) => hiddenPeersRef.current.add(id));
+
         const mates = tickData.players
           .filter((p) => p.id !== selfId)
-          .map((p) => ({ id: p.id, username: p.username || 'Kutató', sanity: p.sanity, alive: p.alive, isSpeaking: !!p.isSpeaking }));
+          .map((p) => ({ id: p.id, username: p.username || 'Kutató', sanity: p.sanity, alive: p.alive, isSpeaking: !!p.isSpeaking, hidden: hiddenNow.has(p.id) }));
         setTeammates(mates);
         const meSpeaking = !!tickData.players.find((p) => p.id === selfId)?.isSpeaking;
         setIsSpeaking((prev) => (prev === meSpeaking ? prev : meSpeaking));
@@ -597,6 +740,7 @@ export default function MiskolcPhobiaView({
           if (me.alive === false && aliveRef.current) {
             aliveRef.current = false;
             setIsAlive(false);
+            controllerRef.current?.exitHidingSpot?.();
             controllerRef.current?.unlock();
           }
         }
@@ -615,10 +759,7 @@ export default function MiskolcPhobiaView({
       engineRef.current?.setFlashlightFlicker(false, 0.0);
     };
 
-    const handleHuntCancelled = () => {
-      handleHuntOver();
-      completeTask('crucifix_block');
-    };
+    const handleHuntCancelled = () => handleHuntOver();
 
     const handleJesusBurned = (data) => {
       const itemSys = itemSystemRef.current;
@@ -644,6 +785,7 @@ export default function MiskolcPhobiaView({
       if (victim === socket.id && aliveRef.current) {
         aliveRef.current = false;
         setIsAlive(false);
+        controllerRef.current?.exitHidingSpot?.();
         controllerRef.current?.unlock();
         audioRef.current?.playJumpscare?.();
       }
@@ -666,12 +808,10 @@ export default function MiskolcPhobiaView({
       setAmbientTemp(d.temperature);
       itemSystemRef.current?.applyTemperatureReading(d.temperature);
       engineRef.current?.setAmbientTemperature(d.temperature);
-      if (d.isFreezing) completeTask('freezing_temp');
     };
 
     const handleEmf = (d) => {
       itemSystemRef.current?.applyEmfReading(d || {});
-      if (d?.level >= 5) completeTask('emf_5');
     };
 
     const handleSfx = (d) => {
@@ -696,7 +836,7 @@ export default function MiskolcPhobiaView({
     // Another player started a new match: follow into the fresh session
     const handleSessionReset = () => {
       resetRef.current?.();
-      socket.emit('phobia:init-session', initPayload());
+      socket.emit('phobia:init-session', initPayload({ lobby: true }));
     };
 
     const handlers = {
@@ -704,6 +844,13 @@ export default function MiskolcPhobiaView({
       'phobia:session-reset': handleSessionReset,
       connect: handleConnect,
       'phobia:session-init': handleSessionInit,
+      'phobia:session-updated': handleSessionUpdated,
+      'phobia:settings-updated': handleSettingsUpdated,
+      'phobia:player-joined': handlePlayerJoined,
+      'phobia:player-left': handlePlayerLeft,
+      'phobia:objectives-updated': handleObjectives,
+      'phobia:player-hide': handlePlayerHide,
+      'phobia:world-item-updated': handleWorldItem,
       'phobia:error': handleServerError,
       'phobia:verdict-rejected': handleVerdictRejected,
       'phobia:equipment-shelf-updated': handleShelfUpdated,
@@ -740,7 +887,7 @@ export default function MiskolcPhobiaView({
       for (const [ev, fn] of Object.entries(handlers)) socket.off(ev, fn);
       socket.emit('phobia:leave-session', { roomId: channelId, channelId });
     };
-  }, [socket, channelId, initPayload, applySessionSnapshot, applyEquipmentShelf, applyServerDoor, setHunt, setSanityBoth, completeTask]);
+  }, [socket, channelId, initPayload, applySessionSnapshot, applySessionMeta, applyObjectives, applyEquipmentShelf, applyServerDoor, setHunt, setSanityBoth]);
 
   // 3. KEYBOARD EVENT LISTENERS (J journal, T flashlight, V walkie-talkie, pointer lock tracking)
   const toggleJournal = useCallback((force) => {
@@ -830,12 +977,14 @@ export default function MiskolcPhobiaView({
     setEvidenceState(EMPTY_EVIDENCE);
     setPhotos([]);
     setSelectedGhost('');
-    setSideTasks(DEFAULT_SIDE_TASKS);
+    applyObjectives(null, []);
     setHunt(false);
     setSanityBoth(100);
     setGateOpen(false);
     aliveRef.current = true;
     setIsAlive(true);
+    controllerRef.current?.exitHidingSpot?.();
+    setSessionStatus(null);
     toggleJournal(false);
     setHasStarted(false);
     engineRef.current?.setHuntIntensity(0);
@@ -846,11 +995,11 @@ export default function MiskolcPhobiaView({
       c.setLookAngles(Math.PI, 0);
     }
     itemSystemRef.current?.setInventory([null, null, null]);
-  }, [setHunt, setSanityBoth, toggleJournal]);
+  }, [setHunt, setSanityBoth, toggleJournal, applyObjectives]);
 
   const handleNewMatch = useCallback(() => {
     if (!socket || !channelId) return;
-    socket.emit('phobia:init-session', initPayload({ newMatch: true }));
+    socket.emit('phobia:init-session', initPayload({ newMatch: true, lobby: true }));
     resetLocalMatchState();
   }, [socket, channelId, initPayload, resetLocalMatchState]);
 
@@ -871,12 +1020,61 @@ export default function MiskolcPhobiaView({
   }, [verdictNotice]);
   useEffect(() => { journalRef.current = journalOpen; }, [journalOpen]);
 
+  const inLobby = sessionStatus === null || sessionStatus === 'lobby';
+
+  // The controller ignores input while the lobby covers the world
+  useEffect(() => {
+    if (controllerRef.current) controllerRef.current.enabled = !inLobby;
+    if (inLobby) controllerRef.current?.unlock?.();
+  }, [inLobby, isReady]);
+
+  const handleChangeSettings = useCallback((next) => {
+    if (!socket || !channelId) return;
+    setSettings((prev) => ({ ...prev, ...next }));
+    socket.emit('phobia:update-settings', { roomId: channelId, channelId, settings: next });
+  }, [socket, channelId]);
+
+  const handleStartMatch = useCallback(() => {
+    if (!socket || !channelId) return;
+    socket.emit('phobia:start-match', { roomId: channelId, channelId });
+  }, [socket, channelId]);
+
+  // Proximity voice: listener = our camera, peers = tick positions (walls muffle, dead players are not heard)
+  usePhobiaVoice({
+    setPeerSpatial,
+    enabled: !!setPeerSpatial && !inLobby,
+    getListener: () => {
+      const c = controllerRef.current;
+      if (!c) return null;
+      return { x: c.position.x, y: c.position.y + c.currentEyeHeight, z: c.position.z, yaw: c.yaw, alive: aliveRef.current };
+    },
+    getPeers: () => {
+      const c = controllerRef.current;
+      const colliders = mapCollidersRef.current;
+      if (!c) return [];
+      const from = new THREE.Vector3(c.position.x, c.position.y + c.currentEyeHeight, c.position.z);
+      const to = new THREE.Vector3();
+      const out = [];
+      for (const p of playersRef.current) {
+        if (!p || !p.id || p.id === socket?.id) continue;
+        to.set(p.x || 0, (p.y || 0) + 1.5, p.z || 0);
+        const hidden = !!p.hidingSpotId || hiddenPeersRef.current.has(p.id);
+        let occluded = hidden || c.isHiding; // inside a cabinet (either side) is muffled
+        if (!occluded && colliders?.checkRaycastOcclusion) occluded = !!colliders.checkRaycastOcclusion(from, to).occluded;
+        const hasRadio = p.hasRadio === true
+          || (Array.isArray(p.inventory) && p.inventory.some((it) => /walkie/i.test(it?.type || it?.id || '')));
+        out.push({ socketId: p.id, x: to.x, y: to.y, z: to.z, alive: p.alive !== false, hasRadio, occluded });
+      }
+      return out;
+    }
+  });
+
   const handleRetry = useCallback(() => {
     setInitError(null);
     setRetryNonce((n) => n + 1);
   }, []);
 
-  const showPause = isReady && isAlive && !isLocked && !journalOpen && !matchResult;
+  const showPause = isReady && isAlive && !isLocked && !journalOpen && !matchResult && !inLobby;
   const spectatorTarget = aliveTeammates.length ? aliveTeammates[spectatorIdx % aliveTeammates.length] : null;
 
   if (sessionRefusal) {
@@ -983,8 +1181,25 @@ export default function MiskolcPhobiaView({
         </div>
       )}
 
+      {/* Inside a locker / trunk: door slit vignette */}
+      {hiddenSpotName && isAlive && !inLobby && <HideOverlay spotName={hiddenSpotName} />}
+
+      {/* Lobby: shown until the host starts the match (or when there is no session yet) */}
+      {inLobby && (
+        <LobbyScreen
+          players={lobbyPlayers}
+          hostSocketId={hostSocketId}
+          selfId={selfId}
+          settings={settings}
+          connecting={sessionStatus === null}
+          onChangeSettings={handleChangeSettings}
+          onStart={handleStartMatch}
+          onClose={onClose}
+        />
+      )}
+
       {/* 4. Alive Player HUD / Spectator overlay */}
-      {isAlive ? (
+      {inLobby ? null : isAlive ? (
         <PhobiaHUD
           stamina={stamina}
           sanity={sanity}
@@ -1003,6 +1218,7 @@ export default function MiskolcPhobiaView({
           isLocked={isLocked}
           teammates={teammates}
           sideTasks={sideTasks}
+          primaryObjective={primaryObjective}
           isSpeaking={isSpeaking}
         />
       ) : (
@@ -1014,14 +1230,14 @@ export default function MiskolcPhobiaView({
       )}
 
       {/* Pre-gate hint */}
-      {isAlive && isReady && !gateOpen && !matchResult && (
+      {isAlive && isReady && !gateOpen && !matchResult && !inLobby && !hiddenSpotName && (
         <div className="absolute top-20 left-1/2 -translate-x-1/2 z-20 pointer-events-none px-4 py-2 rounded-xl bg-black/70 border border-purple-500/40 text-[11px] text-purple-200 backdrop-blur-md">
           Szerelj fel a teherautó polcáról, majd nyomd meg a <strong>kapunyitó gombot</strong> – a türelmi idő ekkor indul.
         </div>
       )}
 
       {/* Spectator cycle (HUD is pointer-events-none, so offer a real button) */}
-      {!isAlive && !matchResult && aliveTeammates.length > 1 && (
+      {!inLobby && !isAlive && !matchResult && aliveTeammates.length > 1 && (
         <button
           onClick={handleCycleSpectator}
           className="absolute bottom-16 left-1/2 -translate-x-1/2 z-40 px-4 py-2 rounded-xl bg-cyan-900/70 hover:bg-cyan-800 border border-cyan-500/50 text-cyan-100 text-xs font-bold backdrop-blur-md"
@@ -1062,6 +1278,7 @@ export default function MiskolcPhobiaView({
         onSubmitVerdict={handleSubmitVerdict}
         matchResult={matchResult}
         sideTasks={sideTasks}
+        evidenceCount={settings.evidenceCount}
         isAlive={isAlive}
         onNewMatch={handleNewMatch}
       />

@@ -144,6 +144,7 @@ export class ItemSystem {
     // Placed world items registry
     this.placedItems = new Map();
     this.serverItemIds = new Set(); // ids of world items mirrored from the server snapshot
+    this.pendingLocalDrops = []; // local ids of items we dropped, waiting for the server's `spawned` echo
 
     // Audio Synthesizer
     this.initAudioSynthesizer();
@@ -816,6 +817,7 @@ export class ItemSystem {
     } else {
       // Place item onto ground
       this.spawnPlacedWorldItem(normType, this.placementPoint, this.placementPreviewMesh.quaternion);
+      this.trackLocalDrop();
       // Remove placed item from inventory
       this.inventory[this.activeSlot] = null;
       this.equipActiveViewmodel();
@@ -859,6 +861,7 @@ export class ItemSystem {
     }
 
     this.placedItems.set(worldMesh.userData.itemId, worldMesh);
+    this.lastSpawnedLocalId = worldMesh.userData.itemId;
     return worldMesh;
   }
 
@@ -886,9 +889,76 @@ export class ItemSystem {
         mesh.userData.promptHu = `[E] Felvétel: ${it.name}`;
       }
       if (it.charges !== undefined) mesh.userData.charges = it.charges;
+      if ([it.rx, it.ry, it.rz].some((n) => Number.isFinite(n))) mesh.rotation.set(it.rx || 0, it.ry || 0, it.rz || 0);
       this.placedItems.set(it.id, mesh);
       this.serverItemIds.add(it.id);
     }
+  }
+
+  /**
+   * Applies `phobia:world-item-updated` ({ action: 'spawned'|'moved'|'removed', item }).
+   * Our own spawns are already in the world: the local mesh is re-keyed to the server id (no double
+   * spawn) and its settled transform is reported back with `phobia:item-moved`.
+   */
+  applyWorldItem(action, item, isSelf = false) {
+    if (!item || !item.id) return;
+    const type = normalizeToolType(item.type);
+    const hasPos = [item.x, item.y, item.z].every((n) => typeof n === 'number' && Number.isFinite(n));
+    const existing = this.placedItems.get(item.id);
+
+    if (action === 'removed') {
+      if (existing?.parent) existing.parent.remove(existing);
+      this.placedItems.delete(item.id);
+      this.serverItemIds.delete(item.id);
+      if (this.hoveredItem === existing) this.hoveredItem = null;
+      return;
+    }
+    if (!hasPos) return;
+
+    if (action === 'spawned' && isSelf && !existing) {
+      const idx = this.pendingLocalDrops.findIndex((id) => this.placedItems.get(id)?.userData?.type === type);
+      if (idx !== -1) {
+        const localId = this.pendingLocalDrops.splice(idx, 1)[0];
+        const mesh = this.placedItems.get(localId);
+        this.placedItems.delete(localId);
+        mesh.userData.itemId = item.id;
+        this.placedItems.set(item.id, mesh);
+        this.serverItemIds.add(item.id);
+        if (this.socket) {
+          this.socket.emit('phobia:item-moved', {
+            roomId: this.roomId,
+            itemId: item.id,
+            position: { x: mesh.position.x, y: mesh.position.y, z: mesh.position.z },
+            rotation: { x: mesh.rotation.x, y: mesh.rotation.y, z: mesh.rotation.z }
+          });
+        }
+        return;
+      }
+    }
+    if (isSelf && action === 'moved') return;
+
+    if (existing) {
+      existing.position.set(item.x, item.y, item.z);
+      if ([item.rx, item.ry, item.rz].some((n) => Number.isFinite(n))) existing.rotation.set(item.rx || 0, item.ry || 0, item.rz || 0);
+      return;
+    }
+    this.syncOneServerItem({ ...item, type });
+  }
+
+  /** Spawns one server-owned world item (shared by snapshots and incremental updates). */
+  syncOneServerItem(it) {
+    const mesh = this.spawnPlacedWorldItem(normalizeToolType(it.type), new THREE.Vector3(it.x, it.y, it.z));
+    this.placedItems.delete(mesh.userData.itemId);
+    mesh.userData.itemId = it.id;
+    if (it.name) {
+      mesh.userData.nameHu = it.name;
+      mesh.userData.promptHu = `[E] Felvétel: ${it.name}`;
+    }
+    if (it.charges !== undefined) mesh.userData.charges = it.charges;
+    if ([it.rx, it.ry, it.rz].some((n) => Number.isFinite(n))) mesh.rotation.set(it.rx || 0, it.ry || 0, it.rz || 0);
+    this.placedItems.set(it.id, mesh);
+    this.serverItemIds.add(it.id);
+    return mesh;
   }
 
   /* -------------------------------------------------------------------------- */
@@ -929,6 +999,12 @@ export class ItemSystem {
 
     const normType = normalizeToolType(item.type);
     this.spawnPlacedWorldItem(normType, dropPos);
+    this.trackLocalDrop();
+  }
+
+  trackLocalDrop() {
+    this.pendingLocalDrops.push(this.lastSpawnedLocalId);
+    if (this.pendingLocalDrops.length > 10) this.pendingLocalDrops.shift();
   }
 
   /* -------------------------------------------------------------------------- */

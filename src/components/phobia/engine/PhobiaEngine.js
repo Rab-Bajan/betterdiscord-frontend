@@ -12,6 +12,9 @@ import {
   RainParticles,
   FreezingBreathParticles
 } from '../shaders/index.js';
+import { QUALITY_PRESETS, normalizeQuality, createNightEnvironment, ColorGradeShader } from '../visual/Atmosphere.js';
+import { setTextureQuality, disposeTextureLibrary } from '../visual/ProceduralTextures.js';
+import { createGhostFigure } from '../visual/HumanFigure.js';
 
 /**
  * PhobiaEngine
@@ -83,22 +86,30 @@ export class PhobiaEngine {
     this.huntIntensity = 0.0;
     this.ambientTemperature = 15.0; // Celsius
 
-    // Adaptive quality: measure average frame time for ~2s after start, downgrade on slow GPUs
+    // Quality: options.quality ('low' | 'medium' | 'high'), else ?quality= in the URL, else adaptive
+    // (starts on 'high' and measures average frame time for ~2s after start, downgrading on slow GPUs).
+    // Resolved before the renderer/map exist so texture resolution and AA can follow the preset.
     this.qualityLevel = 'high';
     this._qualityProbe = { time: 0, frames: 0, done: false };
+    let requested = normalizeQuality(options.quality);
     try {
-      const q = typeof location !== 'undefined' ? new URLSearchParams(location.search).get('quality') : null;
-      if (q === 'high' || options.adaptiveQuality === false) this._qualityProbe.done = true;
-      if (q === 'low') this.setQuality('low');
+      const q = typeof location !== 'undefined' ? normalizeQuality(new URLSearchParams(location.search).get('quality')) : null;
+      if (!requested && q) requested = q;
     } catch (_) {}
+    if (requested || options.adaptiveQuality === false) this._qualityProbe.done = true;
+    if (requested) this.qualityLevel = requested;
+    this.maxPixelRatio = QUALITY_PRESETS[this.qualityLevel].pixelRatio;
+    setTextureQuality(QUALITY_PRESETS[this.qualityLevel].textures);
 
     this._initRenderer();
     this._initScene();
+    this._initEnvironment();
     this._initCameraAndPlayer();
     this._initLighting();
     this._initPostProcessing();
     this._initParticleSystems();
     this._initResizeObserver();
+    this.setQuality(this.qualityLevel);
   }
 
   /* -------------------------------------------------------------------------- */
@@ -124,8 +135,8 @@ export class PhobiaEngine {
     try {
       this.renderer = new THREE.WebGLRenderer({
         canvas: this.canvas,
-        antialias: true,
-        powerPreference: 'default',
+        antialias: QUALITY_PRESETS[this.qualityLevel].antialias,
+        powerPreference: 'high-performance',
         alpha: false,
         stencil: false
       });
@@ -146,7 +157,7 @@ export class PhobiaEngine {
 
     this.renderer.outputColorSpace = THREE.SRGBColorSpace;
     this.renderer.toneMapping = THREE.ACESFilmicToneMapping;
-    this.renderer.toneMappingExposure = 1.15;
+    this.renderer.toneMappingExposure = 1.1;
 
     this.renderer.shadowMap.enabled = true;
     this.renderer.shadowMap.type = THREE.PCFSoftShadowMap;
@@ -160,7 +171,8 @@ export class PhobiaEngine {
   _initScene() {
     this.scene = new THREE.Scene();
     this.scene.background = new THREE.Color(0x0b0e1c);
-    this.scene.fog = new THREE.FogExp2(0x0b0e1c, 0.008);
+    // Exponential-squared fog reads as damp night air: clear within ~15 m, thick past ~60 m
+    this.scene.fog = new THREE.FogExp2(0x0b0e1c, QUALITY_PRESETS[this.qualityLevel].fogDensity);
 
     // Layered Scene Hierarchy
     this.worldMeshGroup = new THREE.Group();
@@ -189,6 +201,19 @@ export class PhobiaEngine {
     this.scene.add(this.localPlayerGroup);
   }
 
+  /** Baked night IBL so metals/wet surfaces reflect something (skipped on 'low'). */
+  _initEnvironment() {
+    this._envTarget = null;
+    if (!QUALITY_PRESETS[this.qualityLevel].envMap) return;
+    try {
+      this._envTarget = createNightEnvironment(this.renderer);
+      this.scene.environment = this._envTarget.texture;
+      this.scene.environmentIntensity = 0.45;
+    } catch (err) {
+      console.warn('Night environment map failed, continuing without IBL:', err);
+    }
+  }
+
   _initCameraAndPlayer() {
     const width = this.container.clientWidth || window.innerWidth;
     const height = this.container.clientHeight || window.innerHeight;
@@ -207,15 +232,24 @@ export class PhobiaEngine {
 
   _initLighting() {
     // Dim ambient baseline for night horror atmosphere
-    this.ambientLight = new THREE.AmbientLight(0x5a6694, 1.2);
+    this.ambientLight = new THREE.AmbientLight(0x5a6694, 0.9);
     this.lightingGroup.add(this.ambientLight);
 
     // Cold moonlight: sky/ground bounce + a soft directional so the yard is readable at night
-    this.moonFill = new THREE.HemisphereLight(0x8aa0e0, 0x2a2830, 1.1);
+    this.moonFill = new THREE.HemisphereLight(0x8aa0e0, 0x2a2830, 0.9);
     this.lightingGroup.add(this.moonFill);
-    this.moonLight = new THREE.DirectionalLight(0x9fb4f0, 1.1);
+    this.moonLight = new THREE.DirectionalLight(0x9fb4f0, 1.4);
     this.moonLight.position.set(-30, 60, 20);
+    // Key-light shadows: an orthographic window that follows the player (see _updateMoonShadow)
+    this.moonLight.castShadow = true;
+    this.moonLight.shadow.mapSize.set(1024, 1024);
+    const msc = this.moonLight.shadow.camera;
+    msc.left = -26; msc.right = 26; msc.top = 26; msc.bottom = -26; msc.near = 10; msc.far = 140;
+    this.moonLight.shadow.bias = -0.0004;
+    this.moonLight.shadow.normalBias = 0.04;
+    this._moonOffset = new THREE.Vector3(-30, 60, 20);
     this.lightingGroup.add(this.moonLight);
+    this.lightingGroup.add(this.moonLight.target);
 
     // Dynamic player camera child SpotLight (Flashlight)
     this.flashlight = new THREE.SpotLight(0xfff4e0, this.flashlightBaseIntensity);
@@ -268,6 +302,11 @@ export class PhobiaEngine {
       this.vhsPass.uniforms.uTime.value = 0.0;
       this.composer.addPass(this.vhsPass);
 
+      // Pass 4b: linear-space colour grade (cold shadows, warm highlights); before tone mapping
+      this.gradePass = new ShaderPass(ColorGradeShader);
+      this.gradePass.enabled = QUALITY_PRESETS[this.qualityLevel].grade;
+      this.composer.addPass(this.gradePass);
+
       // Pass 5: Output Color Space & Tone Mapping pass
       this.outputPass = new OutputPass();
       this.composer.addPass(this.outputPass);
@@ -282,7 +321,7 @@ export class PhobiaEngine {
   _initParticleSystems() {
     // 1. Dynamic Rain System: 3000 line streaks + ground mist
     this.rain = new RainParticles({
-      rainCount: 1800,
+      rainCount: Math.round(1800 * QUALITY_PRESETS[this.qualityLevel].rainScale),
       mistCount: 100,
       boxWidth: 70,
       boxHeight: 20,
@@ -331,20 +370,36 @@ export class PhobiaEngine {
     }
   }
 
-  /** 'high' | 'low'. Low: pixel ratio 1, no shadow maps. */
+  /**
+   * 'low' | 'medium' | 'high' (anything else maps to 'high'). Drives pixel ratio, shadow maps and sizes,
+   * grading, fog density. Texture resolution and IBL are decided at construction (before assets exist).
+   */
   setQuality(level) {
-    this.qualityLevel = level === 'low' ? 'low' : 'high';
-    const low = this.qualityLevel === 'low';
+    this.qualityLevel = normalizeQuality(level) || 'high';
+    const preset = QUALITY_PRESETS[this.qualityLevel];
     if (!this.renderer) return;
-    this.maxPixelRatio = low ? 1 : 2;
-    this.renderer.shadowMap.enabled = !low;
+    this.maxPixelRatio = preset.pixelRatio;
+    const shadowToggled = this.renderer.shadowMap.enabled !== preset.shadows;
+    this.renderer.shadowMap.enabled = preset.shadows;
     this.renderer.shadowMap.needsUpdate = true;
-    if (this.flashlight) this.flashlight.castShadow = !low;
+    if (this.flashlight) {
+      this.flashlight.castShadow = preset.flashlightShadow;
+      this._resizeShadow(this.flashlight, preset.flashlightShadowSize);
+    }
+    if (this.moonLight) {
+      this.moonLight.castShadow = preset.shadows;
+      this._resizeShadow(this.moonLight, preset.shadows ? (this.qualityLevel === 'high' ? 2048 : 1024) : 512);
+    }
+    if (this.gradePass) this.gradePass.enabled = preset.grade;
+    if (this.scene?.fog) this.scene.fog.density = preset.fogDensity;
     if (this.scene) {
       this.scene.traverse((o) => {
-        if (o.isLight && o.castShadow !== undefined && o !== this.flashlight) o.userData._shadowWanted ??= o.castShadow;
-        if (o.isLight && o !== this.flashlight && o.userData._shadowWanted !== undefined) o.castShadow = !low && o.userData._shadowWanted;
-        if (o.isMesh && o.material) {
+        if (o.isLight && o !== this.flashlight && o !== this.moonLight && o.shadow) {
+          o.userData._shadowWanted ??= o.castShadow;
+          o.castShadow = preset.shadows && o.userData._shadowWanted;
+          this._resizeShadow(o, preset.floodShadowSize);
+        }
+        if (shadowToggled && o.isMesh && o.material) {
           const mats = Array.isArray(o.material) ? o.material : [o.material];
           mats.forEach((m) => { m.needsUpdate = true; });
         }
@@ -352,6 +407,28 @@ export class PhobiaEngine {
     }
     const w = this.container?.clientWidth, h = this.container?.clientHeight;
     if (w && h) this.handleResize(w, h);
+  }
+
+  _resizeShadow(light, size) {
+    if (!light.shadow || light.shadow.mapSize.x === size) return;
+    light.shadow.mapSize.set(size, size);
+    if (light.shadow.map) {
+      light.shadow.map.dispose();
+      light.shadow.map = null;
+    }
+  }
+
+  /** Slide the moon shadow window over the player so one map covers the area around them. */
+  _updateMoonShadow() {
+    if (!this.moonLight || !this.moonLight.castShadow) return;
+    const p = this.camera.getWorldPosition(this._tmpV || (this._tmpV = new THREE.Vector3()));
+    // snap to the shadow texel grid to avoid shimmering
+    const texel = 52 / this.moonLight.shadow.mapSize.x;
+    p.x = Math.round(p.x / texel) * texel;
+    p.z = Math.round(p.z / texel) * texel;
+    this.moonLight.target.position.set(p.x, 0, p.z);
+    this.moonLight.position.copy(this.moonLight.target.position).add(this._moonOffset);
+    this.moonLight.target.updateMatrixWorld();
   }
 
   _probeQuality(delta) {
@@ -365,7 +442,8 @@ export class PhobiaEngine {
       pr.done = true;
       const avgMs = (pr.sum / Math.max(1, pr.frames)) * 1000;
       this.avgFrameMs = avgMs;
-      if (avgMs > 40) this.setQuality('low');
+      if (avgMs > 40) this.setQuality(this.qualityLevel === 'high' ? 'medium' : 'low');
+      else if (avgMs > 30 && this.qualityLevel === 'high') this.setQuality('medium');
     }
   }
 
@@ -412,6 +490,11 @@ export class PhobiaEngine {
       this.vhsPass.uniforms.uTime.value = elapsedTime;
       this.vhsPass.uniforms.uHuntIntensity.value = this.huntIntensity;
     }
+
+    // Lights added by the map after construction pick up the quality preset on the 3rd frame
+    if (this._qualityFrames === undefined) this._qualityFrames = 0;
+    if (this._qualityFrames < 3 && ++this._qualityFrames === 3) this.setQuality(this.qualityLevel);
+    this._updateMoonShadow();
 
     // 2. Update Flashlight Flicker (active during hunts or ghost interference)
     this._updateFlashlight(delta, elapsedTime);
@@ -558,6 +641,15 @@ export class PhobiaEngine {
   }
 
   /**
+   * Factory: articulated ghost figure (hunched, floating, long hair and shroud) wearing `material`
+   * (default: a fresh Ghost Dissolve material). Returns { group, figure, update(delta, { moving, hunting }), dispose }.
+   * `group` has its feet at y = 0 and faces +Z; the caller adds it to ghostGroup and owns the material.
+   */
+  createGhostFigure(material = null) {
+    return createGhostFigure(material || this.createGhostMaterial());
+  }
+
+  /**
    * Factory: Creates and tracks a D.O.T.S. Laser Matrix projector
    */
   createDotsProjector(options = {}) {
@@ -681,9 +773,18 @@ export class PhobiaEngine {
       this.composer = null;
     }
 
-    // Traverse and dispose scene meshes, materials, and geometries
+    // Traverse and dispose scene meshes, materials, geometries and their textures
     if (this.scene) {
       this.scene.traverse((obj) => {
+        if (obj.material) {
+          const list = Array.isArray(obj.material) ? obj.material : [obj.material];
+          for (const m of list) {
+            for (const key of Object.keys(m)) {
+              const v = m[key];
+              if (v && v.isTexture) v.dispose();
+            }
+          }
+        }
         if (obj.geometry) {
           obj.geometry.dispose();
         }
@@ -695,9 +796,15 @@ export class PhobiaEngine {
           }
         }
       });
+      this.scene.environment = null;
       this.scene.clear();
       this.scene = null;
     }
+    if (this._envTarget) {
+      this._envTarget.dispose();
+      this._envTarget = null;
+    }
+    disposeTextureLibrary();
 
     // Dispose renderer and release the WebGL context (avoids context leaks on remount)
     if (this.renderer) {

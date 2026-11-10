@@ -199,6 +199,7 @@ export default function App() {
               channelId={activeVoiceChannel || 'phobia_lobby'}
               currentUser={currentUser}
               session={activities.phobiaSessions[activeVoiceChannel || 'phobia_lobby']}
+              setPeerSpatial={voice.setPeerSpatial}
               onClose={() => setViewMode(activeVoiceChannel ? 'voice' : 'chat')}
             />
           </Suspense>
@@ -232,8 +233,6 @@ export default function App() {
             chessSession={activities.chessSessions[activeVoiceChannel]}
             empireSession={activities.empireSessions[activeVoiceChannel]}
             phobiaSession={activities.phobiaSessions[activeVoiceChannel]}
-            onStartPhobia={activities.startPhobia}
-            onStopPhobia={activities.stopPhobia}
             onStartChess={activities.startChess}
             onJoinChess={activities.joinChess}
             onMoveChess={activities.moveChess}
@@ -242,6 +241,7 @@ export default function App() {
             onStopChess={activities.stopChess}
             gameSession={activities.gameSessions[activeVoiceChannel]}
             setPeerVolume={voice.setPeerVolume}
+            setPeerSpatial={voice.setPeerSpatial}
             browserSession={activities.browserSessions[activeVoiceChannel]}
             onStartBrowser={activities.startBrowser}
             onNavigateBrowser={activities.navigateBrowser}
