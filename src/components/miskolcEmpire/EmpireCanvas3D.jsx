@@ -12,6 +12,7 @@ const EDGE = 14;
 const MAX_IDS = 60;
 const SIPHON_TARGETS = new Set(['scrapYard', 'townCenter']);
 const DOUBLE_TAP_MS = 350;
+const PAN_THRESHOLD = 6; // px of left-drag movement before it counts as a pan instead of a click
 
 function isTyping(e) {
   const t = e.target;
@@ -175,7 +176,9 @@ export default function EmpireCanvas3D({ store, onCommand }) {
         return;
       }
       if (e.pointerType === 'touch') { drag = { mode: 'touchpan', lx: e.clientX, ly: e.clientY, sx: x, sy: y, moved: 0 }; return; }
-      drag = { mode: 'box', x0: x, y0: y };
+      // Ctrl/Cmd + left drag: selection box. Plain left drag: grab-and-pan the map; a click without movement selects.
+      if (e.ctrlKey || e.metaKey) { drag = { mode: 'box', x0: x, y0: y }; return; }
+      drag = { mode: 'mousepan', lx: e.clientX, ly: e.clientY, moved: 0 };
     };
 
     const onPointerMove = (e) => {
@@ -187,12 +190,15 @@ export default function EmpireCanvas3D({ store, onCommand }) {
         cam.yaw -= (e.clientX - drag.lx) * 0.006;
         cam.pitch = Math.max(MIN_PITCH, Math.min(MAX_PITCH, cam.pitch + (e.clientY - drag.ly) * 0.004));
         drag.lx = e.clientX; drag.ly = e.clientY;
-      } else if (drag.mode === 'touchpan') {
+      } else if (drag.mode === 'touchpan' || drag.mode === 'mousepan') {
+        drag.moved += Math.abs(e.clientX - drag.lx) + Math.abs(e.clientY - drag.ly);
+        // small jitter during a click must not move the camera
+        if (drag.mode === 'mousepan' && drag.moved < PAN_THRESHOLD) return;
         const k = cam.dist / size.h * 1.15;
         panDelta(cam, -(e.clientX - drag.lx), -(e.clientY - drag.ly), k, wp);
         cam.x += wp.x; cam.y += wp.y; cam.goal = null;
-        drag.moved += Math.abs(e.clientX - drag.lx) + Math.abs(e.clientY - drag.ly);
         drag.lx = e.clientX; drag.ly = e.clientY;
+        if (drag.mode === 'mousepan') canvas.style.cursor = 'grabbing';
       } else if (drag.mode === 'box') {
         if (Math.hypot(x - drag.x0, y - drag.y0) > 5) box = { x0: drag.x0, y0: drag.y0, x1: x, y1: y };
       }
@@ -209,6 +215,11 @@ export default function EmpireCanvas3D({ store, onCommand }) {
           if (ownUnits().length && !(pick && pick.kind === 'unit' && isMine(store, pick.e.o))) sendOrder(d.sx, d.sy);
           else clickSelect(d.sx, d.sy, false);
         }
+        return;
+      }
+      if (d.mode === 'mousepan') {
+        canvas.style.cursor = '';
+        if (d.moved < PAN_THRESHOLD) { const [x, y] = local(e); clickSelect(x, y, e.shiftKey); }
         return;
       }
       if (d.mode !== 'box') return;

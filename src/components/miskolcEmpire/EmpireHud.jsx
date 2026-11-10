@@ -280,7 +280,7 @@ function InfoPanel({ store, content, sel }) {
         <>Szabad kamera: WASD vagy a képernyő széle · Görgő: nagyítás · Középső gomb (vagy Alt+bal gomb): forgatás · Q/E: elforgatás<br />Kattints egy egységre vagy épületre a részletekért.</>
       ) : (
         <>
-          Bal gomb: kijelölés (húzással keret) · Jobb gomb: mozgás / gyűjtés / támadás / javítás / dézsmálás<br />
+          Bal gomb: kijelölés · Bal gomb húzása: térkép mozgatása · Ctrl + bal gomb húzása: keretes kijelölés · Jobb gomb: mozgás / gyűjtés / támadás / javítás / dézsmálás<br />
           WASD vagy a képernyő széle: kamera · Görgő: nagyítás · Középső gomb (vagy Alt+bal gomb): forgatás · Q/E: elforgatás<br />
           Ctrl+1..9: csoport mentése · 1..9: csoport (dupla: odaugrás) · X: megállj · H: Vajda Háza · Delete (nyomva tartva): bontás · Enter: csevegés
         </>

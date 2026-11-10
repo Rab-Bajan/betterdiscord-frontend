@@ -6,6 +6,7 @@ import { cameraEye, rayPlane } from '../empireMath.js';
 import { isMine, isAllied, isNeutral, isUnitShown, isTileVisible, isTileExplored, playerColor, playerOf } from '../empireStore.js';
 import { createTextureLib, hash2 } from './textures.js';
 import { buildTerrain } from './terrain.js';
+import { buildMountains } from './mountains.js';
 import { createFog } from './fog.js';
 import { createModelKit } from './models.js';
 import { createFx } from './fx.js';
@@ -132,12 +133,14 @@ export function createEmpireScene(canvas, store) {
   function ensureWorld() {
     if (!store.map.w) return false;
     if (world && world.ver === store.terrainVersion) return true;
-    if (world) { world.terrain.dispose(); world.fog.dispose(); }
+    if (world) { world.terrain.dispose(); world.fog.dispose(); world.mountains.dispose(); }
     const terrain = buildTerrain(store, lib);
     scene.add(terrain.group);
+    const mountains = buildMountains(store.map.w, store.map.h, terrain.heightAt, lib);
+    scene.add(mountains.group);
     const fog = createFog(store, terrain.geometry);
     scene.add(fog.mesh);
-    world = { terrain, fog, ver: store.terrainVersion };
+    world = { terrain, fog, mountains, ver: store.terrainVersion };
     unitState.clear();
     emitAcc.clear();
     return true;
@@ -608,7 +611,7 @@ export function createEmpireScene(canvas, store) {
       camera.updateProjectionMatrix();
     },
     dispose() {
-      if (world) { world.terrain.dispose(); world.fog.dispose(); world = null; }
+      if (world) { world.terrain.dispose(); world.fog.dispose(); world.mountains.dispose(); world = null; }
       for (const g of ghosts.values()) g.removeFromParent();
       ghosts.clear();
       ghostFoot.removeFromParent();
