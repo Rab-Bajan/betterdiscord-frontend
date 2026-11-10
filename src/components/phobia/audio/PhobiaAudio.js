@@ -173,6 +173,17 @@ export class PhobiaAudio {
       this.context = createMockAudioContext();
     }
 
+    // Browsers start the context suspended until a user gesture: resume on the first one
+    if (typeof window !== 'undefined' && this.context && this.context.state === 'suspended') {
+      this._gestureResume = () => {
+        this.resumeContext();
+        window.removeEventListener('pointerdown', this._gestureResume, true);
+        window.removeEventListener('keydown', this._gestureResume, true);
+      };
+      window.addEventListener('pointerdown', this._gestureResume, true);
+      window.addEventListener('keydown', this._gestureResume, true);
+    }
+
     // Initialize Three.js AudioListener
     if (listener) {
       this.listener = listener;
@@ -1884,6 +1895,10 @@ export class PhobiaAudio {
   }
 
   dispose() {
+    if (this._gestureResume && typeof window !== 'undefined') {
+      window.removeEventListener('pointerdown', this._gestureResume, true);
+      window.removeEventListener('keydown', this._gestureResume, true);
+    }
     this.stopHeartbeat();
     this.stopBreakerBuzz();
     this.stopEmf();

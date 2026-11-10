@@ -289,7 +289,7 @@ export class TruckEnvironment {
    * ----------------------------------------------------------- */
   buildTruckInterior() {
     // Warm fluorescent tube light inside cargo area
-    const tubeLight = new THREE.PointLight(0xfffae0, 2.2, 7.0, 1.8);
+    const tubeLight = new THREE.PointLight(0xfffae0, 4.0, 7.0, 1.8);
     tubeLight.position.set(0, 2.3, -0.4);
     tubeLight.castShadow = false; // keep lightweight inside truck
     this.group.add(tubeLight);

@@ -24,7 +24,7 @@ function Banner({ background, borderColor, textColor, accentColor, icon, who, te
 }
 
 // Értesítő sávok: másik nézetben vagyunk, miközben a szobában fut valami
-export default function ActivityBanners({ subView, watchState, casinoSession, chessSession, empireSession, browserSession, gameSession, onOpen }) {
+export default function ActivityBanners({ subView, watchState, casinoSession, chessSession, empireSession, phobiaSession, browserSession, gameSession, onOpen }) {
   return (
     <>
       {gameSession && subView !== 'game' && (
@@ -115,6 +115,21 @@ export default function ActivityBanners({ subView, watchState, casinoSession, ch
           actionClass="text-black"
           actionStyle={{ background: 'linear-gradient(135deg, #28C997, #1fa57c)' }}
           onAction={() => onOpen('empire')}
+        />
+      )}
+      {phobiaSession?.active && subView !== 'phobia' && (
+        <Banner
+          background="#151832"
+          borderColor="rgba(245, 176, 65, 0.3)"
+          textColor="#F4F3FF"
+          accentColor="#F5B041"
+          icon="🔦"
+          who={phobiaSession.startedBy || 'Valaki'}
+          text="szellemvadászatot indított a MiskolcPhobia-ban!"
+          action="Csatlakozás 🔦"
+          actionClass="text-black"
+          actionStyle={{ background: 'linear-gradient(135deg, #F5B041, #d4922a)' }}
+          onAction={() => onOpen('phobia')}
         />
       )}
     </>

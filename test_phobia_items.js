@@ -468,6 +468,17 @@ assert.ok(itemSystem.placementPreviewMesh, 'Placement preview mesh must be creat
 itemSystem.cancelPlacementMode();
 assert.strictEqual(itemSystem.isPlacementMode, false);
 
+// Late-join snapshot: server dropped items are mirrored, deduped and replaced on resync
+itemSystem.syncServerItems([
+  { id: 'srv_emf_1', type: 'emf_reader', name: 'EMF 5 Mérő', x: 1, y: 0.1, z: 2 },
+  { id: 'bad', type: 'emf_reader', x: 'nope' }
+]);
+assert.ok(itemSystem.placedItems.has('srv_emf_1'), 'Server dropped item must be spawned');
+assert.ok(!itemSystem.placedItems.has('bad'), 'Item with invalid coordinates must be skipped');
+assert.strictEqual(itemSystem.placedItems.get('srv_emf_1').userData.itemId, 'srv_emf_1');
+itemSystem.syncServerItems([]);
+assert.strictEqual(itemSystem.placedItems.has('srv_emf_1'), false, 'Resync must remove stale server items');
+
 // Clean disposal
 itemSystem.dispose();
 

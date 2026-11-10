@@ -3,7 +3,6 @@ import { EffectComposer } from 'three/addons/postprocessing/EffectComposer.js';
 import { RenderPass } from 'three/addons/postprocessing/RenderPass.js';
 import { ShaderPass } from 'three/addons/postprocessing/ShaderPass.js';
 import { OutputPass } from 'three/addons/postprocessing/OutputPass.js';
-import { VignetteShader } from 'three/addons/shaders/VignetteShader.js';
 import { FilmShader } from 'three/addons/shaders/FilmShader.js';
 
 import {
@@ -28,15 +27,43 @@ import {
  * - Custom GLSL materials (Ghost Dissolve, D.O.T.S. Laser Matrix Projectors)
  * - Full lifecycle: ResizeObserver, pause/resume render loop, clean resource disposal
  */
+// Safe multiplicative vignette (three's VignetteShader goes negative for darkness > 1,
+// which tone-mapping turns into bright garbage at the screen edges).
+const SafeVignetteShader = {
+  uniforms: {
+    tDiffuse: { value: null },
+    strength: { value: 0.55 },
+    radius: { value: 0.95 }
+  },
+  vertexShader: `
+    varying vec2 vUv;
+    void main() { vUv = uv; gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0); }
+  `,
+  fragmentShader: `
+    uniform sampler2D tDiffuse;
+    uniform float strength;
+    uniform float radius;
+    varying vec2 vUv;
+    void main() {
+      vec4 c = texture2D(tDiffuse, vUv);
+      vec2 d = (vUv - 0.5) * vec2(1.0, 0.85) * 1.6;
+      float v = smoothstep(radius, 0.15, length(d));
+      c.rgb *= mix(1.0 - strength, 1.0, v);
+      gl_FragColor = c;
+    }
+  `
+};
+
 export class PhobiaEngine {
   constructor(options = {}) {
-    const { canvas, container } = options;
-    if (!canvas) {
-      throw new Error('PhobiaEngine requires a HTMLCanvasElement in options.canvas');
+    const { canvas, container, mount } = options;
+    if (!canvas && !mount) {
+      throw new Error('PhobiaEngine requires a HTMLCanvasElement in options.canvas or a mount element in options.mount');
     }
 
-    this.canvas = canvas;
-    this.container = container || canvas.parentElement || canvas;
+    this.canvas = canvas || null;
+    this.mount = mount || null;
+    this.container = container || mount || canvas.parentElement || canvas;
 
     this.clock = new THREE.Clock();
     this.isRunning = false;
@@ -49,12 +76,21 @@ export class PhobiaEngine {
     this.flashlightOn = true;
     this.flashlightFlickerActive = false;
     this.flashlightFlickerIntensity = 0.0;
-    this.flashlightBaseIntensity = 2.2;
+    this.flashlightBaseIntensity = 60.0; // candela-ish (physically based decay)
     this.flashlightTimer = 0.0;
 
     // Hunt and environment states
     this.huntIntensity = 0.0;
     this.ambientTemperature = 15.0; // Celsius
+
+    // Adaptive quality: measure average frame time for ~2s after start, downgrade on slow GPUs
+    this.qualityLevel = 'high';
+    this._qualityProbe = { time: 0, frames: 0, done: false };
+    try {
+      const q = typeof location !== 'undefined' ? new URLSearchParams(location.search).get('quality') : null;
+      if (q === 'high' || options.adaptiveQuality === false) this._qualityProbe.done = true;
+      if (q === 'low') this.setQuality('low');
+    } catch (_) {}
 
     this._initRenderer();
     this._initScene();
@@ -76,7 +112,9 @@ export class PhobiaEngine {
     freshCanvas.className = this.canvas?.className || 'w-full h-full block cursor-crosshair focus:outline-none';
     freshCanvas.tabIndex = 0;
 
-    if (this.canvas && this.canvas.parentNode) {
+    if (this.mount) {
+      this.mount.appendChild(freshCanvas);
+    } else if (this.canvas && this.canvas.parentNode) {
       this.canvas.parentNode.replaceChild(freshCanvas, this.canvas);
     } else if (this.container) {
       this.container.appendChild(freshCanvas);
@@ -108,21 +146,21 @@ export class PhobiaEngine {
 
     this.renderer.outputColorSpace = THREE.SRGBColorSpace;
     this.renderer.toneMapping = THREE.ACESFilmicToneMapping;
-    this.renderer.toneMappingExposure = 1.1;
+    this.renderer.toneMappingExposure = 1.15;
 
     this.renderer.shadowMap.enabled = true;
     this.renderer.shadowMap.type = THREE.PCFSoftShadowMap;
 
     const initialWidth = this.container.clientWidth || window.innerWidth;
     const initialHeight = this.container.clientHeight || window.innerHeight;
-    this.renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
+    this.renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, this.maxPixelRatio || 2));
     this.renderer.setSize(initialWidth, initialHeight, false);
   }
 
   _initScene() {
     this.scene = new THREE.Scene();
-    this.scene.background = new THREE.Color(0x06070e);
-    this.scene.fog = new THREE.FogExp2(0x090a18, 0.022);
+    this.scene.background = new THREE.Color(0x0b0e1c);
+    this.scene.fog = new THREE.FogExp2(0x0b0e1c, 0.008);
 
     // Layered Scene Hierarchy
     this.worldMeshGroup = new THREE.Group();
@@ -169,21 +207,28 @@ export class PhobiaEngine {
 
   _initLighting() {
     // Dim ambient baseline for night horror atmosphere
-    this.ambientLight = new THREE.AmbientLight(0x161a2e, 0.18);
+    this.ambientLight = new THREE.AmbientLight(0x5a6694, 1.2);
     this.lightingGroup.add(this.ambientLight);
+
+    // Cold moonlight: sky/ground bounce + a soft directional so the yard is readable at night
+    this.moonFill = new THREE.HemisphereLight(0x8aa0e0, 0x2a2830, 1.1);
+    this.lightingGroup.add(this.moonFill);
+    this.moonLight = new THREE.DirectionalLight(0x9fb4f0, 1.1);
+    this.moonLight.position.set(-30, 60, 20);
+    this.lightingGroup.add(this.moonLight);
 
     // Dynamic player camera child SpotLight (Flashlight)
     this.flashlight = new THREE.SpotLight(0xfff4e0, this.flashlightBaseIntensity);
-    this.flashlight.distance = 18.0;
-    this.flashlight.angle = Math.PI / 6; // 30 degrees cone
-    this.flashlight.penumbra = 0.35;
+    this.flashlight.distance = 28.0;
+    this.flashlight.angle = Math.PI / 5; // 36 degrees cone
+    this.flashlight.penumbra = 0.5;
     this.flashlight.decay = 2.0; // quadratic attenuation
     this.flashlight.castShadow = true;
 
-    this.flashlight.shadow.mapSize.width = 1024;
-    this.flashlight.shadow.mapSize.height = 1024;
+    this.flashlight.shadow.mapSize.width = 512;
+    this.flashlight.shadow.mapSize.height = 512;
     this.flashlight.shadow.camera.near = 0.1;
-    this.flashlight.shadow.camera.far = 18.0;
+    this.flashlight.shadow.camera.far = 28.0;
     this.flashlight.shadow.bias = -0.0005;
 
     // Flashlight target fixed forward in front of camera
@@ -207,14 +252,13 @@ export class PhobiaEngine {
       this.composer.addPass(this.renderPass);
 
       // Pass 2: Vignette Shader
-      this.vignettePass = new ShaderPass(VignetteShader);
-      this.vignettePass.uniforms.offset.value = 1.05;
-      this.vignettePass.uniforms.darkness.value = 1.25;
+      this.vignettePass = new ShaderPass(SafeVignetteShader);
       this.composer.addPass(this.vignettePass);
 
       // Pass 3: Film Grain Shader
       this.filmPass = new ShaderPass(FilmShader);
-      this.filmPass.uniforms.intensity.value = 0.22;
+      this.filmPass.uniforms.intensity.value = 0.06;
+      if (this.filmPass.uniforms.grayscale) this.filmPass.uniforms.grayscale.value = 0;
       this.filmPass.uniforms.time.value = 0.0;
       this.composer.addPass(this.filmPass);
 
@@ -238,7 +282,7 @@ export class PhobiaEngine {
   _initParticleSystems() {
     // 1. Dynamic Rain System: 3000 line streaks + ground mist
     this.rain = new RainParticles({
-      rainCount: 3000,
+      rainCount: 1800,
       mistCount: 100,
       boxWidth: 70,
       boxHeight: 20,
@@ -279,11 +323,49 @@ export class PhobiaEngine {
     this.camera.aspect = width / height;
     this.camera.updateProjectionMatrix();
 
-    this.renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
+    this.renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, this.maxPixelRatio || 2));
     this.renderer.setSize(width, height, false);
 
     if (this.composer) {
       this.composer.setSize(width, height);
+    }
+  }
+
+  /** 'high' | 'low'. Low: pixel ratio 1, no shadow maps. */
+  setQuality(level) {
+    this.qualityLevel = level === 'low' ? 'low' : 'high';
+    const low = this.qualityLevel === 'low';
+    if (!this.renderer) return;
+    this.maxPixelRatio = low ? 1 : 2;
+    this.renderer.shadowMap.enabled = !low;
+    this.renderer.shadowMap.needsUpdate = true;
+    if (this.flashlight) this.flashlight.castShadow = !low;
+    if (this.scene) {
+      this.scene.traverse((o) => {
+        if (o.isLight && o.castShadow !== undefined && o !== this.flashlight) o.userData._shadowWanted ??= o.castShadow;
+        if (o.isLight && o !== this.flashlight && o.userData._shadowWanted !== undefined) o.castShadow = !low && o.userData._shadowWanted;
+        if (o.isMesh && o.material) {
+          const mats = Array.isArray(o.material) ? o.material : [o.material];
+          mats.forEach((m) => { m.needsUpdate = true; });
+        }
+      });
+    }
+    const w = this.container?.clientWidth, h = this.container?.clientHeight;
+    if (w && h) this.handleResize(w, h);
+  }
+
+  _probeQuality(delta) {
+    const pr = this._qualityProbe;
+    if (pr.done) return;
+    pr.time += delta;
+    if (pr.time < 0.75) return; // ignore shader-compile warm-up
+    pr.frames++;
+    pr.sum = (pr.sum || 0) + delta;
+    if (pr.time >= 2.75) {
+      pr.done = true;
+      const avgMs = (pr.sum / Math.max(1, pr.frames)) * 1000;
+      this.avgFrameMs = avgMs;
+      if (avgMs > 40) this.setQuality('low');
     }
   }
 
@@ -320,6 +402,7 @@ export class PhobiaEngine {
   render() {
     const delta = this.clock.getDelta();
     const elapsedTime = this.clock.getElapsedTime();
+    this._probeQuality(delta);
 
     // 1. Update Post-processing uniforms
     if (this.filmPass) {
@@ -616,12 +699,16 @@ export class PhobiaEngine {
       this.scene = null;
     }
 
-    // Dispose renderer
+    // Dispose renderer and release the WebGL context (avoids context leaks on remount)
     if (this.renderer) {
       try {
         this.renderer.dispose();
+        this.renderer.forceContextLoss?.();
       } catch (_) {}
       this.renderer = null;
+    }
+    if (this.mount && this.canvas?.parentNode === this.mount) {
+      this.mount.removeChild(this.canvas);
     }
   }
 }

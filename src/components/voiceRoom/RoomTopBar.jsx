@@ -32,6 +32,8 @@ export default function RoomTopBar({
   chessActive,
   empireActive,
   phobiaActive,
+  onStartPhobia,
+  onStopPhobia,
   browserActive,
   gameActive,
   onClose,
@@ -206,6 +208,29 @@ export default function RoomTopBar({
           <span>MiskolcPhobia</span>
           {phobiaActive && <span className="w-2 h-2 rounded-full animate-pulse" style={{ background: '#28C997' }}></span>}
         </ModeTab>
+        {phobiaActive ? (
+          onStopPhobia && (
+            <button
+              onClick={onStopPhobia}
+              title="MiskolcPhobia munkamenet leállítása"
+              className="px-2.5 py-1.5 min-h-[36px] rounded-lg text-xs font-semibold flex-shrink-0 whitespace-nowrap"
+              style={{ background: 'rgba(233, 75, 100, 0.15)', color: '#E94B64', border: '1px solid rgba(233, 75, 100, 0.3)' }}
+            >
+              Leállítás
+            </button>
+          )
+        ) : (
+          onStartPhobia && (
+            <button
+              onClick={onStartPhobia}
+              title="MiskolcPhobia munkamenet indítása"
+              className="px-2.5 py-1.5 min-h-[36px] rounded-lg text-xs font-semibold flex-shrink-0 whitespace-nowrap"
+              style={{ background: 'rgba(245, 176, 65, 0.15)', color: '#F5B041', border: '1px solid rgba(245, 176, 65, 0.3)' }}
+            >
+              Indítás
+            </button>
+          )
+        )}
       </div>
 
       <button

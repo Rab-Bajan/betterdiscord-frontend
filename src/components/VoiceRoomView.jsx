@@ -250,12 +250,15 @@ export default function VoiceRoomView({
         phobiaActive={!!phobiaSession?.active}
         browserActive={!!browserSession?.active}
         gameActive={!!gameSession}
+        onStartPhobia={onStartPhobia}
+        onStopPhobia={onStopPhobia}
         onClose={onClose}
         onOpenMobileSidebar={onOpenMobileSidebar}
       />
 
       <ActivityBanners
         subView={subView}
+        phobiaSession={phobiaSession}
         watchState={watchState}
         casinoSession={casinoSession}
         chessSession={chessSession}

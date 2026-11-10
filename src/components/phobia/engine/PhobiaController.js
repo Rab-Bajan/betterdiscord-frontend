@@ -64,6 +64,10 @@ export class PhobiaController {
 
     // Controller active state
     this.enabled = options.enabled !== undefined ? options.enabled : true;
+    // When false, an external system (ItemSystem) owns the inventory: the controller
+    // ignores 1/2/3, G and mouse wheel so the two systems never fight each other.
+    this.manageInventory = options.manageInventory !== undefined ? options.manageInventory : true;
+    this.requireLock = options.requireLock !== undefined ? options.requireLock : false;
     this.isLocked = false;
     this.sensitivity = options.sensitivity || 0.0022;
 
@@ -124,6 +128,7 @@ export class PhobiaController {
     // Networking Sync Loop (12 Hz)
     this.syncTimer = 0.0;
     this.syncInterval = 1.0 / 12.0; // ~0.0833s
+    this.networkSuspended = false; // true after a server refusal (session full/limit): stop emitting moves
 
     // Input Keys Tracking
     this.keys = {
@@ -155,6 +160,8 @@ export class PhobiaController {
     this.onStaminaChange = options.onStaminaChange || null; // (stamina, isExhausted)
     this.onFootstep = options.onFootstep || null; // (surfaceType)
     this.onFlashlightToggle = options.onFlashlightToggle || null;
+    this.resolveSwitchLights = options.resolveSwitchLights || null; // (userData) => lightId[]
+    this.doorIdMap = options.doorIdMap || null; // client door id -> authoritative server door id
 
     // Initial item loadout if passed
     if (Array.isArray(options.initialItems)) {
@@ -266,6 +273,10 @@ export class PhobiaController {
     if (typeof document === 'undefined') return;
     const lockElement = document.pointerLockElement;
     this.isLocked = Boolean(lockElement && (lockElement === this.domElement || lockElement === document.body));
+    if (!this.isLocked) {
+      // Avoid "stuck" movement keys when the pointer lock is lost mid-keypress
+      for (const k of Object.keys(this.keys)) this.keys[k] = false;
+    }
   }
 
   _onMouseMove(event) {
@@ -322,6 +333,8 @@ export class PhobiaController {
 
   _onKeyDown(event) {
     if (!this.enabled) return;
+    // Gameplay keys only count while the mouse is captured (journal / pause overlay open => ignore)
+    if (this.requireLock && !this.isLocked) return;
     const code = event.code;
 
     if (code in this.keys) {
@@ -329,12 +342,14 @@ export class PhobiaController {
     }
 
     // Slot switching with 1, 2, 3
-    if (code === 'Digit1') {
-      this.setActiveSlot(0);
-    } else if (code === 'Digit2') {
-      this.setActiveSlot(1);
-    } else if (code === 'Digit3') {
-      this.setActiveSlot(2);
+    if (this.manageInventory) {
+      if (code === 'Digit1') {
+        this.setActiveSlot(0);
+      } else if (code === 'Digit2') {
+        this.setActiveSlot(1);
+      } else if (code === 'Digit3') {
+        this.setActiveSlot(2);
+      }
     }
 
     // Interaction trigger on E
@@ -343,7 +358,7 @@ export class PhobiaController {
     }
 
     // Item dropping / throwing on G
-    if (code === 'KeyG') {
+    if (code === 'KeyG' && this.manageInventory) {
       this.throwCurrentItem();
     }
 
@@ -361,7 +376,7 @@ export class PhobiaController {
   }
 
   _onWheel(event) {
-    if (!this.enabled) return;
+    if (!this.enabled || !this.manageInventory) return;
     if (event.deltaY > 0) {
       // Scroll down -> next slot
       this.setActiveSlot((this.activeSlot + 1) % 3);
@@ -748,27 +763,17 @@ export class PhobiaController {
       if (hits.length > 0 && hits[0].distance < closestDist) {
         const hit = hits[0];
         let obj = hit.object;
-        while (obj && !obj.userData?.interactable && obj.parent) {
+        const isInteractiveData = (d) => d && (d.interactable || d.isInteractive || d.action || d.type);
+        while (obj && !isInteractiveData(obj.userData) && obj.parent) {
           obj = obj.parent;
         }
 
-        const uData = obj?.userData || hit.object?.userData || {};
-        if (uData.interactable || uData.type) {
+        const uData = (obj && isInteractiveData(obj.userData)) ? obj.userData : null;
+        const action = uData ? PhobiaController.resolveAction(uData) : null;
+        if (uData && action) {
           closestDist = hit.distance;
-          closestTarget = { type: uData.type || 'prop', object: obj || hit.object, userData: uData };
-
-          if (uData.type === 'breaker') {
-            promptText = '[E] Főkapcsoló fel / le';
-          } else if (uData.type === 'light_switch' || uData.type === 'switch') {
-            promptText = '[E] Villanykapcsoló';
-          } else if (uData.type === 'item' || uData.item) {
-            const itemName = uData.item?.name || uData.name || 'Tárgy';
-            promptText = `[E] Felvétel: ${itemName}`;
-          } else if (uData.type === 'gate_button') {
-            promptText = '[E] Kapunyitó gomb';
-          } else {
-            promptText = uData.prompt || '[E] Használat';
-          }
+          closestTarget = { type: action, action, object: obj, userData: uData };
+          promptText = uData.promptHu || uData.prompt || PhobiaController.defaultPrompt(action, uData);
         }
       }
     }
@@ -779,6 +784,45 @@ export class PhobiaController {
       if (this.onInteractionPrompt) {
         this.onInteractionPrompt(promptText, closestTarget);
       }
+    }
+  }
+
+  /** Normalises the different userData conventions used by map/truck/electrical meshes. */
+  static resolveAction(u = {}) {
+    const a = u.action || u.type;
+    switch (a) {
+      case 'toggle_breaker':
+      case 'electrical_breaker':
+      case 'breaker':
+        return 'breaker';
+      case 'toggle_switch':
+      case 'electrical_switch':
+      case 'light_switch':
+      case 'switch':
+        return 'light_switch';
+      case 'toggle_hiding':
+        return 'toggle_hiding';
+      case 'gate_button':
+        return 'gate_button';
+      case 'cycle_camera':
+        return 'cycle_camera';
+      case 'pickup_scrap':
+      case 'pickup_item':
+        return null; // handled by ItemSystem / not interactive
+      default:
+        return u.item || a === 'item' ? 'item' : (u.interactable ? (a || 'prop') : null);
+    }
+  }
+
+  static defaultPrompt(action, u = {}) {
+    switch (action) {
+      case 'breaker': return '[E] Főkapcsoló fel / le';
+      case 'light_switch': return '[E] Villanykapcsoló';
+      case 'toggle_hiding': return '[E] Bújás / Nyitás';
+      case 'gate_button': return '[E] Kapunyitó gomb';
+      case 'cycle_camera': return '[E] Kamera váltása';
+      case 'item': return `[E] Felvétel: ${u.item?.name || u.name || 'Tárgy'}`;
+      default: return '[E] Használat';
     }
   }
 
@@ -794,7 +838,7 @@ export class PhobiaController {
       if (this.socket && this.socket.emit) {
         this.socket.emit('phobia:door-toggle', {
           roomId: this.roomId,
-          doorId: door.id
+          doorId: (this.doorIdMap && this.doorIdMap[door.id]) || door.id
         });
       }
       if (this.onInteract) this.onInteract(target);
@@ -819,16 +863,22 @@ export class PhobiaController {
 
     // 4. Light switch
     if (target.type === 'light_switch' || target.userData?.type === 'light_switch') {
-      const lightId = target.userData?.lightId || 'light_mazsahaz_office';
+      // A wall switch can drive several fixtures: resolve ids through the host callback
+      const resolved = this.resolveSwitchLights ? this.resolveSwitchLights(target.userData) : null;
+      const lightIds = (resolved && resolved.length)
+        ? resolved
+        : [target.userData?.lightId || 'light_mazsahaz_office'];
       if (this.socket && this.socket.emit) {
-        this.socket.emit('phobia:light-toggle', { roomId: this.roomId, lightId });
+        for (const lightId of lightIds) {
+          this.socket.emit('phobia:light-toggle', { roomId: this.roomId, lightId });
+        }
       }
       if (this.onInteract) this.onInteract(target);
       return true;
     }
 
-    // 5. Pickup item
-    if (target.type === 'item' || target.userData?.item) {
+    // 5. Pickup item (legacy controller-inventory mode only)
+    if (this.manageInventory && (target.type === 'item' || target.userData?.item)) {
       const item = target.userData.item || { id: target.userData.id, type: target.userData.type, name: target.userData.name };
       this.addItem(item);
       if (target.object && target.object.parent) {
@@ -1015,7 +1065,7 @@ export class PhobiaController {
     this._updateInteractionRaycast();
 
     // 10. 12 Hz Multiplayer Network Sync Emit
-    if (this.socket && this.socket.emit) {
+    if (this.socket && this.socket.emit && !this.networkSuspended) {
       this.syncTimer += dt;
       if (this.syncTimer >= this.syncInterval) {
         this.syncTimer = 0.0;
@@ -1029,6 +1079,9 @@ export class PhobiaController {
           crouched: this.isCrouching,
           sprinting: this.isSprinting,
           isInsideTruck: isSafe,
+          hidden: this.mapColliders && typeof this.mapColliders.isPlayerStealthHidden === 'function'
+            ? !!this.mapColliders.isPlayerStealthHidden(this.position).isHidden
+            : false,
           currentZone
         });
       }

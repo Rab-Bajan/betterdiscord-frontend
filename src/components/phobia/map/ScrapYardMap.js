@@ -68,14 +68,35 @@ export class ScrapYardMap {
   /* -------------------------------------------------------------
    * MATERIALS
    * ----------------------------------------------------------- */
+  _makeNoiseTexture(base = '#808080', spread = 40, repeat = 24, size = 128) {
+    if (typeof document === 'undefined') return null;
+    const canvas = document.createElement('canvas');
+    canvas.width = canvas.height = size;
+    const ctx = canvas.getContext('2d');
+    if (!ctx) return null;
+    ctx.fillStyle = base;
+    ctx.fillRect(0, 0, size, size);
+    for (let i = 0; i < size * size * 0.6; i++) {
+      const v = 128 + (Math.random() - 0.5) * spread * 2;
+      ctx.fillStyle = `rgba(${v},${v},${v},0.5)`;
+      ctx.fillRect(Math.random() * size, Math.random() * size, 1 + Math.random() * 2, 1 + Math.random() * 2);
+    }
+    const tex = new THREE.CanvasTexture(canvas);
+    tex.colorSpace = THREE.SRGBColorSpace;
+    tex.wrapS = tex.wrapT = THREE.RepeatWrapping;
+    tex.repeat.set(repeat, repeat);
+    tex.anisotropy = 4;
+    return tex;
+  }
+
   initMapMaterials() {
     this.matFence = new THREE.MeshStandardMaterial({
-      color: 0x5a554a,
+      color: 0x7d776a,
       roughness: 0.85,
       metalness: 0.6
     });
     this.matRustyMetal = new THREE.MeshStandardMaterial({
-      color: 0x6e3d23,
+      color: 0x9a5a35,
       roughness: 0.9,
       metalness: 0.5
     });
@@ -85,32 +106,33 @@ export class ScrapYardMap {
       metalness: 0.7
     });
     this.matRedBrick = new THREE.MeshStandardMaterial({
-      color: 0x7c382b,
+      color: 0xa04a3a,
       roughness: 0.9,
       metalness: 0.05
     });
     this.matConcrete = new THREE.MeshStandardMaterial({
-      color: 0x48494c,
+      color: 0x8a8b90,
       roughness: 0.8,
       metalness: 0.1
     });
     this.matGravel = new THREE.MeshStandardMaterial({
-      color: 0x2b2926,
+      color: 0xb5b0a6,
       roughness: 0.95,
-      metalness: 0.05
+      metalness: 0.05,
+      map: this._makeNoiseTexture('#807b72', 60, 30)
     });
     this.matMud = new THREE.MeshStandardMaterial({
-      color: 0x201a14,
+      color: 0x4a3c2e,
       roughness: 0.35, // wet sheen
       metalness: 0.2
     });
     this.matRottenWood = new THREE.MeshStandardMaterial({
-      color: 0x3d3023,
+      color: 0x6a5238,
       roughness: 0.9,
       metalness: 0.0
     });
     this.matHangarSteel = new THREE.MeshStandardMaterial({
-      color: 0x353a42,
+      color: 0x666e7a,
       roughness: 0.65,
       metalness: 0.75
     });
@@ -544,7 +566,7 @@ export class ScrapYardMap {
     this.buildLocker(z1Group, 'mazsahaz_locker_2', 16.5, 5.0, ZONE_KEYS.ZONE1);
 
     // 6. Lighting & Light Switch
-    const officeLight = new THREE.PointLight(0xffcc77, 2.5, 12.0, 2.0);
+    const officeLight = new THREE.PointLight(0xffcc77, 26, 12.0, 2.0);
     officeLight.position.set(13.0, 2.9, 7.0);
     z1Group.add(officeLight);
 
@@ -972,7 +994,7 @@ export class ScrapYardMap {
 
     // 6. High-Intensity Rafter Floodlights (Point 13 & 14)
     // Floodlight 1
-    const flood1 = new THREE.SpotLight(0xddff88, 4.0, 26.0, Math.PI / 3.5, 0.4, 2.0);
+    const flood1 = new THREE.SpotLight(0xddff88, 45.0, 26.0, Math.PI / 3.5, 0.4, 2.0);
     flood1.position.set(4.0, 7.0, 28.0);
     flood1.target.position.set(4.0, 0, 28.0);
     flood1.castShadow = true;
@@ -984,7 +1006,7 @@ export class ScrapYardMap {
     z3Group.add(flood1.target);
 
     // Floodlight 2
-    const flood2 = new THREE.SpotLight(0xddff88, 4.0, 26.0, Math.PI / 3.5, 0.4, 2.0);
+    const flood2 = new THREE.SpotLight(0xddff88, 45.0, 26.0, Math.PI / 3.5, 0.4, 2.0);
     flood2.position.set(14.0, 7.0, 38.0);
     flood2.target.position.set(14.0, 0, 38.0);
     flood2.castShadow = true;
@@ -996,7 +1018,7 @@ export class ScrapYardMap {
     z3Group.add(flood2.target);
 
     // Catwalk PointLight
-    const catLight = new THREE.PointLight(0xffeeaa, 1.8, 12.0, 2.0);
+    const catLight = new THREE.PointLight(0xffeeaa, 16, 12.0, 2.0);
     catLight.position.set(18.0, 4.5, 33.0);
     z3Group.add(catLight);
 
@@ -1214,11 +1236,11 @@ export class ScrapYardMap {
     this.buildBurnBarrel(z4Group, -24.0, 37.0);
 
     // 5. Lighting
-    const shedLight1 = new THREE.PointLight(0xffaa55, 1.5, 8.0, 2.0);
+    const shedLight1 = new THREE.PointLight(0xffaa55, 14, 8.0, 2.0);
     shedLight1.position.set(-20.0, 2.4, 33.0);
     z4Group.add(shedLight1);
 
-    const shedLight2 = new THREE.PointLight(0xffaa55, 1.5, 8.0, 2.0);
+    const shedLight2 = new THREE.PointLight(0xffaa55, 14, 8.0, 2.0);
     shedLight2.position.set(-20.0, 2.4, 41.0);
     z4Group.add(shedLight2);
 
@@ -1367,7 +1389,7 @@ export class ScrapYardMap {
     barrelGroup.add(embers);
 
     // Flickering warm fire point light
-    const fireLight = new THREE.PointLight(0xff5511, 2.0, 7.0, 2.0);
+    const fireLight = new THREE.PointLight(0xff5511, 10, 7.0, 2.0);
     fireLight.position.set(0, 0.6, 0);
     barrelGroup.add(fireLight);
     this.burnBarrelLights.push(fireLight);
@@ -1630,13 +1652,16 @@ export class ScrapYardMap {
     swGroup.position.set(x, y, z);
     swGroup.rotation.y = rotY;
 
-    const baseGeo = new THREE.BoxGeometry(0.1, 0.14, 0.03);
+    const baseGeo = new THREE.BoxGeometry(0.16, 0.24, 0.03);
     const base = new THREE.Mesh(baseGeo, this.matGalvanized);
     swGroup.add(base);
 
     const toggleGeo = new THREE.BoxGeometry(0.02, 0.05, 0.03);
-    const toggle = new THREE.Mesh(toggleGeo, this.matHangarSteel);
-    toggle.position.set(0, 0, 0.02);
+    const toggle = new THREE.Mesh(
+      toggleGeo,
+      new THREE.MeshStandardMaterial({ color: 0xffeeaa, emissive: 0xaa7711, emissiveIntensity: 0.9, roughness: 0.4 })
+    );
+    toggle.position.set(0, 0, 0.03);
     swGroup.add(toggle);
 
     base.userData = {
@@ -1652,6 +1677,21 @@ export class ScrapYardMap {
   }
 
   registerLightFixture(id, lightInstance, switchMesh = null) {
+    // Visible lamp: dark housing stays, glowing bulb is a child of the light so it hides with it
+    if (lightInstance.parent && !lightInstance.userData.lampMesh) {
+      const housing = new THREE.Mesh(
+        new THREE.CylinderGeometry(0.16, 0.12, 0.1, 10),
+        this.matHangarSteel
+      );
+      housing.position.copy(lightInstance.position).add(new THREE.Vector3(0, 0.1, 0));
+      lightInstance.parent.add(housing);
+      const bulb = new THREE.Mesh(
+        new THREE.SphereGeometry(0.1, 12, 8),
+        new THREE.MeshBasicMaterial({ color: lightInstance.color })
+      );
+      lightInstance.add(bulb);
+      lightInstance.userData.lampMesh = bulb;
+    }
     this.lightFixtures.set(id, {
       light: lightInstance,
       isOn: true,
@@ -1775,7 +1815,7 @@ export class ScrapYardMap {
     // 2. Flickering embers in burn barrels
     for (let i = 0; i < this.burnBarrelLights.length; i++) {
       const bLight = this.burnBarrelLights[i];
-      bLight.intensity = 1.8 + Math.sin(Date.now() * 0.008 + i) * 0.4 + (Math.random() - 0.5) * 0.2;
+      bLight.intensity = 9 + Math.sin(Date.now() * 0.008 + i) * 2 + (Math.random() - 0.5) * 1;
     }
 
     // 3. Car alarm headlights blinking

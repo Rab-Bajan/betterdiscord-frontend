@@ -548,8 +548,20 @@ export class EnvironmentalPhysics {
 
     if (!this.socket) return;
 
-    this._onItemThrown = (data) => {
-      if (!data || !data.itemId) return;
+    this._onItemThrown = (raw) => {
+      if (!raw) return;
+      // Accepts both the client shape (itemId/position/velocity) and the server shapes
+      // ({ propId, x, y, z, impulse } for ghost throws, { item, impulse } for player drops).
+      const data = {
+        itemId: raw.itemId || raw.propId || raw.item?.id,
+        position: raw.position || (typeof (raw.x ?? raw.item?.x) === 'number'
+          ? { x: raw.x ?? raw.item.x, y: raw.y ?? raw.item.y, z: raw.z ?? raw.item.z }
+          : null),
+        velocity: raw.velocity || (Array.isArray(raw.impulse) && raw.impulse.length === 3
+          ? { x: raw.impulse[0], y: raw.impulse[1], z: raw.impulse[2] }
+          : null)
+      };
+      if (!data.itemId) return;
       let prop = this.props.get(data.itemId);
       if (!prop) {
         prop = this.registerProp({
