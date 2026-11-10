@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { X } from 'lucide-react';
 import { useEmpireMatch } from '../../hooks/useEmpireMatch';
-import EmpireCanvas25D from './EmpireCanvas25D';
+import EmpireCanvas3D from './EmpireCanvas3D';
 import EmpireHud, { GLASS } from './EmpireHud';
 import EmpireLobby from './EmpireLobby';
 import EmpireTechTreeModal from './EmpireTechTreeModal';
@@ -26,18 +26,21 @@ export default function MiskolcEmpireView({ socket, currentUser, channelId = nul
     <div className="flex-1 min-w-0 flex flex-col h-full relative overflow-hidden" style={{ background: '#090A18', color: '#F4F3FF' }}>
       {inGame ? (
         <div className="flex-1 relative min-h-0">
-          <EmpireCanvas25D store={store} onCommand={m.command} />
+          <EmpireCanvas3D store={store} onCommand={m.command} />
           <EmpireHud
             store={store}
             content={m.content}
             connected={m.connected}
             results={m.results}
             phase={m.phase}
+            mode={m.current?.summary?.mode}
             onCommand={m.command}
             onResign={m.resign}
             onExit={onClose || m.leaveMatch}
             onBackToLobby={m.leaveMatch}
             onOpenTech={() => setTechOpen(true)}
+            onDemolish={m.demolishBuilding}
+            onChat={m.sendChat}
           />
         </div>
       ) : (
