@@ -38,6 +38,38 @@ import {
   createSaltPileModel
 } from './ToolDefinitions.js';
 
+/** Emoji icons for the HUD inventory dock, keyed by canonical tool type. */
+export const TOOL_ICONS = {
+  [TOOL_TYPES.EMF_READER]: '📟',
+  [TOOL_TYPES.SPIRIT_BOX]: '📻',
+  [TOOL_TYPES.UV_LIGHT]: '🟣',
+  [TOOL_TYPES.THERMOMETER]: '🌡️',
+  [TOOL_TYPES.VIDEO_CAMERA]: '🎥',
+  [TOOL_TYPES.GHOST_WRITING_BOOK]: '📓',
+  [TOOL_TYPES.DOTS_PROJECTOR]: '🟢',
+  [TOOL_TYPES.PHOTO_CAMERA]: '📷',
+  [TOOL_TYPES.MOBILE_JESUS]: '✝️',
+  [TOOL_TYPES.SMUDGE_STICKS]: '🌿',
+  [TOOL_TYPES.SANITY_PALINKA]: '🍶',
+  [TOOL_TYPES.FLASHLIGHT_T1]: '🔦',
+  [TOOL_TYPES.FLASHLIGHT_T2]: '🔦',
+  [TOOL_TYPES.SALT_SHAKER]: '🧂',
+  [TOOL_TYPES.SALT_PILE]: '🧂'
+};
+
+/** Builds an inventory item with HUD-friendly name/icon from a raw pickup type. */
+export function makeInventoryItem(rawType, extra = {}) {
+  const type = normalizeToolType(rawType);
+  const def = TOOL_DEFINITIONS[type];
+  return {
+    id: extra.id || type,
+    type,
+    name: extra.name || def?.nameHu || type,
+    icon: TOOL_ICONS[type] || '📦',
+    charges: extra.charges ?? (def?.maxCharges > 0 ? def.maxCharges : undefined)
+  };
+}
+
 export class ItemSystem {
   constructor(options = {}) {
     const {
@@ -60,6 +92,11 @@ export class ItemSystem {
     this.interactivePropsGroup = interactivePropsGroup || (engine ? engine.interactivePropsGroup : null);
     this.socket = socket || null;
     this.roomId = options.roomId || 'miskolc_e2e_test';
+
+    // Extra roots (e.g. the truck's equipment rack) whose meshes may be picked up with [E]
+    this.pickupTargets = options.pickupTargets || [];
+    // Host gate: when it returns false (journal open, mouse not captured) input is ignored
+    this.isEnabled = options.isEnabled || null;
 
     // Callbacks for UI updates
     this.onInventoryChange = onInventoryChange || null;
@@ -101,9 +138,13 @@ export class ItemSystem {
     // Raycasting for interactions and photo capture
     this.raycaster = new THREE.Raycaster();
     this.hoveredItem = null;
+    this.emfSpikeLevel = 1;
+    this.emfSpikeTimer = 0;
 
     // Placed world items registry
     this.placedItems = new Map();
+    this.serverItemIds = new Set(); // ids of world items mirrored from the server snapshot
+    this.pendingLocalDrops = []; // local ids of items we dropped, waiting for the server's `spawned` echo
 
     // Audio Synthesizer
     this.initAudioSynthesizer();
@@ -289,7 +330,10 @@ export class ItemSystem {
   bindInputEvents() {
     if (typeof window === 'undefined') return;
 
+    const blocked = () => (this.isEnabled ? !this.isEnabled() : false);
+
     this._onKeyDown = (e) => {
+      if (blocked()) return;
       // Slot selection via 1, 2, 3 keys
       if (e.code === 'Digit1') this.selectSlot(0);
       if (e.code === 'Digit2') this.selectSlot(1);
@@ -307,6 +351,7 @@ export class ItemSystem {
     };
 
     this._onWheel = (e) => {
+      if (blocked()) return;
       if (e.deltaY > 0) {
         this.selectSlot((this.activeSlot + 1) % 3);
       } else if (e.deltaY < 0) {
@@ -315,6 +360,7 @@ export class ItemSystem {
     };
 
     this._onMouseDown = (e) => {
+      if (blocked()) return;
       if (e.button === 0) {
         // Left-Click: Primary Action or Confirm Placement
         if (this.isPlacementMode) {
@@ -510,7 +556,8 @@ export class ItemSystem {
       case TOOL_TYPES.PHOTO_CAMERA: {
         if (vm?.userData?.snapPhoto) {
           const evaluatedTarget = this.evaluatePhotoTarget();
-          const photo = vm.userData.snapPhoto(evaluatedTarget);
+          const rawPhoto = vm.userData.snapPhoto(evaluatedTarget);
+          const photo = rawPhoto ? this.normalizePhoto(rawPhoto) : null;
           if (photo) {
             this.playCameraShutter();
             this.actionAnimTimer = 0.25;
@@ -518,9 +565,10 @@ export class ItemSystem {
 
             if (this.onPhotoSnapped) this.onPhotoSnapped(photo);
             if (this.socket) {
+              const { dataUrl, ...photoMeta } = photo; // keep the (large) image local
               this.socket.emit('phobia:photo-captured', {
                 roomId: this.roomId,
-                photo
+                photo: photoMeta
               });
             }
           }
@@ -589,6 +637,71 @@ export class ItemSystem {
       default:
         break;
     }
+  }
+
+  /**
+   * Converts a camera album record into the shape the Journal expects
+   * ({ id, subject, stars, reward, dataUrl }) and attaches a small snapshot of the current frame.
+   */
+  normalizePhoto(raw) {
+    return {
+      id: raw.id,
+      timestamp: raw.timestamp,
+      subject: raw.labelHu || raw.subject || 'Bizonyíték',
+      stars: raw.stars || 1,
+      reward: raw.rewardFt ?? raw.reward ?? 0,
+      kind: this.photoKindOf(raw),
+      dataUrl: this.captureSnapshot()
+    };
+  }
+
+  /** Explicit photo kind for the server: 'ghost' | 'fingerprint' | 'orb' | 'other' (server still verifies). */
+  photoKindOf(raw) {
+    const t = raw?.target;
+    if (t === PHOTO_BOUNTIES.GHOST_1_STAR || t === PHOTO_BOUNTIES.GHOST_2_STAR || t === PHOTO_BOUNTIES.GHOST_3_STAR) return 'ghost';
+    if (t === PHOTO_BOUNTIES.FINGERPRINT) return 'fingerprint';
+    if (t?.kind === 'orb') return 'orb';
+    return 'other';
+  }
+
+  /** Renders one frame and returns a downscaled JPEG data URL (null if unavailable). */
+  captureSnapshot() {
+    try {
+      const engine = this.engine;
+      const src = engine?.renderer?.domElement;
+      if (!src || !engine.scene || !engine.camera) return null;
+      // The drawing buffer is only readable right after a render in the same task
+      if (engine.composer) engine.composer.render(0);
+      else engine.renderer.render(engine.scene, engine.camera);
+      const out = document.createElement('canvas');
+      out.width = 256;
+      out.height = Math.max(1, Math.round((256 * src.height) / Math.max(1, src.width)));
+      const ctx = out.getContext('2d');
+      ctx.drawImage(src, 0, 0, out.width, out.height);
+      return out.toDataURL('image/jpeg', 0.7);
+    } catch (e) {
+      return null;
+    }
+  }
+
+  /** Server / local thermometer reading -> held laser thermometer LCD */
+  applyTemperatureReading(temp) {
+    const ud = this.currentViewmodelMesh?.userData;
+    if (ud?.type === TOOL_TYPES.THERMOMETER && typeof ud.setReading === 'function') {
+      ud.setReading(temp);
+    }
+  }
+
+  /** Server EMF spike (level 1-5 near x,z) -> held EMF reader, decays after a few seconds */
+  applyEmfReading({ level = 1, x = null, z = null } = {}) {
+    if (!this.camera) return;
+    if (x !== null && z !== null) {
+      const cp = new THREE.Vector3();
+      this.camera.getWorldPosition(cp);
+      if (Math.hypot(cp.x - x, cp.z - z) > 5.0) return; // out of range of the disturbance
+    }
+    this.emfSpikeLevel = Math.max(1, Math.min(5, level));
+    this.emfSpikeTimer = 6.0;
   }
 
   evaluatePhotoTarget() {
@@ -704,6 +817,7 @@ export class ItemSystem {
     } else {
       // Place item onto ground
       this.spawnPlacedWorldItem(normType, this.placementPoint, this.placementPreviewMesh.quaternion);
+      this.trackLocalDrop();
       // Remove placed item from inventory
       this.inventory[this.activeSlot] = null;
       this.equipActiveViewmodel();
@@ -747,7 +861,104 @@ export class ItemSystem {
     }
 
     this.placedItems.set(worldMesh.userData.itemId, worldMesh);
+    this.lastSpawnedLocalId = worldMesh.userData.itemId;
     return worldMesh;
+  }
+
+  /**
+   * Replaces the mirrored server-side dropped items (late join / reconnect / new match).
+   * Items are { id, type, name, x, y, z, charges? }; locally placed items are left alone.
+   */
+  syncServerItems(items) {
+    for (const id of this.serverItemIds) {
+      const mesh = this.placedItems.get(id);
+      if (mesh?.parent) mesh.parent.remove(mesh);
+      this.placedItems.delete(id);
+    }
+    this.serverItemIds.clear();
+    if (!Array.isArray(items)) return;
+    for (const it of items) {
+      if (!it || !it.id || this.placedItems.has(it.id)) continue;
+      if (![it.x, it.y, it.z].every((n) => typeof n === 'number' && Number.isFinite(n))) continue;
+      const mesh = this.spawnPlacedWorldItem(normalizeToolType(it.type), new THREE.Vector3(it.x, it.y, it.z));
+      // spawnPlacedWorldItem registers under a generated id; re-key to the server id
+      this.placedItems.delete(mesh.userData.itemId);
+      mesh.userData.itemId = it.id;
+      if (it.name) {
+        mesh.userData.nameHu = it.name;
+        mesh.userData.promptHu = `[E] Felvétel: ${it.name}`;
+      }
+      if (it.charges !== undefined) mesh.userData.charges = it.charges;
+      if ([it.rx, it.ry, it.rz].some((n) => Number.isFinite(n))) mesh.rotation.set(it.rx || 0, it.ry || 0, it.rz || 0);
+      this.placedItems.set(it.id, mesh);
+      this.serverItemIds.add(it.id);
+    }
+  }
+
+  /**
+   * Applies `phobia:world-item-updated` ({ action: 'spawned'|'moved'|'removed', item }).
+   * Our own spawns are already in the world: the local mesh is re-keyed to the server id (no double
+   * spawn) and its settled transform is reported back with `phobia:item-moved`.
+   */
+  applyWorldItem(action, item, isSelf = false) {
+    if (!item || !item.id) return;
+    const type = normalizeToolType(item.type);
+    const hasPos = [item.x, item.y, item.z].every((n) => typeof n === 'number' && Number.isFinite(n));
+    const existing = this.placedItems.get(item.id);
+
+    if (action === 'removed') {
+      if (existing?.parent) existing.parent.remove(existing);
+      this.placedItems.delete(item.id);
+      this.serverItemIds.delete(item.id);
+      if (this.hoveredItem === existing) this.hoveredItem = null;
+      return;
+    }
+    if (!hasPos) return;
+
+    if (action === 'spawned' && isSelf && !existing) {
+      const idx = this.pendingLocalDrops.findIndex((id) => this.placedItems.get(id)?.userData?.type === type);
+      if (idx !== -1) {
+        const localId = this.pendingLocalDrops.splice(idx, 1)[0];
+        const mesh = this.placedItems.get(localId);
+        this.placedItems.delete(localId);
+        mesh.userData.itemId = item.id;
+        this.placedItems.set(item.id, mesh);
+        this.serverItemIds.add(item.id);
+        if (this.socket) {
+          this.socket.emit('phobia:item-moved', {
+            roomId: this.roomId,
+            itemId: item.id,
+            position: { x: mesh.position.x, y: mesh.position.y, z: mesh.position.z },
+            rotation: { x: mesh.rotation.x, y: mesh.rotation.y, z: mesh.rotation.z }
+          });
+        }
+        return;
+      }
+    }
+    if (isSelf && action === 'moved') return;
+
+    if (existing) {
+      existing.position.set(item.x, item.y, item.z);
+      if ([item.rx, item.ry, item.rz].some((n) => Number.isFinite(n))) existing.rotation.set(item.rx || 0, item.ry || 0, item.rz || 0);
+      return;
+    }
+    this.syncOneServerItem({ ...item, type });
+  }
+
+  /** Spawns one server-owned world item (shared by snapshots and incremental updates). */
+  syncOneServerItem(it) {
+    const mesh = this.spawnPlacedWorldItem(normalizeToolType(it.type), new THREE.Vector3(it.x, it.y, it.z));
+    this.placedItems.delete(mesh.userData.itemId);
+    mesh.userData.itemId = it.id;
+    if (it.name) {
+      mesh.userData.nameHu = it.name;
+      mesh.userData.promptHu = `[E] Felvétel: ${it.name}`;
+    }
+    if (it.charges !== undefined) mesh.userData.charges = it.charges;
+    if ([it.rx, it.ry, it.rz].some((n) => Number.isFinite(n))) mesh.rotation.set(it.rx || 0, it.ry || 0, it.rz || 0);
+    this.placedItems.set(it.id, mesh);
+    this.serverItemIds.add(it.id);
+    return mesh;
   }
 
   /* -------------------------------------------------------------------------- */
@@ -788,6 +999,12 @@ export class ItemSystem {
 
     const normType = normalizeToolType(item.type);
     this.spawnPlacedWorldItem(normType, dropPos);
+    this.trackLocalDrop();
+  }
+
+  trackLocalDrop() {
+    this.pendingLocalDrops.push(this.lastSpawnedLocalId);
+    if (this.pendingLocalDrops.length > 10) this.pendingLocalDrops.shift();
   }
 
   /* -------------------------------------------------------------------------- */
@@ -798,18 +1015,19 @@ export class ItemSystem {
     if (!this.hoveredItem) return;
 
     const itemData = this.hoveredItem.userData;
-    const itemToEquip = {
+    const itemToEquip = makeInventoryItem(itemData.type, {
       id: itemData.itemId || itemData.type,
-      type: itemData.type,
       name: itemData.nameHu,
-      charges: itemData.charges ?? 2
-    };
+      charges: itemData.charges
+    });
 
     // Remove world mesh from scene
+    if (typeof this.onItemPickedUp === 'function') this.onItemPickedUp(itemData.itemId, this.hoveredItem);
     if (this.hoveredItem.parent) {
       this.hoveredItem.parent.remove(this.hoveredItem);
     }
     this.placedItems.delete(itemData.itemId);
+    this.serverItemIds.delete(itemData.itemId);
 
     this.addItemToInventory(itemToEquip);
     this.hoveredItem = null;
@@ -831,6 +1049,24 @@ export class ItemSystem {
         this.engine.ghostGroup.getWorldPosition(ghostPos);
       }
       this.currentViewmodelMesh.userData.update(delta, ghostPos);
+    }
+
+    // 1b. EMF reader: ghost proximity baseline + server spikes (decaying)
+    const heldUd = this.currentViewmodelMesh?.userData;
+    if (heldUd?.type === TOOL_TYPES.EMF_READER && heldUd.setLevel) {
+      let level = 1;
+      if (this.emfSpikeTimer > 0) {
+        this.emfSpikeTimer -= delta;
+        level = this.emfSpikeLevel || 1;
+      } else if (this.engine?.ghostGroup && this.camera) {
+        const gp = new THREE.Vector3();
+        const cp = new THREE.Vector3();
+        this.engine.ghostGroup.getWorldPosition(gp);
+        this.camera.getWorldPosition(cp);
+        const d = Math.hypot(gp.x - cp.x, gp.z - cp.z);
+        level = d < 3 ? 3 : d < 6 ? 2 : 1;
+      }
+      if (heldUd.getLevel() !== level) heldUd.setLevel(level);
     }
 
     // 2. Procedural Walking & Sprinting Bobbing
@@ -947,15 +1183,16 @@ export class ItemSystem {
     this.raycaster.set(origin, forward);
     this.raycaster.far = 2.5;
 
-    let searchTargets = [];
+    const searchTargets = [];
     if (this.interactivePropsGroup) searchTargets.push(this.interactivePropsGroup);
+    for (const t of this.pickupTargets) if (t) searchTargets.push(t);
 
     const intersects = this.raycaster.intersectObjects(searchTargets, true);
     let hitItem = null;
 
     for (const hit of intersects) {
       let cur = hit.object;
-      while (cur && cur !== this.interactivePropsGroup) {
+      while (cur) {
         if (cur.userData?.isPickup || cur.userData?.isTool) {
           hitItem = cur;
           break;

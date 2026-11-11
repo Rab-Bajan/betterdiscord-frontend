@@ -136,9 +136,6 @@ export function useRoomActivities(socket, currentUser, activeVoiceChannel) {
     // kaszinó
     startCasino: () => emitToRoom('casino:start-session', { username: currentUser?.username || 'Felhasználó' }),
     stopCasino: () => emitToRoom('casino:stop-session'),
-    // miskolc phobia
-    startPhobia: () => emitToRoom('phobia:start-session', { username: currentUser?.username || 'Nyomozó' }),
-    stopPhobia: () => emitToRoom('phobia:stop-session'),
     // sakk
     startChess: (colorPreference = 'white') => emitToRoom('chess:start', { colorPreference }),
     joinChess: () => emitToRoom('chess:join'),

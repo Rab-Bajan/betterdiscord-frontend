@@ -25,6 +25,22 @@ import {
   SURFACE_TYPES,
   ZONE_KEYS
 } from './MapColliders.js';
+import { getPBRMaterial, getChainLinkMaterial } from '../visual/ProceduralTextures.js';
+import { applyWorldUVs, createContactShadows, mergeParts, corrugatedPanel } from '../visual/GeometryKit.js';
+import {
+  P,
+  tube,
+  createCarGeometries,
+  createCarInstances,
+  createCarGroup,
+  createTrunkRearGeometries,
+  createTrunkLidGeometries,
+  createLockerGeometries,
+  createDrumGeometry,
+  createFenceHardware,
+  createGateWingGeometries,
+  createSteelBeam
+} from '../visual/YardProps.js';
 
 export class ScrapYardMap {
   constructor(options = {}) {
@@ -52,6 +68,11 @@ export class ScrapYardMap {
 
     // Burn barrel embers
     this.burnBarrelLights = [];
+    this.burnFlames = [];
+
+    // Contact-shadow footprints collected while building ({ x, z, w, d, rot })
+    this._contact = [];
+    this._carKit = null;
 
     // Build complete environment
     this.initMapMaterials();
@@ -63,67 +84,93 @@ export class ScrapYardMap {
     this.buildZone4KutyatelepSufni();
     this.buildZone5OcskavasLerakat();
     this.setupCircuitBreaker();
+    this._finishVisuals();
+  }
+
+  /** Tile shared PBR textures in metres and add one merged contact-shadow mesh for all footprints. */
+  _finishVisuals() {
+    applyWorldUVs(this.group);
+    const shadows = createContactShadows(this._contact);
+    if (shadows) {
+      this.contactShadowMesh = shadows;
+      this.group.add(shadows);
+    }
+    this._contact = null;
+  }
+
+  /** Register a footprint for the fake ambient-occlusion blobs. */
+  _addContact(x, z, w, d, rot = 0) {
+    if (this._contact) this._contact.push({ x, z, w: w * 1.45, d: d * 1.45, rot });
+  }
+
+  /** Free geometry and materials owned by the map (the shared texture library is freed separately). */
+  dispose() {
+    this.group.traverse((o) => {
+      if (o.geometry) o.geometry.dispose();
+      const mats = Array.isArray(o.material) ? o.material : o.material ? [o.material] : [];
+      mats.forEach((m) => m.dispose());
+    });
   }
 
   /* -------------------------------------------------------------
    * MATERIALS
    * ----------------------------------------------------------- */
+  _makeNoiseTexture(base = '#808080', spread = 40, repeat = 24, size = 128) {
+    if (typeof document === 'undefined') return null;
+    const canvas = document.createElement('canvas');
+    canvas.width = canvas.height = size;
+    const ctx = canvas.getContext('2d');
+    if (!ctx) return null;
+    ctx.fillStyle = base;
+    ctx.fillRect(0, 0, size, size);
+    for (let i = 0; i < size * size * 0.6; i++) {
+      const v = 128 + (Math.random() - 0.5) * spread * 2;
+      ctx.fillStyle = `rgba(${v},${v},${v},0.5)`;
+      ctx.fillRect(Math.random() * size, Math.random() * size, 1 + Math.random() * 2, 1 + Math.random() * 2);
+    }
+    const tex = new THREE.CanvasTexture(canvas);
+    tex.colorSpace = THREE.SRGBColorSpace;
+    tex.wrapS = tex.wrapT = THREE.RepeatWrapping;
+    tex.repeat.set(repeat, repeat);
+    tex.anisotropy = 4;
+    return tex;
+  }
+
   initMapMaterials() {
-    this.matFence = new THREE.MeshStandardMaterial({
-      color: 0x5a554a,
-      roughness: 0.85,
-      metalness: 0.6
-    });
-    this.matRustyMetal = new THREE.MeshStandardMaterial({
-      color: 0x6e3d23,
-      roughness: 0.9,
-      metalness: 0.5
-    });
-    this.matGalvanized = new THREE.MeshStandardMaterial({
-      color: 0x8a9096,
-      roughness: 0.5,
-      metalness: 0.7
-    });
-    this.matRedBrick = new THREE.MeshStandardMaterial({
-      color: 0x7c382b,
-      roughness: 0.9,
-      metalness: 0.05
-    });
-    this.matConcrete = new THREE.MeshStandardMaterial({
-      color: 0x48494c,
-      roughness: 0.8,
-      metalness: 0.1
-    });
-    this.matGravel = new THREE.MeshStandardMaterial({
-      color: 0x2b2926,
-      roughness: 0.95,
-      metalness: 0.05
-    });
-    this.matMud = new THREE.MeshStandardMaterial({
-      color: 0x201a14,
-      roughness: 0.35, // wet sheen
-      metalness: 0.2
-    });
-    this.matRottenWood = new THREE.MeshStandardMaterial({
-      color: 0x3d3023,
-      roughness: 0.9,
-      metalness: 0.0
-    });
-    this.matHangarSteel = new THREE.MeshStandardMaterial({
-      color: 0x353a42,
-      roughness: 0.65,
-      metalness: 0.75
-    });
-    this.matCopper = new THREE.MeshStandardMaterial({
-      color: 0xc86432,
-      roughness: 0.4,
-      metalness: 0.85
-    });
-    this.matYellowHazard = new THREE.MeshStandardMaterial({
-      color: 0xddaa11,
-      roughness: 0.4,
-      metalness: 0.2
-    });
+    // Shared procedural PBR materials (cached in the texture library; tile = metres per texture repeat)
+    this.matFence = getPBRMaterial('corrugated', { color: 0x7d776a, tile: 1.6, normalScale: 0.5, side: THREE.DoubleSide });
+    this.matRustyMetal = getPBRMaterial('rust', { tile: 1.5 });
+    this.matGalvanized = getPBRMaterial('metalPlate', { color: 0x8a9096, tile: 1.2 });
+    this.matRedBrick = getPBRMaterial('brick', { tile: 1.8 });
+    this.matConcrete = getPBRMaterial('concrete', { tile: 2.5 });
+    this.matGravel = getPBRMaterial('gravel', { tile: 3 });
+    this.matAsphalt = getPBRMaterial('asphalt', { tile: 4 });
+    this.matMud = getPBRMaterial('mud', { tile: 3 });
+    this.matRottenWood = getPBRMaterial('wood', { tile: 1.5 });
+    this.matWoodDesk = getPBRMaterial('wood', { color: 0x4a3a2a, tile: 1.2 });
+    this.matHangarSteel = getPBRMaterial('metalPlate', { tile: 1.2 });
+    this.matHangarWall = getPBRMaterial('corrugated', { color: 0x666e7a, tile: 1.6, normalScale: 0.5, side: THREE.DoubleSide });
+    this.matCopper = getPBRMaterial('rust', { color: 0xb8683a, tile: 1.0, normalStrength: 1.2 });
+    this.matYellowHazard = getPBRMaterial('hazard', { tile: 1.0 });
+    this.matCarPaint = getPBRMaterial('paint', { color: 0xdedede, tile: 1.5 });
+    this.matCarGlass = getPBRMaterial('glass', { tile: 1.0, tint: 0x8a9499 });
+    this.matLockerPaint = getPBRMaterial('paint', { color: 0x6f8574, tile: 1.0 });
+    this.matDrumPaint = getPBRMaterial('paint', { color: 0xdedede, tile: 1.0 });
+    this.matShredderPaint = getPBRMaterial('paint', { color: 0x1f5c35, tile: 1.2 });
+    this.matChrome = new THREE.MeshStandardMaterial({ color: 0xd0d4d8, roughness: 0.18, metalness: 1.0 });
+    this.matRubber = new THREE.MeshStandardMaterial({ color: 0x151517, roughness: 0.92, metalness: 0.0 });
+    this.matTyre = new THREE.MeshStandardMaterial({ color: 0x141414, roughness: 0.95, metalness: 0.0 });
+    this.matLamp = new THREE.MeshStandardMaterial({ color: 0xe8e2c0, roughness: 0.25, metalness: 0.2, emissive: 0x332f18, emissiveIntensity: 0.4 });
+    this.matDarkSteel = new THREE.MeshStandardMaterial({ color: 0x23262b, roughness: 0.6, metalness: 0.7 });
+    this.matChainLink = getChainLinkMaterial();
+    // name used by YardProps builders
+    this.yardMats = {
+      carPaint: this.matCarPaint,
+      carGlass: this.matCarGlass,
+      rust: this.matRustyMetal,
+      tyre: this.matTyre,
+      lamp: this.matLamp
+    };
   }
 
   /* -------------------------------------------------------------
@@ -135,46 +182,20 @@ export class ScrapYardMap {
     fenceGroup.name = 'Perimeter_Fence_Group';
 
     const fenceH = 3.8;
-    const fenceThickness = 0.15;
+    const runs = [];
 
-    // Helper to generate corrugated fence segments with posts
+    // Corrugated sheet-metal wall (real ridges), one mesh per run; posts, rails and barbed wire are merged below
     const createFenceWall = (startX, startZ, endX, endZ, id) => {
       const length = Math.hypot(endX - startX, endZ - startZ);
       const angle = Math.atan2(endZ - startZ, endX - startX);
 
-      const panelGeo = new THREE.BoxGeometry(length, fenceH, fenceThickness);
-      const panel = new THREE.Mesh(panelGeo, this.matFence);
-      panel.position.set((startX + endX) / 2, fenceH / 2, (startZ + endZ) / 2);
+      const panel = new THREE.Mesh(corrugatedPanel(length, fenceH, 0.2, 0.035), this.matFence);
+      panel.position.set((startX + endX) / 2, 0, (startZ + endZ) / 2);
       panel.rotation.y = -angle;
       panel.castShadow = true;
       panel.receiveShadow = true;
       fenceGroup.add(panel);
-
-      // Steel posts every 3.5m
-      const postCount = Math.max(2, Math.floor(length / 3.5));
-      const postGeo = new THREE.CylinderGeometry(0.06, 0.06, fenceH + 0.4, 8);
-      for (let i = 0; i <= postCount; i++) {
-        const t = i / postCount;
-        const px = startX + (endX - startX) * t;
-        const pz = startZ + (endZ - startZ) * t;
-        const post = new THREE.Mesh(postGeo, this.matHangarSteel);
-        post.position.set(px, (fenceH + 0.4) / 2, pz);
-        fenceGroup.add(post);
-      }
-
-      // Barbed Wire helical coils on top (Point 39)
-      const wireCount = Math.floor(length / 0.8);
-      const coilGeo = new THREE.TorusGeometry(0.22, 0.015, 6, 12);
-      for (let i = 0; i < wireCount; i++) {
-        const t = (i + 0.5) / wireCount;
-        const cx = startX + (endX - startX) * t;
-        const cz = startZ + (endZ - startZ) * t;
-        const coil = new THREE.Mesh(coilGeo, this.matGalvanized);
-        coil.position.set(cx, fenceH + 0.2, cz);
-        coil.rotation.y = -angle;
-        coil.rotation.x = Math.PI / 4;
-        fenceGroup.add(coil);
-      }
+      runs.push({ sx: startX, sz: startZ, ex: endX, ez: endZ });
 
       // Add to physics colliders
       const halfThick = 0.3;
@@ -205,6 +226,12 @@ export class ScrapYardMap {
     createFenceWall(-34, 0, -3.0, 0, 'south_left');
     createFenceWall(3.0, 0, 36, 0, 'south_right');
 
+    const hw = createFenceHardware(runs, fenceH);
+    const steel = new THREE.Mesh(hw.steel, this.matGalvanized);
+    steel.castShadow = true;
+    const wire = new THREE.Mesh(hw.wire, this.matHangarSteel);
+    fenceGroup.add(steel, wire);
+
     // 5. Heavy Wrought Iron Double Entrance Gates (at Z = 0, X: -3.0 to +3.0)
     this.buildEntranceGates(fenceGroup);
 
@@ -215,44 +242,29 @@ export class ScrapYardMap {
     const gateH = 3.6;
     const wingW = 3.0;
 
-    // Left gate wing mesh
+    // Left gate wing: merged frame, spear-tipped bars, brace and latch
     const leftGateGroup = new THREE.Group();
     leftGateGroup.position.set(-3.0, 0, 0); // hinge at left post
-
-    const gateFrameGeo = new THREE.BoxGeometry(wingW, gateH, 0.08);
-    const gateFrame = new THREE.Mesh(gateFrameGeo, this.matRustyMetal);
-    gateFrame.position.set(wingW / 2, gateH / 2, 0);
-    leftGateGroup.add(gateFrame);
-
-    // Bars inside left wing
-    const barGeo = new THREE.CylinderGeometry(0.02, 0.02, gateH - 0.2, 6);
-    for (let x = 0.3; x < wingW; x += 0.35) {
-      const bar = new THREE.Mesh(barGeo, this.matHangarSteel);
-      bar.position.set(x, gateH / 2, 0);
-      leftGateGroup.add(bar);
-    }
-
+    const leftWing = new THREE.Mesh(createGateWingGeometries(wingW, gateH, 1), this.matRustyMetal);
+    leftWing.castShadow = true;
+    leftGateGroup.add(leftWing);
     fenceGroup.add(leftGateGroup);
 
     // Right gate wing mesh
     const rightGateGroup = new THREE.Group();
     rightGateGroup.position.set(3.0, 0, 0); // hinge at right post
-
-    const rightFrame = gateFrame.clone();
-    rightFrame.position.set(-wingW / 2, gateH / 2, 0);
-    rightGateGroup.add(rightFrame);
-
-    for (let x = 0.3; x < wingW; x += 0.35) {
-      const bar = new THREE.Mesh(barGeo, this.matHangarSteel);
-      bar.position.set(-x, gateH / 2, 0);
-      rightGateGroup.add(bar);
-    }
-
+    const rightWing = new THREE.Mesh(createGateWingGeometries(wingW, gateH, -1), this.matRustyMetal);
+    rightWing.castShadow = true;
+    rightGateGroup.add(rightWing);
     fenceGroup.add(rightGateGroup);
 
     // Gate post pillars
-    const pillarGeo = new THREE.BoxGeometry(0.4, gateH + 0.5, 0.4);
-    const postMat = new THREE.MeshStandardMaterial({ color: 0x333333, roughness: 0.7 });
+    const pillarGeo = mergeParts([
+      P.rbox(0.4, gateH + 0.5, 0.4, 0.03, 0, (gateH + 0.5) / 2, 0),
+      P.box(0.5, 0.12, 0.5, 0, gateH + 0.55, 0), // capstone
+      P.box(0.46, 0.2, 0.46, 0, 0.1, 0) // plinth
+    ], { tile: 1.0 });
+    const postMat = this.matConcrete;
     const pLeft = new THREE.Mesh(pillarGeo, postMat);
     pLeft.position.set(-3.1, (gateH + 0.5) / 2, 0);
     const pRight = new THREE.Mesh(pillarGeo, postMat);
@@ -303,7 +315,7 @@ export class ScrapYardMap {
     // 1. Outside Staging Gravel & Asphalt (Z: -25 to 0)
     const stagingGeo = new THREE.PlaneGeometry(80, 26);
     stagingGeo.rotateX(-Math.PI / 2);
-    const stagingMesh = new THREE.Mesh(stagingGeo, this.matGravel);
+    const stagingMesh = new THREE.Mesh(stagingGeo, this.matAsphalt);
     stagingMesh.position.set(0, 0, -13);
     stagingMesh.receiveShadow = true;
     groundGroup.add(stagingMesh);
@@ -401,24 +413,38 @@ export class ScrapYardMap {
 
     // Sliding Glass dispatch window on West wall facing weigh platform
     const winGeo = new THREE.PlaneGeometry(1.8, 1.1);
-    const winMat = new THREE.MeshStandardMaterial({
-      color: 0x99bbcc,
-      transparent: true,
-      opacity: 0.45,
-      roughness: 0.1
-    });
+    const winMat = getPBRMaterial('glass', { tile: 1.0, transparent: true, opacity: 0.55, tint: 0xb8cdd6 });
     const dispatchWin = new THREE.Mesh(winGeo, winMat);
     dispatchWin.position.set(7.85, 1.5, 7.0);
     dispatchWin.rotation.y = Math.PI / 2;
     z1Group.add(dispatchWin);
 
+    // Window frame, sill and sliding-sash rail (merged), roof parapet, gutter and vent stacks
+    const frameParts = [
+      P.box(0.06, 0.08, 2.0, 0, 0.6, 0), P.box(0.06, 0.08, 2.0, 0, -0.6, 0),
+      P.box(0.06, 1.2, 0.08, 0, 0, 0.96), P.box(0.06, 1.2, 0.08, 0, 0, -0.96), P.box(0.05, 1.1, 0.04, 0, 0, 0),
+      P.box(0.18, 0.05, 2.2, -0.04, -0.66, 0) // concrete sill
+    ];
+    const winFrame = new THREE.Mesh(mergeParts(frameParts, { tile: 1 }), this.matGalvanized);
+    winFrame.position.set(7.84, 1.5, 7.0);
+    z1Group.add(winFrame);
+    const roofParts = [
+      P.box(bW + 0.6, 0.18, 0.12, 0, 0, bL / 2 + 0.3), P.box(bW + 0.6, 0.18, 0.12, 0, 0, -bL / 2 - 0.3),
+      P.box(0.12, 0.18, bL + 0.6, bW / 2 + 0.3, 0, 0), P.box(0.12, 0.18, bL + 0.6, -bW / 2 - 0.3, 0, 0),
+      tube([-bW / 2 - 0.35, -0.2, -bL / 2], [-bW / 2 - 0.35, -0.2, bL / 2], 0.05, 8), // gutter
+      tube([-bW / 2 - 0.35, -0.2, bL / 2 - 0.4], [-bW / 2 - 0.35, -bH + 0.1, bL / 2 - 0.4], 0.035, 8), // downpipe
+      P.cyl(0.14, 0.14, 0.7, 10, 2.4, 0.45, -2.0), P.cyl(0.2, 0.14, 0.12, 10, 2.4, 0.85, -2.0),
+      P.box(0.9, 0.5, 0.9, -2.0, 0.34, 1.5)
+    ];
+    const roofDetail = new THREE.Mesh(mergeParts(roofParts, { tile: 1.5 }), this.matConcrete);
+    roofDetail.position.set(bX, bH + 0.29, bZ);
+    roofDetail.castShadow = true;
+    z1Group.add(roofDetail);
+    this._addContact(bX, bZ, bW + 0.4, bL + 0.4);
+
     // Weighbridge Platform outside West wall (X: 5.8 to 8.0, Z: 3.0 to 11.0)
     const scalePlatformGeo = new THREE.BoxGeometry(2.2, 0.12, 8.0);
-    const scaleMat = new THREE.MeshStandardMaterial({
-      color: 0x484848,
-      roughness: 0.6,
-      metalness: 0.8
-    });
+    const scaleMat = getPBRMaterial('metalPlate', { color: 0x484848, tile: 1.0 });
     const scalePlatform = new THREE.Mesh(scalePlatformGeo, scaleMat);
     scalePlatform.position.set(6.8, 0.06, 7.0);
     scalePlatform.receiveShadow = true;
@@ -439,7 +465,21 @@ export class ScrapYardMap {
     const doorMesh = new THREE.Mesh(new THREE.BoxGeometry(1.2, 2.2, 0.08), this.matRottenWood);
     doorMesh.position.set(0.6, 1.1, 0);
     doorGroup.add(doorMesh);
+    const doorDetail = new THREE.Mesh(mergeParts([
+      P.box(0.9, 0.7, 0.03, 0.6, 1.55, 0.05), P.box(0.9, 0.7, 0.03, 0.6, 0.65, 0.05), // raised panels
+      P.box(0.9, 0.7, 0.03, 0.6, 1.55, -0.05), P.box(0.9, 0.7, 0.03, 0.6, 0.65, -0.05),
+      P.box(0.05, 0.16, 0.05, 1.05, 1.05, 0.07), P.cyl(0.018, 0.018, 0.14, 8, 1.05, 1.05, 0.1, Math.PI / 2, 0, 0), // handle
+      P.cyl(0.02, 0.02, 0.18, 6, 0.0, 0.3, 0.0), P.cyl(0.02, 0.02, 0.18, 6, 0.0, 1.0, 0.0), P.cyl(0.02, 0.02, 0.18, 6, 0.0, 1.8, 0.0) // hinges
+    ], { tile: 1.2 }), this.matChrome);
+    doorGroup.add(doorDetail);
     z1Group.add(doorGroup);
+    // door frame (fixed)
+    const doorFrame = new THREE.Mesh(mergeParts([
+      P.box(0.1, 2.3, 0.34, -0.05, 1.15, 0), P.box(0.1, 2.3, 0.34, 1.35, 1.15, 0), P.box(1.5, 0.1, 0.34, 0.65, 2.3, 0),
+      P.box(1.6, 0.06, 0.5, 0.65, 0.03, 0.1) // step
+    ], { tile: 1.5 }), this.matConcrete);
+    doorFrame.position.set(9.5, 0, 2.0);
+    z1Group.add(doorFrame);
 
     this.doorMazsahaz = new HingedDoor({
       id: 'door_mazsahaz',
@@ -459,10 +499,22 @@ export class ScrapYardMap {
     // Interior Furnishings
     // 1. Weighbridge scale computer terminal desk
     const deskGeo = new THREE.BoxGeometry(1.6, 0.75, 0.8);
-    const desk = new THREE.Mesh(deskGeo, this.matWoodDesk);
+    const deskGeoM = mergeParts([
+      P.rbox(1.6, 0.05, 0.8, 0.012, 0, 0.35, 0), // top
+      P.box(0.05, 0.7, 0.75, -0.75, 0, 0), P.box(0.05, 0.7, 0.75, 0.75, 0, 0), // sides
+      P.box(1.5, 0.55, 0.03, 0, -0.05, -0.36), // modesty panel
+      P.box(0.45, 0.6, 0.7, 0.52, -0.02, 0), // drawer pedestal
+      P.box(0.4, 0.14, 0.02, 0.52, 0.18, 0.36), P.box(0.4, 0.14, 0.02, 0.52, 0.0, 0.36), P.box(0.4, 0.14, 0.02, 0.52, -0.18, 0.36),
+      P.box(0.14, 0.02, 0.025, 0.52, 0.18, 0.375), P.box(0.14, 0.02, 0.025, 0.52, 0.0, 0.375), P.box(0.14, 0.02, 0.025, 0.52, -0.18, 0.375),
+      P.rbox(0.36, 0.04, 0.26, 0.01, -0.3, 0.39, 0.1), // keyboard
+      P.rbox(0.34, 0.3, 0.32, 0.03, -0.3, 0.55, -0.2), // CRT body
+      P.box(0.14, 0.12, 0.14, -0.3, 0.42, -0.2) // CRT neck
+    ], { tile: 1.2 });
+    const desk = new THREE.Mesh(deskGeoM, this.matWoodDesk);
     desk.position.set(9.2, 0.38, 7.0);
     desk.castShadow = true;
     z1Group.add(desk);
+    this._addContact(9.2, 7.0, 1.7, 0.9);
 
     // CRT Screen with glowing phosphor scale display ("MÉRLEG: 0.00 kg")
     const scaleCanvas = document.createElement('canvas');
@@ -487,16 +539,29 @@ export class ScrapYardMap {
 
     // 2. Broken swivel desk chair
     const chairGeo = new THREE.BoxGeometry(0.5, 0.8, 0.5);
-    const chairMat = new THREE.MeshStandardMaterial({ color: 0x1f1f1f, roughness: 0.9 });
-    const chair = new THREE.Mesh(chairGeo, chairMat);
-    chair.position.set(10.2, 0.4, 7.0);
+    const chairMat = new THREE.MeshStandardMaterial({ color: 0x1f1f1f, roughness: 0.9, metalness: 0.1 });
+    const chairParts = [
+      P.rbox(0.46, 0.07, 0.46, 0.03, 0, 0.0, 0), // seat
+      P.rbox(0.44, 0.5, 0.06, 0.03, 0, 0.3, -0.22, -0.12), // back
+      P.cyl(0.03, 0.03, 0.3, 8, 0, -0.18, 0), // gas lift
+      tube([0, -0.34, 0], [0.26, -0.4, 0.0], 0.02), tube([0, -0.34, 0], [-0.26, -0.4, 0.0], 0.02), // star base
+      tube([0, -0.34, 0], [0.0, -0.4, 0.26], 0.02), tube([0, -0.34, 0], [0.0, -0.4, -0.26], 0.02), tube([0, -0.34, 0], [0.18, -0.4, -0.18], 0.02),
+      P.sphere(0.035, 1, 1, 1, 0.26, -0.43, 0, 6), P.sphere(0.035, 1, 1, 1, -0.26, -0.43, 0, 6), P.sphere(0.035, 1, 1, 1, 0, -0.43, 0.26, 6), P.sphere(0.035, 1, 1, 1, 0, -0.43, -0.26, 6), P.sphere(0.035, 1, 1, 1, 0.18, -0.43, -0.18, 6)
+    ];
+    const chair = new THREE.Mesh(mergeParts(chairParts, { tile: 0.8 }), chairMat);
+    chair.position.set(10.2, 0.45, 7.0);
     chair.rotation.y = -0.4;
     z1Group.add(chair);
 
     // 3. Gray steel floor safe
     const safeGeo = new THREE.BoxGeometry(0.7, 0.85, 0.7);
-    const safeMat = new THREE.MeshStandardMaterial({ color: 0x3d434a, metalness: 0.8, roughness: 0.4 });
-    const safe = new THREE.Mesh(safeGeo, safeMat);
+    const safeMat = getPBRMaterial('metalPlate', { color: 0x3d434a, tile: 0.8 });
+    const safeParts = mergeParts([
+      P.rbox(0.7, 0.85, 0.7, 0.03, 0, 0, 0), P.rbox(0.6, 0.75, 0.04, 0.02, 0, 0, -0.36), // door plate (front is -Z)
+      P.cyl(0.03, 0.03, 0.05, 8, 0.22, 0.05, -0.38, Math.PI / 2, 0, 0), P.box(0.05, 0.3, 0.04, -0.24, 0.0, -0.38), // handle + hinge
+      P.box(0.06, 0.06, 0.06, -0.3, -0.45, -0.3), P.box(0.06, 0.06, 0.06, 0.3, -0.45, -0.3), P.box(0.06, 0.06, 0.06, -0.3, -0.45, 0.3), P.box(0.06, 0.06, 0.06, 0.3, -0.45, 0.3)
+    ], { tile: 1.0 });
+    const safe = new THREE.Mesh(safeParts, safeMat);
     safe.position.set(16.8, 0.43, 10.8);
     safe.castShadow = true;
     z1Group.add(safe);
@@ -544,7 +609,7 @@ export class ScrapYardMap {
     this.buildLocker(z1Group, 'mazsahaz_locker_2', 16.5, 5.0, ZONE_KEYS.ZONE1);
 
     // 6. Lighting & Light Switch
-    const officeLight = new THREE.PointLight(0xffcc77, 2.5, 12.0, 2.0);
+    const officeLight = new THREE.PointLight(0xffcc77, 26, 12.0, 2.0);
     officeLight.position.set(13.0, 2.9, 7.0);
     z1Group.add(officeLight);
 
@@ -703,16 +768,27 @@ export class ScrapYardMap {
       { x: -9.5, z: 22.0, rot: 0.3, height: 2 }
     ];
 
+    // All stacked cars: two body variants, one InstancedMesh per material (paint colour per instance)
+    const carKitSedan = this._getCarKit('sedan');
+    const carKitWagon = this._getCarKit('wagon');
+    const sedans = [];
+    const wagons = [];
     stackPositions.forEach((stack, sIdx) => {
       for (let level = 0; level < stack.height; level++) {
         const color = carColors[(sIdx + level) % carColors.length];
-        const carMesh = this.createCrushedCarMesh(color);
-        carMesh.position.set(stack.x, 0.45 + level * 0.95, stack.z);
-        carMesh.rotation.y = stack.rot + level * 0.12;
-        carMesh.castShadow = true;
-        carMesh.receiveShadow = true;
-        z2Group.add(carMesh);
+        const j = (sIdx * 7 + level * 3) % 5;
+        const placement = {
+          x: stack.x + (j - 2) * 0.03,
+          y: 0.45 + level * 0.95,
+          z: stack.z,
+          ry: stack.rot + level * 0.12,
+          rz: ((j % 3) - 1) * 0.03 * level,
+          sy: level === 0 ? 1 : 0.88 + (j % 3) * 0.03, // upper cars are squashed by the weight above
+          color
+        };
+        ((sIdx + level) % 3 === 2 ? wagons : sedans).push(placement);
       }
+      this._addContact(stack.x, stack.z, 2.4, 3.8, -stack.rot);
 
       // Add solid box collider for each stack
       this.mapColliders.addCollider(new BoxCollider({
@@ -723,6 +799,8 @@ export class ScrapYardMap {
         size: new THREE.Vector3(2.4, stack.height * 0.95, 3.8)
       }));
     });
+    z2Group.add(createCarInstances(carKitSedan, this.yardMats, sedans, 'Cars_Sedan'));
+    z2Group.add(createCarInstances(carKitWagon, this.yardMats, wagons, 'Cars_Wagon'));
 
     // 3 Openable Car Trunks (Point 47 Hiding Spots)
     this.buildCarTrunkHidingSpot(z2Group, 'car_trunk_1', -18.0, 8.5);
@@ -735,68 +813,43 @@ export class ScrapYardMap {
     this.group.add(z2Group);
   }
 
+  /** Lazily built, per-map car geometry kit ('sedan' | 'wagon'). */
+  _getCarKit(variant = 'sedan') {
+    this._carKit = this._carKit || {};
+    if (!this._carKit[variant]) this._carKit[variant] = createCarGeometries(variant, variant === 'wagon' ? 7 : 3);
+    return this._carKit[variant];
+  }
+
   createCrushedCarMesh(colorHex) {
-    const car = new THREE.Group();
-    const bodyMat = new THREE.MeshStandardMaterial({
-      color: colorHex,
-      roughness: 0.7,
-      metalness: 0.4
-    });
-
-    // Lower chassis & fenders
-    const chassisGeo = new THREE.BoxGeometry(2.1, 0.45, 3.6);
-    const chassis = new THREE.Mesh(chassisGeo, bodyMat);
-    chassis.position.y = 0.22;
-    car.add(chassis);
-
-    // Crumpled cabin roof
-    const cabinGeo = new THREE.BoxGeometry(1.8, 0.4, 2.0);
-    const cabin = new THREE.Mesh(cabinGeo, bodyMat);
-    cabin.position.set(0, 0.6, -0.2);
-    cabin.rotation.z = (Math.random() - 0.5) * 0.15; // Crumpled tilt
-    car.add(cabin);
-
-    // Rusted bumpers
-    const bumperF = new THREE.Mesh(new THREE.BoxGeometry(2.2, 0.18, 0.15), this.matRustyMetal);
-    bumperF.position.set(0, 0.15, 1.85);
-    const bumperR = new THREE.Mesh(new THREE.BoxGeometry(2.2, 0.18, 0.15), this.matRustyMetal);
-    bumperR.position.set(0, 0.15, -1.85);
-    car.add(bumperF);
-    car.add(bumperR);
-
-    // Rusted wheels on rims
-    const rimGeo = new THREE.CylinderGeometry(0.3, 0.3, 0.2, 10);
-    rimGeo.rotateZ(Math.PI / 2);
-    [
-      [-1.08, 0.15, 1.1],
-      [1.08, 0.15, 1.1],
-      [-1.08, 0.15, -1.1],
-      [1.08, 0.15, -1.1]
-    ].forEach(([wx, wy, wz]) => {
-      const rim = new THREE.Mesh(rimGeo, this.matRustyMetal);
-      rim.position.set(wx, wy, wz);
-      car.add(rim);
-    });
-
-    return car;
+    return createCarGroup(this._getCarKit('sedan'), this.yardMats, colorHex);
   }
 
   buildCarTrunkHidingSpot(parentGroup, id, x, z) {
     const trunkGroup = new THREE.Group();
     trunkGroup.position.set(x, 0.35, z);
 
-    // Car rear frame
-    const frameGeo = new THREE.BoxGeometry(1.6, 0.7, 1.2);
-    const frame = new THREE.Mesh(frameGeo, this.matRustyMetal);
+    // Car rear section (bodywork, bumper, tail lights, glass, wheels) with the interactive body mesh
+    const rear = createTrunkRearGeometries();
+    const paintMat = this.matCarPaint.clone();
+    paintMat.color.setHex([0x4a7c9b, 0xb8a98a, 0x8b2522, 0x55603f][Math.abs(Math.round(x * 3 + z)) % 4]);
+    const frame = new THREE.Mesh(rear.paint, paintMat);
+    frame.castShadow = true;
+    frame.receiveShadow = true;
     trunkGroup.add(frame);
+    trunkGroup.add(new THREE.Mesh(rear.trim, this.matRustyMetal));
+    trunkGroup.add(new THREE.Mesh(rear.glass, this.matCarGlass));
+    trunkGroup.add(new THREE.Mesh(rear.tyre, this.matTyre));
+    this._addContact(x, z, 1.9, 1.5);
 
     // Hinged Trunk Lid
     const lidPivot = new THREE.Group();
     lidPivot.position.set(0, 0.35, -0.5); // Hinge at front of trunk opening
 
-    const lidMesh = new THREE.Mesh(new THREE.BoxGeometry(1.5, 0.06, 0.95), this.matRustyMetal);
-    lidMesh.position.set(0, 0, 0.45);
+    const lid = createTrunkLidGeometries();
+    const lidMesh = new THREE.Mesh(lid.paint, paintMat);
+    lidMesh.castShadow = true;
     lidPivot.add(lidMesh);
+    lidPivot.add(new THREE.Mesh(lid.trim, this.matRustyMetal));
     trunkGroup.add(lidPivot);
 
     parentGroup.add(trunkGroup);
@@ -895,38 +948,38 @@ export class ScrapYardMap {
 
     // Vaulted steel corrugated roof
     const roofGeo = new THREE.BoxGeometry(hW + 0.8, 0.2, hL + 0.8);
-    const roof = new THREE.Mesh(roofGeo, this.matHangarSteel);
+    const roof = new THREE.Mesh(roofGeo, this.matHangarWall);
     roof.position.set(hX, hH, hZ);
     z3Group.add(roof);
 
     // North wall (Z = 45.0)
-    const nWall = new THREE.Mesh(new THREE.BoxGeometry(hW, hH, wallThick), this.matHangarSteel);
+    const nWall = new THREE.Mesh(new THREE.BoxGeometry(hW, hH, wallThick), this.matHangarWall);
     nWall.position.set(hX, hH / 2, 45.0);
     nWall.castShadow = true;
     z3Group.add(nWall);
 
     // East wall (X = 22.0)
-    const eWall = new THREE.Mesh(new THREE.BoxGeometry(wallThick, hH, hL), this.matHangarSteel);
+    const eWall = new THREE.Mesh(new THREE.BoxGeometry(wallThick, hH, hL), this.matHangarWall);
     eWall.position.set(22.0, hH / 2, hZ);
     eWall.castShadow = true;
     z3Group.add(eWall);
 
     // West wall (X = -5.0)
-    const wWall = new THREE.Mesh(new THREE.BoxGeometry(wallThick, hH, hL), this.matHangarSteel);
+    const wWall = new THREE.Mesh(new THREE.BoxGeometry(wallThick, hH, hL), this.matHangarWall);
     wWall.position.set(-5.0, hH / 2, hZ);
     wWall.castShadow = true;
     z3Group.add(wWall);
 
     // South wall (Z = 22.0) with large sliding hangar door opening (X: 3.0 to 9.0)
-    const sWallLeft = new THREE.Mesh(new THREE.BoxGeometry(8.0, hH, wallThick), this.matHangarSteel);
+    const sWallLeft = new THREE.Mesh(new THREE.BoxGeometry(8.0, hH, wallThick), this.matHangarWall);
     sWallLeft.position.set(-1.0, hH / 2, 22.0);
     z3Group.add(sWallLeft);
 
-    const sWallRight = new THREE.Mesh(new THREE.BoxGeometry(13.0, hH, wallThick), this.matHangarSteel);
+    const sWallRight = new THREE.Mesh(new THREE.BoxGeometry(13.0, hH, wallThick), this.matHangarWall);
     sWallRight.position.set(15.5, hH / 2, 22.0);
     z3Group.add(sWallRight);
 
-    const sWallHeader = new THREE.Mesh(new THREE.BoxGeometry(6.0, 3.5, wallThick), this.matHangarSteel);
+    const sWallHeader = new THREE.Mesh(new THREE.BoxGeometry(6.0, 3.5, wallThick), this.matHangarWall);
     sWallHeader.position.set(6.0, 5.75, 22.0);
     z3Group.add(sWallHeader);
 
@@ -936,7 +989,25 @@ export class ScrapYardMap {
     const hDoorMesh = new THREE.Mesh(new THREE.BoxGeometry(5.8, 4.0, 0.15), this.matRustyMetal);
     hDoorMesh.position.set(2.9, 2.0, 0);
     hDoorGroup.add(hDoorMesh);
+    const hDoorRibs = [];
+    for (let i = 0; i < 5; i++) hDoorRibs.push(P.box(0.14, 3.9, 0.06, 0.5 + i * 1.2, 2.0, 0.1));
+    hDoorRibs.push(P.box(5.8, 0.14, 0.06, 2.9, 0.4, 0.1), P.box(5.8, 0.14, 0.06, 2.9, 2.0, 0.1), P.box(5.8, 0.14, 0.06, 2.9, 3.7, 0.1));
+    hDoorRibs.push(P.box(0.08, 0.5, 0.12, 5.5, 1.1, 0.16), P.cyl(0.03, 0.03, 0.14, 6, 5.5, 1.1, 0.2, Math.PI / 2, 0, 0));
+    hDoorGroup.add(new THREE.Mesh(mergeParts(hDoorRibs, { tile: 1.5 }), this.matHangarSteel));
     z3Group.add(hDoorGroup);
+
+    // Steel portal frame: columns along both long walls, rafters, purlins and bracing (merged, one draw call)
+    const frameParts = [];
+    for (let fz = 0; fz <= 4; fz++) {
+      const z = 22.8 + fz * ((hL - 1.6) / 4);
+      for (const xs of [-4.75, 21.75]) {
+        frameParts.push(...createSteelBeam(hH - 0.2, 0.35, 0.22).map((q) => ({ ...q, rotation: [Math.PI / 2, 0, 0], position: [xs + q.position[0], hH / 2 + q.position[2] * 0, z + q.position[1]] })));
+      }
+      frameParts.push(P.box(hW - 0.6, 0.3, 0.14, hX, hH - 0.35, z), P.box(0.12, 1.3, 0.1, hX - 6.5, hH - 1.0, z, 0, 0, 0.75), P.box(0.12, 1.3, 0.1, hX + 6.5, hH - 1.0, z, 0, 0, -0.75));
+    }
+    for (let i = 0; i < 6; i++) frameParts.push(P.box(0.1, 0.1, hL - 1.0, -4.5 + i * 5.2, hH - 0.5, hZ));
+    z3Group.add(new THREE.Mesh(mergeParts(frameParts, { tile: 1.5 }), this.matHangarSteel));
+    this._addContact(hX, hZ, hW - 0.5, hL - 0.5);
 
     this.doorHangarMain = new HingedDoor({
       id: 'door_hangar_main',
@@ -972,7 +1043,7 @@ export class ScrapYardMap {
 
     // 6. High-Intensity Rafter Floodlights (Point 13 & 14)
     // Floodlight 1
-    const flood1 = new THREE.SpotLight(0xddff88, 4.0, 26.0, Math.PI / 3.5, 0.4, 2.0);
+    const flood1 = new THREE.SpotLight(0xddff88, 45.0, 26.0, Math.PI / 3.5, 0.4, 2.0);
     flood1.position.set(4.0, 7.0, 28.0);
     flood1.target.position.set(4.0, 0, 28.0);
     flood1.castShadow = true;
@@ -984,7 +1055,7 @@ export class ScrapYardMap {
     z3Group.add(flood1.target);
 
     // Floodlight 2
-    const flood2 = new THREE.SpotLight(0xddff88, 4.0, 26.0, Math.PI / 3.5, 0.4, 2.0);
+    const flood2 = new THREE.SpotLight(0xddff88, 45.0, 26.0, Math.PI / 3.5, 0.4, 2.0);
     flood2.position.set(14.0, 7.0, 38.0);
     flood2.target.position.set(14.0, 0, 38.0);
     flood2.castShadow = true;
@@ -996,7 +1067,7 @@ export class ScrapYardMap {
     z3Group.add(flood2.target);
 
     // Catwalk PointLight
-    const catLight = new THREE.PointLight(0xffeeaa, 1.8, 12.0, 2.0);
+    const catLight = new THREE.PointLight(0xffeeaa, 16, 12.0, 2.0);
     catLight.position.set(18.0, 4.5, 33.0);
     z3Group.add(catLight);
 
@@ -1044,37 +1115,70 @@ export class ScrapYardMap {
     const compGroup = new THREE.Group();
     compGroup.position.set(x, 0, z);
 
-    // Green industrial body
-    const bodyMat = new THREE.MeshStandardMaterial({
-      color: 0x1f5c35,
-      roughness: 0.6,
-      metalness: 0.7
-    });
-    const baseGeo = new THREE.BoxGeometry(4.5, 2.4, 5.5);
-    const base = new THREE.Mesh(baseGeo, bodyMat);
-    base.position.y = 1.2;
-    base.castShadow = true;
-    compGroup.add(base);
+    // Green industrial housing (merged): chamfered body, plinth, access hatches, bolted flanges
+    const body = [
+      P.rbox(4.5, 2.2, 5.5, 0.08, 0, 1.3, 0, 0, 0, 0, 3),
+      P.box(4.7, 0.2, 5.7, 0, 0.1, 0), // plinth
+      P.box(4.2, 0.12, 5.2, 0, 2.46, 0), // top deck
+      P.box(1.4, 1.2, 0.08, 1.0, 1.3, 2.78), P.box(1.4, 1.2, 0.08, -1.0, 1.3, 2.78), // hatches
+      P.box(0.08, 1.0, 1.6, 2.28, 1.3, -1.2), P.box(0.08, 1.0, 1.6, 2.28, 1.3, 1.2)
+    ];
+    for (let i = 0; i < 10; i++) { // bolt heads along the plinth
+      body.push(P.cyl(0.05, 0.05, 0.04, 6, -2.0 + i * 0.45, 0.22, 2.86, Math.PI / 2, 0, 0));
+    }
+    const shell = new THREE.Mesh(mergeParts(body, { tile: 1.2 }), this.matShredderPaint);
+    shell.castShadow = true;
+    shell.receiveShadow = true;
+    compGroup.add(shell);
 
-    // Hopper funnel
-    const hopperGeo = new THREE.CylinderGeometry(2.2, 1.2, 1.8, 8, 1, true);
-    const hopper = new THREE.Mesh(hopperGeo, bodyMat);
-    hopper.position.y = 3.3;
+    // Hopper funnel (double-sided, tapered) with throat rim
+    const hopper = new THREE.Mesh(
+      mergeParts([
+        { geometry: new THREE.CylinderGeometry(2.2, 1.2, 1.8, 12, 1, true), position: [0, 3.35, 0], rotation: [0, Math.PI / 12, 0] },
+        P.torus(2.2, 0.07, 6, 20, 0, 4.25, 0, Math.PI / 2, 0, 0)
+      ], { tile: 1.5 }),
+      this.matShredderPaint
+    );
+    hopper.material = this.matShredderPaint.clone();
+    hopper.material.side = THREE.DoubleSide;
     compGroup.add(hopper);
 
-    // Warning diagonal stripes
-    const stripeGeo = new THREE.BoxGeometry(4.6, 0.35, 5.6);
-    const stripe = new THREE.Mesh(stripeGeo, this.matYellowHazard);
-    stripe.position.y = 1.8;
+    // Cutter rollers with teeth visible through the hopper throat
+    const rollerParts = [];
+    for (const rx of [-0.5, 0.5]) {
+      rollerParts.push(P.cyl(0.35, 0.35, 2.4, 14, rx, 2.7, 0, Math.PI / 2, 0, 0));
+      for (let i = 0; i < 12; i++) {
+        const a = (i / 12) * Math.PI * 2;
+        for (let k = -2; k <= 2; k++) {
+          rollerParts.push(P.box(0.18, 0.12, 0.14, rx + Math.cos(a) * 0.38, 2.7 + Math.sin(a) * 0.38, k * 0.42, 0, 0, a));
+        }
+      }
+    }
+    compGroup.add(new THREE.Mesh(mergeParts(rollerParts, { tile: 1.0 }), this.matDarkSteel));
+
+    // Hazard band around the housing (yellow / black warning stripes)
+    const stripe = new THREE.Mesh(new THREE.BoxGeometry(4.6, 0.3, 5.6), this.matYellowHazard);
+    stripe.position.y = 0.45;
     compGroup.add(stripe);
 
-    // Control terminal
-    const panelGeo = new THREE.BoxGeometry(0.6, 1.1, 0.4);
-    const panel = new THREE.Mesh(panelGeo, this.matHangarSteel);
-    panel.position.set(2.4, 0.8, 0);
+    // Control terminal: cabinet with screen, buttons, mushroom e-stop and pipework
+    const panelParts = mergeParts([
+      P.rbox(0.6, 1.1, 0.4, 0.03, 0, 0, 0), P.box(0.5, 0.25, 0.02, 0, 0.3, 0.21, -0.3, 0, 0),
+      P.cyl(0.05, 0.05, 0.05, 10, -0.15, 0.0, 0.23, Math.PI / 2, 0, 0), P.cyl(0.03, 0.03, 0.04, 8, 0.05, 0.0, 0.22, Math.PI / 2, 0, 0), P.cyl(0.03, 0.03, 0.04, 8, 0.15, 0.0, 0.22, Math.PI / 2, 0, 0),
+      P.box(0.2, 0.08, 0.2, 0, -0.59, 0)
+    ], { tile: 1.0 });
+    const panel = new THREE.Mesh(panelParts, this.matHangarSteel);
+    panel.position.set(2.6, 0.8, 0);
+    panel.rotation.y = Math.PI / 2;
     compGroup.add(panel);
+    const screen = new THREE.Mesh(new THREE.PlaneGeometry(0.4, 0.18), new THREE.MeshBasicMaterial({ color: 0x1d6b3a }));
+    screen.position.set(2.82, 1.1, 0.0);
+    screen.rotation.y = Math.PI / 2;
+    screen.rotation.x = -0.3;
+    compGroup.add(screen);
 
     parentGroup.add(compGroup);
+    this._addContact(x, z, 4.9, 6.0);
 
     // Physics collider
     this.mapColliders.addCollider(new BoxCollider({
@@ -1089,60 +1193,70 @@ export class ScrapYardMap {
   buildGantryCrane(parentGroup, hX, hZ, hW, hL, hH) {
     const craneGroup = new THREE.Group();
 
-    // Dual Yellow I-Beams running length of hangar rafters
-    const beamGeo = new THREE.BoxGeometry(0.3, 0.5, hL - 1.0);
-    const beamL = new THREE.Mesh(beamGeo, this.matYellowHazard);
-    beamL.position.set(hX - 6.0, hH - 0.5, hZ);
-    const beamR = new THREE.Mesh(beamGeo, this.matYellowHazard);
-    beamR.position.set(hX + 6.0, hH - 0.5, hZ);
-    craneGroup.add(beamL);
-    craneGroup.add(beamR);
+    // Dual yellow I-beam runway girders with end trucks and rail clips (merged)
+    const beams = [];
+    for (const dx of [-6.0, 6.0]) {
+      createSteelBeam(hL - 1.0, 0.5, 0.3).forEach((q) => beams.push({ ...q, position: [dx + q.position[0], hH - 0.5 + q.position[1], q.position[2]] }));
+    }
+    beams.push(P.box(12.6, 0.12, 0.3, 0, hH - 0.9, -hL / 2 + 1.5), P.box(12.6, 0.12, 0.3, 0, hH - 0.9, hL / 2 - 1.5));
+    craneGroup.add(new THREE.Mesh(mergeParts(beams, { tile: 1.0 }), this.matYellowHazard));
+    craneGroup.position.set(hX, 0, hZ);
 
-    // Traveling Hoist Bridge
-    const bridgeGeo = new THREE.BoxGeometry(12.3, 0.4, 0.6);
-    const bridge = new THREE.Mesh(bridgeGeo, this.matYellowHazard);
-    bridge.position.set(hX, hH - 0.8, hZ - 2.0);
-    craneGroup.add(bridge);
+    // Traveling hoist bridge (I-beam), trolley block, drum, chain and hook
+    const bridge = createSteelBeam(12.3, 0.4, 0.25, 0.03, 0.04).map((q) => ({ ...q, rotation: [0, Math.PI / 2, 0], position: [q.position[2], hH - 0.8 + q.position[1], -2.0 + q.position[0]] }));
+    craneGroup.add(new THREE.Mesh(mergeParts(bridge, { tile: 1.0 }), this.matYellowHazard));
 
-    // Steel Cable & Hanging Hook
-    const cableGeo = new THREE.CylinderGeometry(0.02, 0.02, 3.2, 6);
-    const cable = new THREE.Mesh(cableGeo, this.matGalvanized);
-    cable.position.set(hX, hH - 2.4, hZ - 2.0);
-    craneGroup.add(cable);
-
-    const hookGeo = new THREE.TorusGeometry(0.25, 0.06, 8, 12, Math.PI * 1.5);
-    const hook = new THREE.Mesh(hookGeo, this.matHangarSteel);
-    hook.position.set(hX, hH - 4.1, hZ - 2.0);
-    hook.rotation.z = Math.PI / 2;
-    craneGroup.add(hook);
-
+    const hoist = [
+      P.rbox(0.7, 0.5, 0.6, 0.05, 0, hH - 1.25, -2.0), P.cyl(0.18, 0.18, 0.6, 12, 0, hH - 1.55, -2.0, Math.PI / 2, 0, 0)
+    ];
+    for (let i = 0; i < 9; i++) { // chain links alternate orientation
+      hoist.push(P.torus(0.045, 0.012, 5, 8, 0, hH - 1.95 - i * 0.22, -2.0, 0, i % 2 ? Math.PI / 2 : 0, 0));
+    }
+    hoist.push(P.rbox(0.18, 0.28, 0.12, 0.02, 0, hH - 4.1, -2.0), { geometry: new THREE.TorusGeometry(0.22, 0.05, 8, 14, Math.PI * 1.5), position: [0, hH - 4.4, -2.0], rotation: [0, 0, Math.PI / 2] });
+    const hoistMesh = new THREE.Mesh(mergeParts(hoist, { tile: 1.0 }), this.matDarkSteel);
+    hoistMesh.castShadow = true;
+    craneGroup.add(hoistMesh);
+    // positions above were given in hangar-local (hX, hZ) frame offsets; shift group to hangar centre
     parentGroup.add(craneGroup);
   }
 
   buildCatwalkAndStairs(parentGroup) {
     const catGroup = new THREE.Group();
 
-    // Catwalk metal grate floor (Elevated at Y = 2.8m, along East wall)
-    const walkwayGeo = new THREE.BoxGeometry(2.5, 0.1, 16.0);
-    const walkway = new THREE.Mesh(walkwayGeo, this.matGalvanized);
-    walkway.position.set(19.5, 2.8, 33.0);
+    // Catwalk grating deck (elevated at Y = 2.8m, along East wall) with stringers, posts, rails, toe boards
+    const deck = [
+      P.box(2.5, 0.06, 16.0, 19.5, 2.8, 33.0),
+      P.box(0.1, 0.22, 16.0, 18.3, 2.68, 33.0), P.box(0.1, 0.22, 16.0, 20.7, 2.68, 33.0),
+      P.box(0.05, 0.12, 16.0, 18.26, 2.9, 33.0), P.box(0.05, 0.12, 16.0, 20.74, 2.9, 33.0) // toe boards
+    ];
+    for (let i = 0; i <= 8; i++) { // cross members + support legs
+      const z = 25.0 + i * 2.0;
+      deck.push(P.box(2.4, 0.1, 0.08, 19.5, 2.7, z));
+      deck.push(P.box(0.12, 2.7, 0.12, 18.4, 1.35, z), P.box(0.12, 2.7, 0.12, 20.6, 1.35, z));
+      deck.push(P.cyl(0.025, 0.025, 1.0, 6, 18.3, 3.3, z), P.cyl(0.025, 0.025, 1.0, 6, 20.7, 3.3, z)); // railing posts
+    }
+    // top and mid rails on both sides
+    for (const rx of [18.3, 20.7]) {
+      deck.push(tube([rx, 3.8, 25.0], [rx, 3.8, 41.0], 0.03), tube([rx, 3.3, 25.0], [rx, 3.3, 41.0], 0.02));
+    }
+    const walkway = new THREE.Mesh(mergeParts(deck, { tile: 1.0 }), this.matGalvanized);
+    walkway.castShadow = true;
+    walkway.receiveShadow = true;
     catGroup.add(walkway);
 
-    // Safety railings
-    const railGeo = new THREE.CylinderGeometry(0.03, 0.03, 16.0, 6);
-    railGeo.rotateX(Math.PI / 2);
-    const rail = new THREE.Mesh(railGeo, this.matGalvanized);
-    rail.position.set(18.25, 3.8, 33.0);
-    catGroup.add(rail);
-
-    // Steel stairs ascending to catwalk
+    // Steel stairs ascending to catwalk (14 treads, same positions as the collision-free original)
     const stepCount = 14;
-    const stepGeo = new THREE.BoxGeometry(1.6, 0.08, 0.35);
+    const stairs = [];
     for (let i = 0; i < stepCount; i++) {
-      const step = new THREE.Mesh(stepGeo, this.matGalvanized);
-      step.position.set(19.5, (i + 1) * 0.2, 24.5 - i * 0.32);
-      catGroup.add(step);
+      const sy = (i + 1) * 0.2;
+      const sz = 24.5 - i * 0.32;
+      stairs.push(P.box(1.6, 0.06, 0.35, 19.5, sy, sz), P.box(1.6, 0.02, 0.04, 19.5, sy - 0.1, sz + 0.17)); // tread + riser lip
     }
+    stairs.push(tube([18.65, 0.1, 24.7], [18.65, 2.7, 20.2], 0.04), tube([20.35, 0.1, 24.7], [20.35, 2.7, 20.2], 0.04)); // stringers
+    stairs.push(tube([18.65, 1.0, 24.7], [18.65, 3.6, 20.2], 0.025), tube([20.35, 1.0, 24.7], [20.35, 3.6, 20.2], 0.025)); // handrails
+    const stairMesh = new THREE.Mesh(mergeParts(stairs, { tile: 1.0 }), this.matGalvanized);
+    stairMesh.castShadow = true;
+    catGroup.add(stairMesh);
 
     parentGroup.add(catGroup);
 
@@ -1157,7 +1271,6 @@ export class ScrapYardMap {
   }
 
   buildOilDrums(parentGroup, x, z) {
-    const drumGeo = new THREE.CylinderGeometry(0.3, 0.3, 0.9, 12);
     const drumColors = [0x992222, 0x1f4488, 0x226633];
 
     const offsets = [
@@ -1171,17 +1284,24 @@ export class ScrapYardMap {
       [-0.32, 1.35, 0.1]
     ];
 
+    // One InstancedMesh for the whole pile (shared drum geometry, per-instance paint colour)
+    this._drumGeo = this._drumGeo || createDrumGeometry();
+    const drums = new THREE.InstancedMesh(this._drumGeo, this.matDrumPaint, offsets.length);
+    const m = new THREE.Matrix4();
+    const q = new THREE.Quaternion();
+    const e = new THREE.Euler();
+    const c = new THREE.Color();
     offsets.forEach(([dx, dy, dz], i) => {
-      const mat = new THREE.MeshStandardMaterial({
-        color: drumColors[i % drumColors.length],
-        metalness: 0.6,
-        roughness: 0.5
-      });
-      const drum = new THREE.Mesh(drumGeo, mat);
-      drum.position.set(x + dx, dy, z + dz);
-      drum.castShadow = true;
-      parentGroup.add(drum);
+      e.set(0, i * 1.3, i === 4 ? 0.04 : 0);
+      q.setFromEuler(e);
+      m.compose(new THREE.Vector3(x + dx, dy, z + dz), q, new THREE.Vector3(1, 1, 1));
+      drums.setMatrixAt(i, m);
+      drums.setColorAt(i, c.setHex(drumColors[i % drumColors.length]));
     });
+    drums.castShadow = true;
+    drums.receiveShadow = true;
+    parentGroup.add(drums);
+    this._addContact(x, z, 2.1, 2.0);
 
     this.mapColliders.addCollider(new BoxCollider({
       id: `col_oil_drums_${x}_${z}`,
@@ -1214,11 +1334,11 @@ export class ScrapYardMap {
     this.buildBurnBarrel(z4Group, -24.0, 37.0);
 
     // 5. Lighting
-    const shedLight1 = new THREE.PointLight(0xffaa55, 1.5, 8.0, 2.0);
+    const shedLight1 = new THREE.PointLight(0xffaa55, 14, 8.0, 2.0);
     shedLight1.position.set(-20.0, 2.4, 33.0);
     z4Group.add(shedLight1);
 
-    const shedLight2 = new THREE.PointLight(0xffaa55, 1.5, 8.0, 2.0);
+    const shedLight2 = new THREE.PointLight(0xffaa55, 14, 8.0, 2.0);
     shedLight2.position.set(-20.0, 2.4, 41.0);
     z4Group.add(shedLight2);
 
@@ -1262,12 +1382,25 @@ export class ScrapYardMap {
     sWall.position.set(0, h / 2, -l / 2);
     shedGroup.add(sWall);
 
-    // Sloped zinc roof
-    const roofGeo = new THREE.BoxGeometry(w + 0.4, 0.08, l + 0.4);
-    const roof = new THREE.Mesh(roofGeo, this.matGalvanized);
+    // Sloped corrugated zinc roof (real ridges), battens, corner posts and window frame
+    const roofGeo = corrugatedPanel(w + 0.4, l + 0.4, 0.14, 0.03);
+    roofGeo.rotateX(-Math.PI / 2);
+    roofGeo.translate(0, 0, (l + 0.4) / 2);
+    const roofMat = this.matFence;
+    const roof = new THREE.Mesh(roofGeo, roofMat);
     roof.position.set(0, h + 0.1, 0);
     roof.rotation.z = -0.12;
+    roof.castShadow = true;
     shedGroup.add(roof);
+    const shedDetail = [];
+    for (const [cx, cz] of [[-w / 2, -l / 2], [w / 2, -l / 2], [-w / 2, l / 2], [w / 2, l / 2]]) shedDetail.push(P.box(0.2, h, 0.2, cx, h / 2, cz));
+    shedDetail.push(P.box(w + 0.2, 0.12, 0.2, 0, h - 0.05, l / 2), P.box(w + 0.2, 0.12, 0.2, 0, h - 0.05, -l / 2));
+    for (let i = 0; i < 4; i++) shedDetail.push(P.box(w, 0.06, 0.04, 0, 0.5 + i * 0.6, l / 2 + 0.1)); // horizontal battens (back)
+    shedDetail.push(P.box(0.6, 0.06, 0.04, -w / 2 - 0.1, 1.5, 0.0), P.box(0.06, 0.6, 0.04, -w / 2 - 0.1, 1.5, 0.0)); // boarded cross
+    const shedFrame = new THREE.Mesh(mergeParts(shedDetail, { tile: 1.2 }), this.matRottenWood);
+    shedFrame.castShadow = true;
+    shedGroup.add(shedFrame);
+    this._addContact(x, z, w, l);
 
     // Hinged wooden door at doorway (x + w/2, 0, z - 0.6)
     const doorPivot = new THREE.Group();
@@ -1275,6 +1408,12 @@ export class ScrapYardMap {
     const doorMesh = new THREE.Mesh(new THREE.BoxGeometry(0.08, 1.9, 1.2), this.matRottenWood);
     doorMesh.position.set(0, 0.95, 0.6);
     doorPivot.add(doorMesh);
+    const doorBraces = new THREE.Mesh(mergeParts([
+      P.box(0.04, 0.12, 1.2, 0.06, 0.3, 0.6), P.box(0.04, 0.12, 1.2, 0.06, 1.6, 0.6), tube([0.07, 0.3, 0.1], [0.07, 1.6, 1.1], 0.05, 4),
+      P.box(0.05, 0.16, 0.05, 0.08, 0.95, 1.05), P.cyl(0.015, 0.015, 0.12, 6, 0.1, 0.95, 1.05, Math.PI / 2, 0, 0),
+      P.cyl(0.02, 0.02, 0.18, 6, 0, 0.3, 0.0), P.cyl(0.02, 0.02, 0.18, 6, 0, 1.6, 0.0)
+    ], { tile: 1.2 }), this.matRottenWood);
+    doorPivot.add(doorBraces);
     shedGroup.add(doorPivot);
 
     parentGroup.add(shedGroup);
@@ -1314,30 +1453,51 @@ export class ScrapYardMap {
     const penL = 6.0;
     const penH = 2.0;
 
-    // Corner posts
-    const postGeo = new THREE.CylinderGeometry(0.04, 0.04, penH, 8);
-    [
-      [-penW / 2, penH / 2, -penL / 2],
-      [penW / 2, penH / 2, -penL / 2],
-      [-penW / 2, penH / 2, penL / 2],
-      [penW / 2, penH / 2, penL / 2]
-    ].forEach(([px, py, pz]) => {
-      const post = new THREE.Mesh(postGeo, this.matHangarSteel);
-      post.position.set(px, py, pz);
-      penGroup.add(post);
-    });
+    // Pipe frame (posts, top and bottom rails, mid rail, gate frame), merged
+    const frame = [];
+    for (const [px, pz] of [[-penW / 2, -penL / 2], [penW / 2, -penL / 2], [-penW / 2, penL / 2], [penW / 2, penL / 2], [-penW / 2, 0], [penW / 2, 0]]) {
+      frame.push(P.cyl(0.04, 0.04, penH, 8, px, penH / 2, pz));
+    }
+    for (const px of [-penW / 2, penW / 2]) {
+      frame.push(tube([px, penH, -penL / 2], [px, penH, penL / 2], 0.03), tube([px, 0.1, -penL / 2], [px, 0.1, penL / 2], 0.03), tube([px, 1.0, -penL / 2], [px, 1.0, penL / 2], 0.02));
+    }
+    for (const pz of [-penL / 2, penL / 2]) {
+      frame.push(tube([-penW / 2, penH, pz], [penW / 2, penH, pz], 0.03), tube([-penW / 2, 0.1, pz], [penW / 2, 0.1, pz], 0.03));
+    }
+    // two dog houses
+    frame.push(P.box(1.1, 0.8, 1.0, -0.9, 0.4, -1.8), P.box(1.2, 0.08, 1.1, -0.9, 0.84, -1.8, 0, 0, 0.1));
+    frame.push(P.box(1.1, 0.8, 1.0, 0.9, 0.4, 1.9), P.box(1.2, 0.08, 1.1, 0.9, 0.84, 1.9, 0, 0, -0.1));
+    const frameMesh = new THREE.Mesh(mergeParts(frame, { tile: 1.5 }), this.matRustyMetal);
+    frameMesh.castShadow = true;
+    penGroup.add(frameMesh);
 
-    // Stainless steel dog bowls & bones props
-    const bowlGeo = new THREE.CylinderGeometry(0.18, 0.14, 0.08, 12);
-    const bowlMat = new THREE.MeshStandardMaterial({ color: 0x999999, metalness: 0.85, roughness: 0.2 });
-    const bowl1 = new THREE.Mesh(bowlGeo, bowlMat);
-    bowl1.position.set(0.4, 0.04, 1.0);
-    const bowl2 = new THREE.Mesh(bowlGeo, bowlMat);
-    bowl2.position.set(-0.5, 0.04, -1.2);
-    penGroup.add(bowl1);
-    penGroup.add(bowl2);
+    // Chain-link panels (alpha tested diamond mesh) on all four sides
+    const linkMat = this.matChainLink;
+    const sideGeo = new THREE.PlaneGeometry(penL, penH - 0.1);
+    const endGeo = new THREE.PlaneGeometry(penW, penH - 0.1);
+    for (const sx of [-1, 1]) {
+      const side = new THREE.Mesh(sideGeo, linkMat);
+      side.position.set(sx * penW / 2, penH / 2, 0);
+      side.rotation.y = Math.PI / 2;
+      penGroup.add(side);
+    }
+    for (const sz of [-1, 1]) {
+      const end = new THREE.Mesh(endGeo, linkMat);
+      end.position.set(0, penH / 2, sz * penL / 2);
+      penGroup.add(end);
+    }
+
+    // Stainless steel dog bowls, chain and bone props
+    const bowlProfile = [[0.0001, 0.0], [0.09, 0.0], [0.15, 0.06], [0.18, 0.08], [0.17, 0.08], [0.0001, 0.02]];
+    const bowlGeo = mergeParts([
+      P.lathe(bowlProfile, 12, 0.4, 0.0, 1.0), P.lathe(bowlProfile, 12, -0.5, 0.0, -1.2, 0, 0, 0.1),
+      P.torus(0.02, 0.006, 4, 6, 0.9, 0.01, -1.2, Math.PI / 2, 0, 0)
+    ], { tile: 1.0 });
+    const bowls = new THREE.Mesh(bowlGeo, this.matChrome);
+    penGroup.add(bowls);
 
     parentGroup.add(penGroup);
+    this._addContact(x, z, penW, penL);
 
     // Pen collider
     this.mapColliders.addCollider(new BoxCollider({
@@ -1353,26 +1513,48 @@ export class ScrapYardMap {
     const barrelGroup = new THREE.Group();
     barrelGroup.position.set(x, 0, z);
 
-    // Cut open steel drum
-    const drumGeo = new THREE.CylinderGeometry(0.32, 0.32, 0.85, 14, 1, true);
-    const drum = new THREE.Mesh(drumGeo, this.matRustyMetal);
-    drum.position.y = 0.425;
+    // Cut-open steel drum: outer and inner wall, rolling hoops, rim, air holes, charred sticks
+    const outer = [[0.0001, 0.0], [0.3, 0.0], [0.322, 0.03], [0.32, 0.4], [0.335, 0.43], [0.335, 0.47], [0.32, 0.5], [0.322, 0.83], [0.34, 0.85]];
+    const inner = [[0.34, 0.85], [0.31, 0.83], [0.31, 0.04], [0.0001, 0.04]];
+    const drum = new THREE.Mesh(
+      mergeParts([
+        P.lathe(outer, 16), P.lathe(inner, 16),
+        P.box(0.12, 0.05, 0.02, 0.32, 0.2, 0.0, 0, 0, 0), P.box(0.12, 0.05, 0.02, -0.32, 0.2, 0.0), P.box(0.02, 0.05, 0.12, 0.0, 0.2, 0.32), // air holes
+        P.box(0.5, 0.05, 0.06, 0.0, 0.62, 0.0, 0, 0.5, 0.35), P.box(0.5, 0.05, 0.06, 0.0, 0.58, 0.0, 0, -0.7, -0.3), P.box(0.45, 0.05, 0.06, 0.0, 0.55, 0.0, 0.3, 0.2, 0.0) // charred sticks
+      ], { tile: 1.0 }),
+      this.matRustyMetal
+    );
+    drum.castShadow = true;
     barrelGroup.add(drum);
 
-    // Glowing ember core inside barrel
-    const emberGeo = new THREE.SphereGeometry(0.25, 8, 8);
-    const emberMat = new THREE.MeshBasicMaterial({ color: 0xff3300 });
-    const embers = new THREE.Mesh(emberGeo, emberMat);
-    embers.position.y = 0.45;
+    // Glowing ember bed inside barrel
+    const embers = new THREE.Mesh(new THREE.CircleGeometry(0.28, 14), new THREE.MeshBasicMaterial({ color: 0xff4400 }));
+    embers.rotation.x = -Math.PI / 2;
+    embers.position.y = 0.55;
     barrelGroup.add(embers);
 
+    // Flames: three crossed additive cones, animated in update()
+    const flameMat = new THREE.MeshBasicMaterial({
+      color: 0xff8a1f, transparent: true, opacity: 0.8, blending: THREE.AdditiveBlending, depthWrite: false, side: THREE.DoubleSide
+    });
+    const flameGeo = new THREE.ConeGeometry(0.2, 0.7, 7, 1, true);
+    for (let i = 0; i < 3; i++) {
+      const flame = new THREE.Mesh(flameGeo, flameMat);
+      flame.position.set(Math.cos(i * 2.1) * 0.08, 0.95, Math.sin(i * 2.1) * 0.08);
+      flame.userData.phase = i * 2.1;
+      flame.userData.baseY = 0.95;
+      barrelGroup.add(flame);
+      this.burnFlames.push(flame);
+    }
+
     // Flickering warm fire point light
-    const fireLight = new THREE.PointLight(0xff5511, 2.0, 7.0, 2.0);
+    const fireLight = new THREE.PointLight(0xff5511, 10, 7.0, 2.0);
     fireLight.position.set(0, 0.6, 0);
     barrelGroup.add(fireLight);
     this.burnBarrelLights.push(fireLight);
 
     parentGroup.add(barrelGroup);
+    this._addContact(x, z, 0.8, 0.8);
 
     this.mapColliders.addCollider(new BoxCollider({
       id: `col_burn_barrel_${x}_${z}`,
@@ -1414,27 +1596,31 @@ export class ScrapYardMap {
     const spoolGroup = new THREE.Group();
     spoolGroup.position.set(x, 0, z);
 
-    // Wooden spool rims
-    const rimGeo = new THREE.CylinderGeometry(0.9, 0.9, 0.1, 14);
-    rimGeo.rotateZ(Math.PI / 2);
-    const rimL = new THREE.Mesh(rimGeo, this.matRottenWood);
-    rimL.position.x = -0.6;
-    rimL.position.y = 0.9;
-    const rimR = new THREE.Mesh(rimGeo, this.matRottenWood);
-    rimR.position.x = 0.6;
-    rimR.position.y = 0.9;
-    spoolGroup.add(rimL);
-    spoolGroup.add(rimR);
+    // Wooden spool: two planked flanges with bolt heads, axle drum
+    const flangeProfile = [[0.0001, -0.05], [0.9, -0.05], [0.9, 0.05], [0.0001, 0.05]];
+    const wood = [];
+    for (const sx of [-0.6, 0.6]) {
+      wood.push(P.lathe(flangeProfile, 16, sx, 0.9, 0, 0, 0, Math.PI / 2));
+      for (let i = 0; i < 8; i++) {
+        const a = (i / 8) * Math.PI * 2;
+        wood.push(P.cyl(0.03, 0.03, 0.03, 6, sx + Math.sign(sx) * 0.05, 0.9 + Math.sin(a) * 0.78, Math.cos(a) * 0.78, 0, 0, Math.PI / 2));
+      }
+    }
+    wood.push(P.cyl(0.25, 0.25, 1.2, 12, 0, 0.9, 0, 0, 0, Math.PI / 2));
+    const spoolWood = new THREE.Mesh(mergeParts(wood, { tile: 1.5 }), this.matRottenWood);
+    spoolWood.castShadow = true;
+    spoolGroup.add(spoolWood);
 
-    // Wrapped copper wire core
-    const wireGeo = new THREE.CylinderGeometry(0.75, 0.75, 1.1, 16);
-    wireGeo.rotateZ(Math.PI / 2);
-    const wire = new THREE.Mesh(wireGeo, this.matCopper);
-    wire.position.y = 0.9;
+    // Wrapped copper cable layers (ribbed by stacked tori) and a loose end
+    const coil = [P.cyl(0.75, 0.75, 1.1, 20, 0, 0.9, 0, 0, 0, Math.PI / 2)];
+    for (let i = 0; i < 9; i++) coil.push(P.torus(0.75, 0.035, 5, 20, -0.48 + i * 0.12, 0.9, 0, 0, Math.PI / 2, 0));
+    coil.push(tube([0.55, 0.55, 0.6], [0.55, 0.05, 1.0], 0.03), tube([0.55, 0.05, 1.0], [0.1, 0.03, 1.4], 0.03));
+    const wire = new THREE.Mesh(mergeParts(coil, { tile: 1.0 }), this.matCopper);
     wire.castShadow = true;
     spoolGroup.add(wire);
 
     parentGroup.add(spoolGroup);
+    this._addContact(x, z, 1.4, 1.8);
 
     this.mapColliders.addCollider(new BoxCollider({
       id: `col_copper_spool_${x}_${z}`,
@@ -1449,19 +1635,27 @@ export class ScrapYardMap {
     const pileGroup = new THREE.Group();
     pileGroup.position.set(x, 0, z);
 
-    // Stacked ribbed cast-iron radiator units
-    const radGeo = new THREE.BoxGeometry(1.6, 0.75, 0.25);
-    const radMat = new THREE.MeshStandardMaterial({ color: 0x55585d, roughness: 0.8, metalness: 0.5 });
-
-    for (let r = 0; r < 6; r++) {
-      const rad = new THREE.Mesh(radGeo, radMat);
-      rad.position.set(0, 0.4 + r * 0.28, (r % 2 === 0 ? 0.05 : -0.05));
-      rad.rotation.y = (r % 2) * 0.1;
-      rad.castShadow = true;
-      pileGroup.add(rad);
+    // Cast-iron column radiators: 11 ribbed sections joined by top and bottom manifolds
+    const radParts = [P.cyl(0.04, 0.04, 1.6, 8, 0, 0.3, 0, 0, 0, Math.PI / 2), P.cyl(0.04, 0.04, 1.6, 8, 0, -0.3, 0, 0, 0, Math.PI / 2)];
+    for (let i = 0; i < 11; i++) {
+      const rx = -0.7 + i * 0.14;
+      radParts.push(P.rbox(0.11, 0.72, 0.2, 0.04, rx, 0, 0, 0, 0, 0, 1));
+      radParts.push(P.cyl(0.035, 0.035, 0.03, 6, rx, 0.32, 0, 0, 0, Math.PI / 2));
     }
+    radParts.push(P.box(0.06, 0.12, 0.1, -0.78, -0.4, 0), P.box(0.06, 0.12, 0.1, 0.78, -0.4, 0)); // feet
+    const radGeo = mergeParts(radParts, { tile: 1.0 });
+    const radMat = getPBRMaterial('rust', { color: 0x55585d, tile: 0.8 });
+    const placements = [];
+    for (let r = 0; r < 6; r++) {
+      placements.push({ geometry: radGeo, position: [0, 0.4 + r * 0.28, r % 2 === 0 ? 0.05 : -0.05], rotation: [0, (r % 2) * 0.1, 0] });
+    }
+    const pile = new THREE.Mesh(mergeParts(placements, { tile: 1.0 }), radMat);
+    pile.castShadow = true;
+    pile.receiveShadow = true;
+    pileGroup.add(pile);
 
     parentGroup.add(pileGroup);
+    this._addContact(x, z, 1.8, 1.4);
 
     this.mapColliders.addCollider(new BoxCollider({
       id: `col_radiator_pile_${x}_${z}`,
@@ -1476,21 +1670,45 @@ export class ScrapYardMap {
     const engineGroup = new THREE.Group();
     engineGroup.position.set(x, 0, z);
 
-    // Weathered wooden pallet base
-    const palletGeo = new THREE.BoxGeometry(1.4, 0.15, 1.4);
-    const pallet = new THREE.Mesh(palletGeo, this.matRottenWood);
-    pallet.position.y = 0.08;
-    engineGroup.add(pallet);
+    // Weathered wooden pallet: deck boards on three stringers
+    const pallet = [];
+    for (let i = 0; i < 5; i++) pallet.push(P.box(1.4, 0.03, 0.2, 0, 0.145, -0.6 + i * 0.3));
+    for (let i = 0; i < 3; i++) pallet.push(P.box(0.12, 0.1, 1.4, -0.6 + i * 0.6, 0.065, 0));
+    const palletMesh = new THREE.Mesh(mergeParts(pallet, { tile: 1.2 }), this.matRottenWood);
+    palletMesh.receiveShadow = true;
+    engineGroup.add(palletMesh);
 
-    // Cast-iron V6 engine block
-    const blockGeo = new THREE.BoxGeometry(0.8, 0.6, 0.9);
-    const blockMat = new THREE.MeshStandardMaterial({ color: 0x3a332d, roughness: 0.9, metalness: 0.6 });
-    const block = new THREE.Mesh(blockGeo, blockMat);
-    block.position.y = 0.45;
+    // Cast-iron V6 engine block: crankcase, two cylinder banks with heads and valve covers, sump, bell housing
+    const blk = [
+      P.rbox(0.8, 0.36, 0.9, 0.03, 0, 0.4, 0, 0, 0, 0, 2),
+      P.rbox(0.7, 0.12, 0.8, 0.03, 0, 0.18, 0, 0, 0, 0), // oil pan
+      P.cyl(0.14, 0.14, 0.3, 10, 0, 0.45, -0.58, Math.PI / 2, 0, 0), // bell housing
+      P.cyl(0.1, 0.1, 0.05, 10, 0, 0.45, 0.47, Math.PI / 2, 0, 0) // crank pulley
+    ];
+    for (const side of [-1, 1]) {
+      blk.push(P.rbox(0.28, 0.14, 0.82, 0.02, side * 0.26, 0.68, 0, 0, 0, side * -0.4)); // head
+      blk.push(P.rbox(0.2, 0.08, 0.76, 0.02, side * 0.31, 0.77, 0, 0, 0, side * -0.4)); // valve cover
+      for (let i = 0; i < 3; i++) blk.push(P.cyl(0.07, 0.07, 0.14, 8, side * 0.2, 0.6, -0.28 + i * 0.28, 0, 0, side * -0.4)); // cylinder pots
+    }
+    blk.push(tube([-0.15, 0.85, -0.3], [-0.3, 0.55, 0.45], 0.03), tube([0.15, 0.85, 0.3], [0.3, 0.55, -0.4], 0.03)); // manifolds
+    const blockMat = getPBRMaterial('rust', { color: 0x3a332d, tile: 0.8 });
+    const block = new THREE.Mesh(mergeParts(blk, { tile: 0.8 }), blockMat);
+    block.position.y = 0.0;
     block.castShadow = true;
     engineGroup.add(block);
 
+    // Oil spill on the pallet and ground
+    const oil = new THREE.Mesh(
+      new THREE.CircleGeometry(0.5, 14),
+      new THREE.MeshStandardMaterial({ color: 0x050403, roughness: 0.08, metalness: 0.0, transparent: true, opacity: 0.85 })
+    );
+    oil.rotation.x = -Math.PI / 2;
+    oil.position.set(0.5, 0.03, 0.6);
+    oil.scale.set(1.2, 1.0, 0.8);
+    engineGroup.add(oil);
+
     parentGroup.add(engineGroup);
+    this._addContact(x, z, 1.5, 1.5);
 
     this.mapColliders.addCollider(new BoxCollider({
       id: `col_engine_block_${x}_${z}`,
@@ -1505,16 +1723,31 @@ export class ScrapYardMap {
     const bikeGroup = new THREE.Group();
     bikeGroup.position.set(x, 0, z);
 
-    // Tangled metal pipe frames & spoked rims
-    const frameGeo = new THREE.TorusGeometry(0.4, 0.03, 6, 12);
-    for (let i = 0; i < 5; i++) {
-      const frame = new THREE.Mesh(frameGeo, this.matRustyMetal);
-      frame.position.set((Math.random() - 0.5) * 1.2, 0.4 + i * 0.15, (Math.random() - 0.5) * 1.2);
-      frame.rotation.set(Math.random() * Math.PI, Math.random() * Math.PI, 0);
-      bikeGroup.add(frame);
-    }
+    // Tangled bicycles: spoked wheels, diamond frames, bars and saddles (merged). Deterministic scatter.
+    const makeBike = () => {
+      const bike = [];
+      for (const wz of [-0.55, 0.55]) {
+        bike.push(P.torus(0.33, 0.013, 5, 18, 0, 0.35, wz, 0, Math.PI / 2, 0));
+        bike.push(P.torus(0.31, 0.02, 4, 18, 0, 0.35, wz, 0, Math.PI / 2, 0));
+        for (let k = 0; k < 6; k++) bike.push(P.cyl(0.003, 0.003, 0.64, 3, 0, 0.35, wz, (k / 6) * Math.PI, Math.PI / 2 * 0, 0));
+        bike.push(P.cyl(0.02, 0.02, 0.1, 6, 0, 0.35, wz, 0, 0, Math.PI / 2));
+      }
+      bike.push(tube([0, 0.35, -0.55], [0, 0.35, 0.0], 0.014), tube([0, 0.35, 0.0], [0, 0.72, -0.2], 0.014), tube([0, 0.72, -0.2], [0, 0.35, -0.55], 0.014),
+        tube([0, 0.72, -0.2], [0, 0.75, 0.35], 0.014), tube([0, 0.75, 0.35], [0, 0.35, 0.55], 0.014), tube([0, 0.75, 0.35], [0, 0.35, 0.0], 0.014),
+        tube([-0.2, 0.9, 0.35], [0.2, 0.9, 0.35], 0.011), P.rbox(0.1, 0.04, 0.22, 0.015, 0, 0.78, -0.25));
+      return mergeParts(bike, { tile: 1.0 });
+    };
+    const bikeGeo = makeBike();
+    const bikes = [
+      { p: [0, 0.35, 0], r: [0.1, 0.3, 1.2] }, { p: [0.3, 0.55, 0.2], r: [-0.4, 1.4, 0.8] }, { p: [-0.35, 0.3, -0.25], r: [0.2, 2.4, 1.45] },
+      { p: [0.15, 0.2, -0.45], r: [1.2, 0.5, 0.1] }, { p: [-0.1, 0.65, 0.35], r: [0.6, 3.6, -0.7] }
+    ];
+    const bikeMesh = new THREE.Mesh(mergeParts(bikes.map((b) => ({ geometry: bikeGeo, position: b.p, rotation: b.r })), { tile: 1.0 }), this.matRustyMetal);
+    bikeMesh.castShadow = true;
+    bikeGroup.add(bikeMesh);
 
     parentGroup.add(bikeGroup);
+    this._addContact(x, z, 1.8, 1.8);
 
     this.mapColliders.addCollider(new BoxCollider({
       id: `col_bicycle_scrap_${x}_${z}`,
@@ -1538,16 +1771,30 @@ export class ScrapYardMap {
     scrapDefs.forEach(s => {
       let mesh;
       if (s.type === 'pipe') {
-        const pGeo = new THREE.CylinderGeometry(0.04, 0.04, 0.8, 8);
-        pGeo.rotateZ(Math.PI / 2);
+        // Steel pipe with weld flange and a dented end
+        const pGeo = mergeParts([
+          P.cyl(0.04, 0.04, 0.8, 10, 0, 0, 0, 0, 0, Math.PI / 2), P.cyl(0.07, 0.07, 0.03, 10, 0.34, 0, 0, 0, 0, Math.PI / 2),
+          P.cyl(0.05, 0.05, 0.05, 10, -0.38, 0, 0, 0, 0, Math.PI / 2), P.sphere(0.03, 1, 1, 1, 0.18, 0.03, 0.02, 6)
+        ], { tile: 0.5 });
         mesh = new THREE.Mesh(pGeo, this.matRustyMetal);
       } else if (s.type === 'can') {
-        const cGeo = new THREE.CylinderGeometry(0.04, 0.04, 0.12, 10);
+        // Crushed drinks can: lathe with rolled rim and tab
+        const cGeo = mergeParts([
+          P.lathe([[0.0001, -0.06], [0.034, -0.06], [0.04, -0.04], [0.04, 0.045], [0.033, 0.058], [0.03, 0.06], [0.0001, 0.058]], 12),
+          P.box(0.02, 0.003, 0.014, 0, 0.062, 0)
+        ], { tile: 0.3 });
         mesh = new THREE.Mesh(cGeo, this.matGalvanized);
       } else {
-        const mGeo = new THREE.BoxGeometry(0.2, 0.15, 0.6);
+        // Exhaust muffler: oval shell with end caps and inlet / outlet pipes
+        const mGeo = mergeParts([
+          P.cyl(0.1, 0.1, 0.4, 12, 0, 0, 0, Math.PI / 2, 0, 0), P.cyl(0.1, 0.1, 0.4, 12, 0, 0, 0, Math.PI / 2, 0, 0),
+          P.cyl(0.03, 0.03, 0.3, 8, 0, 0.02, 0.35, Math.PI / 2, 0, 0), P.cyl(0.03, 0.03, 0.2, 8, 0.03, -0.02, -0.3, Math.PI / 2, 0, 0.1),
+          P.torus(0.1, 0.012, 4, 12, 0, 0, 0.2, 0, 0, 0), P.torus(0.1, 0.012, 4, 12, 0, 0, -0.2, 0, 0, 0)
+        ], { tile: 0.5 });
+        mGeo.scale(1.0, 0.75, 1.0);
         mesh = new THREE.Mesh(mGeo, this.matRustyMetal);
       }
+      mesh.castShadow = true;
       mesh.position.set(s.pos[0], s.pos[1], s.pos[2]);
       mesh.userData = {
         isThrowableScrap: true,
@@ -1571,21 +1818,24 @@ export class ScrapYardMap {
     const lH = 2.1;
     const lL = 0.65;
 
-    // Metal cabinet body
-    const bodyGeo = new THREE.BoxGeometry(lW, lH, lL);
-    const body = new THREE.Mesh(bodyGeo, this.matGalvanized);
-    body.position.y = lH / 2;
+    // Metal cabinet body (plinth feet, cap) and door with louvres, handle, number plate, hinge knuckles
+    this._lockerKit = this._lockerKit || createLockerGeometries(lW, lH, lL);
+    const body = new THREE.Mesh(this._lockerKit.body, this.matLockerPaint);
+    body.castShadow = true;
+    body.receiveShadow = true;
     lockerGroup.add(body);
 
     // Hinged locker door
     const doorPivot = new THREE.Group();
     doorPivot.position.set(-lW / 2, 0, lL / 2);
-    const doorMesh = new THREE.Mesh(new THREE.BoxGeometry(lW, lH - 0.05, 0.04), this.matGalvanized);
-    doorMesh.position.set(lW / 2, lH / 2, 0);
+    const doorMesh = new THREE.Mesh(this._lockerKit.doorPaint, this.matLockerPaint);
+    doorMesh.castShadow = true;
     doorPivot.add(doorMesh);
+    doorPivot.add(new THREE.Mesh(this._lockerKit.doorTrim, this.matChrome));
     lockerGroup.add(doorPivot);
 
     parentGroup.add(lockerGroup);
+    this._addContact(x, z, lW + 0.1, lL + 0.1);
 
     const hingedDoor = new HingedDoor({
       id: `door_${id}`,
@@ -1630,13 +1880,21 @@ export class ScrapYardMap {
     swGroup.position.set(x, y, z);
     swGroup.rotation.y = rotY;
 
-    const baseGeo = new THREE.BoxGeometry(0.1, 0.14, 0.03);
+    const baseGeo = new THREE.BoxGeometry(0.16, 0.24, 0.03);
     const base = new THREE.Mesh(baseGeo, this.matGalvanized);
     swGroup.add(base);
+    // cover plate, screws, conduit and a "bakelite" rocker housing
+    swGroup.add(new THREE.Mesh(mergeParts([
+      P.rbox(0.12, 0.2, 0.012, 0.01, 0, 0, 0.02), P.cyl(0.008, 0.008, 0.008, 6, 0, 0.085, 0.028, Math.PI / 2, 0, 0), P.cyl(0.008, 0.008, 0.008, 6, 0, -0.085, 0.028, Math.PI / 2, 0, 0),
+      P.rbox(0.05, 0.09, 0.02, 0.01, 0, 0, 0.032), tube([0, 0.12, 0], [0, 0.5, 0], 0.012, 6)
+    ], { tile: 0.5 }), this.matRubber));
 
     const toggleGeo = new THREE.BoxGeometry(0.02, 0.05, 0.03);
-    const toggle = new THREE.Mesh(toggleGeo, this.matHangarSteel);
-    toggle.position.set(0, 0, 0.02);
+    const toggle = new THREE.Mesh(
+      toggleGeo,
+      new THREE.MeshStandardMaterial({ color: 0xffeeaa, emissive: 0xaa7711, emissiveIntensity: 0.9, roughness: 0.4 })
+    );
+    toggle.position.set(0, 0, 0.05);
     swGroup.add(toggle);
 
     base.userData = {
@@ -1652,6 +1910,25 @@ export class ScrapYardMap {
   }
 
   registerLightFixture(id, lightInstance, switchMesh = null) {
+    // Visible lamp: dark housing stays, glowing bulb is a child of the light so it hides with it
+    if (lightInstance.parent && !lightInstance.userData.lampMesh) {
+      const housing = new THREE.Mesh(
+        mergeParts([
+          P.lathe([[0.0001, 0.12], [0.1, 0.1], [0.24, -0.02], [0.27, -0.06], [0.25, -0.06], [0.22, -0.02], [0.0001, 0.08]], 14, 0, 0, 0), // enamel shade
+          P.cyl(0.02, 0.02, 0.25, 6, 0, 0.22, 0), P.cyl(0.05, 0.05, 0.04, 8, 0, 0.0, 0)
+        ], { tile: 0.5 }),
+        this.matDarkSteel
+      );
+      housing.castShadow = false;
+      housing.position.copy(lightInstance.position).add(new THREE.Vector3(0, 0.1, 0));
+      lightInstance.parent.add(housing);
+      const bulb = new THREE.Mesh(
+        new THREE.SphereGeometry(0.1, 12, 8),
+        new THREE.MeshBasicMaterial({ color: lightInstance.color })
+      );
+      lightInstance.add(bulb);
+      lightInstance.userData.lampMesh = bulb;
+    }
     this.lightFixtures.set(id, {
       light: lightInstance,
       isOn: true,
@@ -1775,7 +2052,19 @@ export class ScrapYardMap {
     // 2. Flickering embers in burn barrels
     for (let i = 0; i < this.burnBarrelLights.length; i++) {
       const bLight = this.burnBarrelLights[i];
-      bLight.intensity = 1.8 + Math.sin(Date.now() * 0.008 + i) * 0.4 + (Math.random() - 0.5) * 0.2;
+      bLight.intensity = 9 + Math.sin(Date.now() * 0.008 + i) * 2 + (Math.random() - 0.5) * 1;
+    }
+
+    // 2b. Burn barrel flames
+    if (this.burnFlames.length) {
+      const t = Date.now() * 0.001;
+      for (const f of this.burnFlames) {
+        const ph = f.userData.phase;
+        const k = 0.8 + Math.sin(t * 9 + ph) * 0.18 + Math.sin(t * 17 + ph * 2) * 0.08;
+        f.scale.set(1 + Math.sin(t * 7 + ph) * 0.12, k, 1 + Math.cos(t * 8 + ph) * 0.12);
+        f.position.y = f.userData.baseY + (k - 0.8) * 0.2;
+        f.rotation.y += 0.05;
+      }
     }
 
     // 3. Car alarm headlights blinking

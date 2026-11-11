@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   BookOpen,
   CheckCircle2,
@@ -14,12 +14,12 @@ import {
 } from 'lucide-react';
 
 export const EVIDENCE_TYPES = [
-  { id: 'emf5', name: 'EMF 5', fullName: 'EMF 5 (Kábelkereső / Feszültségmérő)', icon: '⚡' },
+  { id: 'emf_5', name: 'EMF 5', fullName: 'EMF 5 (Kábelkereső / Feszültségmérő)', icon: '⚡' },
   { id: 'spirit_box', name: 'Spirit Box', fullName: 'Spirit Box (Bömbölő CB Rádió)', icon: '📻' },
   { id: 'fingerprints', name: 'UV Ujjlenyomat', fullName: 'UV Ujjlenyomat (Zöld kéz- és lábnyom)', icon: '🟣' },
   { id: 'ghost_orbs', name: 'Szellemgömb', fullName: 'Szellemgömb (Videókamera Gömbök)', icon: '⚪' },
   { id: 'ghost_writing', name: 'Szellemírás', fullName: 'Szellemírás (Kockás Nyomozó Füzet)', icon: '📝' },
-  { id: 'freezing', name: 'Fagypont Alatt', fullName: 'Fagypont Alatt (< 0.0°C hideg)', icon: '❄️' },
+  { id: 'freezing_temps', name: 'Fagypont Alatt', fullName: 'Fagypont Alatt (< 0.0°C hideg)', icon: '❄️' },
   { id: 'dots', name: 'D.O.T.S.', fullName: 'D.O.T.S. Projektor (Zöld Lézermező)', icon: '🟢' },
 ];
 
@@ -28,7 +28,7 @@ export const GHOST_ARCHETYPES = [
     id: 'lakatos_armando',
     name: 'Lakatos Ármándó',
     title: 'A Poltergeist',
-    evidence: ['ghost_writing', 'spirit_box', 'emf5'],
+    evidence: ['ghost_writing', 'spirit_box', 'emf_5'],
     huntThreshold: 50,
     lore: 'A miskolci MÉH telep legendás alakja, aki még halála után sem hajlandó lemondani a fémhulladékról és rézkábelekről. Amikor felbőszül, az egész hangárt képes telehajigálni rozsdás vascsövekkel.',
     trait: 'Multi-Throw Scrap Explosion: Képes 3–5 fémhulladékot egyszerre, hatalmas lendülettel (12 m/s) a nyomozók felé repíteni.',
@@ -39,7 +39,7 @@ export const GHOST_ARCHETYPES = [
     id: 'kolompar_kalman',
     name: 'Kolompár Kálmán',
     title: 'A Bicskás Vadász',
-    evidence: ['freezing', 'fingerprints', 'dots'],
+    evidence: ['freezing_temps', 'fingerprints', 'dots'],
     huntThreshold: 50,
     lore: 'Hidegvérű egykori éjjeliőr, aki rozsdás bicskájával járja az autóroncsok közti sötét sikátorokat. A fagypont alatti dermesztő hidegben nyeri vissza igazi erejét.',
     trait: 'Freezing Hunter: 0°C alatti hőmérsékletű helyiségekben mozgási sebessége 2.2 m/s-ról villámgyors 3.3 m/s-ra gyorsul.',
@@ -50,7 +50,7 @@ export const GHOST_ARCHETYPES = [
     id: 'rostas_bela',
     name: 'Rostás "Flexes" Béla',
     title: 'A Hangoskodó',
-    evidence: ['emf5', 'fingerprints', 'ghost_orbs'],
+    evidence: ['emf_5', 'fingerprints', 'ghost_orbs'],
     huntThreshold: 50,
     lore: 'A miskolci éjszakák flexelő fantomja. Állandóan a rádiófrekvenciákon ordít ("A VASAT AKAROM!"), és a túlvilági hangjával hajlamos szétpattintani a villanykörtéket.',
     trait: 'Auditory Terror & Bulbs: Spirit Box kérdésekre sikoltva felel, és magas eséllyel pukkasztja szét a környező izzókat.',
@@ -61,7 +61,7 @@ export const GHOST_ARCHETYPES = [
     id: 'bunko_lajos',
     name: 'Bunkó Lajos',
     title: 'A Fagyos Rezes',
-    evidence: ['freezing', 'ghost_writing', 'spirit_box'],
+    evidence: ['freezing_temps', 'ghost_writing', 'spirit_box'],
     huntThreshold: 50,
     lore: 'A transzformátorházak és villanyórák egykori réztolvaja. Halála után is a villamos hálózatot babrálja, fagyos rézkristályokat hagyva a fémtárgyakon.',
     trait: 'Breaker Saboteur: 40% eséllyel lecsapja a fali biztosítéktáblát (áramtalanítva a teljes telepet).',
@@ -72,7 +72,7 @@ export const GHOST_ARCHETYPES = [
     id: 'sarkozi_geza',
     name: 'Sárközi "Lókupec" Géza',
     title: 'A Csendes Árnyék',
-    evidence: ['dots', 'ghost_orbs', 'freezing'],
+    evidence: ['dots', 'ghost_orbs', 'freezing_temps'],
     huntThreshold: 50,
     lore: 'Ravasz és félénk telepi kupec, aki életében is a háttérből figyelt. Kerüli a csoportos nyomozókat, és csak akkor hajlandó jeleket hagyni, ha valaki egyedül marad.',
     trait: 'Extreme Shyness: Ha egynél több játékos tartózkodik a szobában, a paranormális aktivitása 80%-kal visszaesik.',
@@ -83,7 +83,7 @@ export const GHOST_ARCHETYPES = [
     id: 'raffael_dzsenifer',
     name: 'Raffael Dzsenifer',
     title: 'A Démon',
-    evidence: ['fingerprints', 'ghost_writing', 'freezing'],
+    evidence: ['fingerprints', 'ghost_writing', 'freezing_temps'],
     huntThreshold: 70,
     lore: 'A Miskolci MÉH telep legveszedelmesebb és legkegyetlenebb entitása. Nem várja meg, hogy az épelme leessen: szinte azonnal tombolni és vadászni kezd.',
     trait: 'Early & Relentless Hunter: Már 70%-os átlagos épelméjűségnél vadászatot indít! A füstölő csak 60 másodpercig tartja távol.',
@@ -94,7 +94,7 @@ export const GHOST_ARCHETYPES = [
     id: 'a_keresztapa',
     name: 'A Keresztapa',
     title: 'A Mimic (Utánzó)',
-    evidence: ['spirit_box', 'fingerprints', 'freezing'],
+    evidence: ['spirit_box', 'fingerprints', 'freezing_temps'],
     deceptiveEvidence: 'ghost_orbs',
     huntThreshold: 50,
     lore: 'A miskolci alvilág egykori keresztapja, a megtévesztés és álcázás nagymestere. Képes bármelyik másik szellem viselkedését másolni, miközben félrevezeti a nyomozókat.',
@@ -115,17 +115,31 @@ export default function JournalModal({
   onSubmitVerdict,
   matchResult = null,
   isAlive = true,
-  sideTasks = []
+  sideTasks = [],
+  evidenceCount = 3, // how many evidences the active ghost leaves obtainable (1..3)
+  onNewMatch = null // optional: 'Új küldetés' callback after a result
 }) {
+  const limit = Math.max(1, Math.min(3, Number(evidenceCount) || 3));
   const [activeTab, setActiveTab] = useState('evidence'); // 'evidence' | 'database' | 'photos' | 'verdict'
   const [selectedDbGhost, setSelectedDbGhost] = useState(GHOST_ARCHETYPES[0].id);
+
+  // When the server returns the verdict, jump to the result screen
+  useEffect(() => {
+    if (matchResult) setActiveTab('verdict');
+  }, [matchResult]);
 
   if (!isOpen) return null;
 
   // 3-State toggle helper: 0 -> 1 -> 2 -> 0
   const handleEvidenceClick = (evId) => {
     const current = evidenceState[evId] || 0;
-    const next = (current + 1) % 3;
+    let next = (current + 1) % 3;
+    // At most `limit` found evidences (the Mimic's fake orb is always an extra one)
+    if (next === 1) {
+      const foundNow = Object.entries(evidenceState).filter(([id, st]) => st === 1 && id !== evId).map(([id]) => id);
+      const cap = limit + (foundNow.includes('ghost_orbs') || evId === 'ghost_orbs' ? 1 : 0);
+      if (foundNow.length >= cap) next = 2;
+    }
     if (onToggleEvidence) {
       onToggleEvidence(evId, next);
     }
@@ -154,8 +168,10 @@ export default function JournalModal({
       }
     }
 
-    // Must NOT contain any 'Excluded' evidence
+    // Must NOT contain any 'Excluded' evidence. Only with all 3 evidences obtainable does a ruled-out
+    // evidence prove its absence; with fewer, the ghost may simply not be showing it.
     // (Special case: A Keresztapa is not excluded by Szellemgömb ruling out, because true evidence doesn't require it)
+    if (limit < 3) return true;
     for (const excluded of markedExcluded) {
       if (ghost.id === 'a_keresztapa' && excluded === 'ghost_orbs') {
         continue;
@@ -175,10 +191,14 @@ export default function JournalModal({
   const cappedPhotoReward = Math.min(3000, totalPhotoReward);
 
   // Side task calculation
-  const sideTasksReward = (sideTasks || []).filter(t => t.completed).length * 500;
-  const primaryReward = 3000;
-  const rawTotal = primaryReward + sideTasksReward + cappedPhotoReward;
-  const finalPayout = isAlive ? rawTotal : Math.round(rawTotal * 0.5);
+  // Mirrors the server payout: 2500 Ft + max(1, completed side tasks) * 500 Ft (correct verdict only)
+  const doneList = (sideTasks || []).filter(t => t.completed);
+  const doneSideTasks = doneList.length;
+  const sideTasksReward = doneList.reduce((sum, t) => sum + (Number(t.reward) || 0), 0);
+  const primaryReward = 2500;
+  const finalPayout = primaryReward + sideTasksReward;
+  const resultGhost = matchResult ? (matchResult.actualGhost || matchResult.ghostType) : '';
+  const resultPayout = matchResult ? (matchResult.payoutFt ?? matchResult.rewardFt ?? 0) : 0;
 
   const dbGhost = GHOST_ARCHETYPES.find(g => g.id === selectedDbGhost) || GHOST_ARCHETYPES[0];
 
@@ -303,6 +323,12 @@ export default function JournalModal({
                     <Sparkles className="w-4 h-4 text-purple-400" />
                     7 Bizonyíték Típus
                   </h3>
+                  <span
+                    className="text-[11px] font-mono px-2 py-0.5 rounded-md bg-purple-900/50 border border-purple-500/40 text-purple-200"
+                    title="A szellem ennyi bizonyítékot hagy elérhetőnek"
+                  >
+                    Elérhető: {limit} / 3
+                  </span>
                   <span className="text-[11px] text-gray-400 font-mono">
                     Kattints a váltáshoz: [✓] / [✗] / [–]
                   </span>
@@ -360,7 +386,11 @@ export default function JournalModal({
                 <div className="p-3 rounded-xl bg-purple-950/20 border border-purple-800/30 text-xs text-purple-300/80 flex items-start gap-2">
                   <Info className="w-4 h-4 flex-shrink-0 mt-0.5 text-purple-400" />
                   <span>
-                    <strong>Tipp:</strong> A kizárt bizonyítékok automatikusan áthúzzák a kizárt szellemtípusokat a jobb oldali listában.
+                    {limit >= 3 ? (
+                      <><strong>Tipp:</strong> A kizárt bizonyítékok automatikusan áthúzzák a kizárt szellemtípusokat a jobb oldali listában.</>
+                    ) : (
+                      <><strong>Nehezített mód:</strong> csak {limit} bizonyíték elérhető, ezért a kizárás nem szűri a szellemeket. Figyeld a viselkedésüket is, és legfeljebb {limit} bizonyítékot jelölhetsz meg.</>
+                    )}
                   </span>
                 </div>
               </div>
@@ -614,7 +644,7 @@ export default function JournalModal({
 
           {/* TAB 4: FINAL VERDICT */}
           {activeTab === 'verdict' && (
-            <div className="max-w-2xl mx-auto space-y-6 py-2">
+            <div className="max-w-2xl mx-auto flex flex-col gap-6 py-2">
               <div className="text-center space-y-2">
                 <div className="w-14 h-14 rounded-2xl bg-emerald-600/20 border border-emerald-500/40 flex items-center justify-center text-3xl mx-auto shadow-lg">
                   ⚖️
@@ -659,23 +689,23 @@ export default function JournalModal({
 
                 <div className="flex justify-between items-center text-gray-300">
                   <span>Helyes Szellem Azonosítás (Fő cél):</span>
-                  <span className="font-mono font-bold text-emerald-400">+3 000 Ft (+150 XP)</span>
+                  <span className="font-mono font-bold text-emerald-400">+2 500 Ft</span>
                 </div>
 
                 <div className="flex justify-between items-center text-gray-300">
-                  <span>Mellékküldetések (Whiteboard feladatok):</span>
+                  <span>Mellékküldetések ({doneSideTasks} teljesítve):</span>
                   <span className="font-mono font-bold text-emerald-400">+{sideTasksReward} Ft</span>
                 </div>
 
                 <div className="flex justify-between items-center text-gray-300">
-                  <span>Fotóalbum Vérdíjak:</span>
-                  <span className="font-mono font-bold text-emerald-400">+{cappedPhotoReward} Ft</span>
+                  <span>Fotóalbum ({photos.length} kép, tájékoztató):</span>
+                  <span className="font-mono font-bold text-gray-500">{cappedPhotoReward} Ft</span>
                 </div>
 
                 <div className="flex justify-between items-center text-gray-300 pt-2 border-t border-gray-800">
                   <span>Túlélési Státusz:</span>
                   <span className={`font-bold ${isAlive ? 'text-emerald-400' : 'text-amber-400'}`}>
-                    {isAlive ? 'Élve Megmenekült (100%)' : 'Elhunyt Nyomozó (50% Biztosítás)'}
+                    {isAlive ? 'Életben' : 'Elhunyt nyomozó'}
                   </span>
                 </div>
 
@@ -687,18 +717,26 @@ export default function JournalModal({
 
               {/* Match Result Display if finished */}
               {matchResult && (
-                <div className={`p-4 rounded-xl border text-center ${
+                <div className={`order-first p-4 rounded-xl border text-center ${
                   matchResult.correct ? 'bg-emerald-950/40 border-emerald-500 text-emerald-200' : 'bg-red-950/40 border-red-500 text-red-200'
                 }`}>
                   <div className="text-xl font-black mb-1">
                     {matchResult.correct ? '🎉 SIKERES NYOMOZÁS!' : '❌ HIBÁS TIPP!'}
                   </div>
                   <div className="text-sm">
-                    A valódi szellem: <strong>{matchResult.actualGhost}</strong>
+                    A valódi szellem: <strong>{resultGhost}</strong>
                   </div>
                   <div className="text-base font-bold mt-2">
-                    Jóváírt jutalom: +{matchResult.payoutFt} Ft
+                    Jóváírt jutalom: +{resultPayout} Ft
                   </div>
+                  {onNewMatch && (
+                    <button
+                      onClick={onNewMatch}
+                      className="mt-3 px-5 py-2 rounded-xl bg-purple-700 hover:bg-purple-600 text-white text-sm font-bold cursor-pointer"
+                    >
+                      Új küldetés
+                    </button>
+                  )}
                 </div>
               )}
 

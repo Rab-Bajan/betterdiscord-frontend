@@ -12,6 +12,7 @@ import SpeedTestRequestToast from './components/SpeedTestRequestToast';
 import AdminPanel from './components/AdminPanel';
 import GameAnalysisView from './components/GameAnalysisView';
 const MiskolcEmpireView = lazy(() => import('./components/miskolcEmpire/MiskolcEmpireView'));
+const MiskolcPhobiaView = lazy(() => import('./components/phobia/MiskolcPhobiaView'));
 import { ShieldCheck } from 'lucide-react';
 import { useAuth } from './hooks/useAuth';
 import { useServerData } from './hooks/useServerData';
@@ -26,7 +27,7 @@ import AudioSettings from './components/call/AudioSettings';
 import CallHistory from './components/call/CallHistory';
 
 export default function App() {
-  const [viewMode, setViewMode] = useState('chat'); // 'chat' | 'voice' | 'analysis' | 'empire'
+  const [viewMode, setViewMode] = useState('chat'); // 'chat' | 'voice' | 'analysis' | 'empire' | 'phobia'
   const [showUserList, setShowUserList] = useState(window.innerWidth >= 1024);
   const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false);
   const [isAdminOpen, setIsAdminOpen] = useState(false);
@@ -164,6 +165,12 @@ export default function App() {
                 closeMobileSidebar();
               }}
               empireSessions={activities.empireSessions}
+              isPhobiaActive={viewMode === 'phobia'}
+              onOpenPhobia={() => {
+                setViewMode('phobia');
+                closeMobileSidebar();
+              }}
+              phobiaSessions={activities.phobiaSessions}
               casinoSessions={activities.casinoSessions}
               watchSessions={activities.watchSessions}
               chessSessions={activities.chessSessions}
@@ -184,6 +191,17 @@ export default function App() {
         ) : viewMode === 'empire' ? (
           <Suspense fallback={<div className="flex-1 flex items-center justify-center text-sm" style={{ color: '#999BBE' }}>MiskolcEmpire betöltése...</div>}>
             <MiskolcEmpireView socket={socket} currentUser={currentUser} onClose={() => setViewMode('chat')} />
+          </Suspense>
+        ) : viewMode === 'phobia' ? (
+          <Suspense fallback={<div className="flex-1 flex items-center justify-center text-sm" style={{ color: '#999BBE' }}>A MÉH Telep betöltése (MiskolcPhobia)...</div>}>
+            <MiskolcPhobiaView
+              socket={socket}
+              channelId={activeVoiceChannel || 'phobia_lobby'}
+              currentUser={currentUser}
+              session={activities.phobiaSessions[activeVoiceChannel || 'phobia_lobby']}
+              setPeerSpatial={voice.setPeerSpatial}
+              onClose={() => setViewMode(activeVoiceChannel ? 'voice' : 'chat')}
+            />
           </Suspense>
         ) : viewMode === 'voice' && activeVoiceChannel ? (
           <VoiceRoomView
@@ -214,6 +232,7 @@ export default function App() {
             watchState={activities.watchSessions[activeVoiceChannel]}
             chessSession={activities.chessSessions[activeVoiceChannel]}
             empireSession={activities.empireSessions[activeVoiceChannel]}
+            phobiaSession={activities.phobiaSessions[activeVoiceChannel]}
             onStartChess={activities.startChess}
             onJoinChess={activities.joinChess}
             onMoveChess={activities.moveChess}
@@ -222,6 +241,7 @@ export default function App() {
             onStopChess={activities.stopChess}
             gameSession={activities.gameSessions[activeVoiceChannel]}
             setPeerVolume={voice.setPeerVolume}
+            setPeerSpatial={voice.setPeerSpatial}
             browserSession={activities.browserSessions[activeVoiceChannel]}
             onStartBrowser={activities.startBrowser}
             onNavigateBrowser={activities.navigateBrowser}

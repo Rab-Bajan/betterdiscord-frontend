@@ -1,57 +1,73 @@
-// Isometric projection and camera maths. Pure functions, no browser dependencies.
-export const TILE_W = 64;
-export const TILE_H = 32;
-export const HW = TILE_W / 2;
-export const HH = TILE_H / 2;
-export const MIN_ZOOM = 0.45;
-export const MAX_ZOOM = 1.9;
+// RTS camera maths for the 3D view. Pure functions, no browser or three.js dependencies.
+// World tile (x, y) maps to the three.js point (x, height, y). The camera orbits a ground target
+// stored in world tile coordinates so the minimap and the store never need the 3D camera object.
+export const MIN_DIST = 9;
+export const MAX_DIST = 58;
+export const SPECTATOR_MIN_DIST = 4;
+export const SPECTATOR_MAX_DIST = 150;
+export const MIN_PITCH = 0.62; // radians above the horizon
+export const MAX_PITCH = 1.38;
+export const DEFAULT_PITCH = 0.98;
+export const DEFAULT_YAW = Math.PI / 4;
 
-// screenX = (wx - wy) * (tileW / 2), screenY = (wx + wy) * (tileH / 2)
-export function worldToIso(wx, wy, out) {
-  out.x = (wx - wy) * HW;
-  out.y = (wx + wy) * HH;
+export function createCamera() {
+  return { x: 0, y: 0, dist: 26, yaw: DEFAULT_YAW, pitch: DEFAULT_PITCH, goal: null };
+}
+
+// Keep the ground target on the map (or loosely around it in spectator mode) and the zoom in range.
+export function clampCamera(cam, mapW, mapH, free = false) {
+  const m = free ? 30 : 0;
+  cam.x = Math.max(-m, Math.min(mapW + m, cam.x));
+  cam.y = Math.max(-m, Math.min(mapH + m, cam.y));
+  const lo = free ? SPECTATOR_MIN_DIST : MIN_DIST;
+  const hi = free ? SPECTATOR_MAX_DIST : MAX_DIST;
+  cam.dist = Math.max(lo, Math.min(hi, cam.dist));
+  cam.pitch = Math.max(MIN_PITCH, Math.min(MAX_PITCH, cam.pitch));
+}
+
+// Jump (or, with smooth = true, glide) the camera target to a world tile position.
+export function centerOnWorld(cam, wx, wy, smooth = false) {
+  if (smooth) { cam.goal = { x: wx, y: wy }; return; }
+  cam.goal = null;
+  cam.x = wx;
+  cam.y = wy;
+}
+
+// Ease the camera towards cam.goal; returns true while moving.
+export function stepCameraGoal(cam, dt) {
+  if (!cam.goal) return false;
+  const k = 1 - Math.exp(-7 * dt);
+  cam.x += (cam.goal.x - cam.x) * k;
+  cam.y += (cam.goal.y - cam.y) * k;
+  if (Math.hypot(cam.goal.x - cam.x, cam.goal.y - cam.y) < 0.05) { cam.x = cam.goal.x; cam.y = cam.goal.y; cam.goal = null; }
+  return true;
+}
+
+// Eye position in three.js space (x, y = up, z) for a target at ground height `h`.
+export function cameraEye(cam, h, out) {
+  const c = Math.cos(cam.pitch);
+  out.x = cam.x + Math.sin(cam.yaw) * c * cam.dist;
+  out.y = h + Math.sin(cam.pitch) * cam.dist;
+  out.z = cam.y + Math.cos(cam.yaw) * c * cam.dist;
   return out;
 }
 
-export function isoToWorld(ix, iy, out) {
-  out.y = iy / TILE_H - ix / TILE_W;
-  out.x = iy / TILE_H + ix / TILE_W;
+// Screen-space pan input (right, down) to a world tile delta, respecting the camera yaw.
+export function panDelta(cam, right, down, amount, out) {
+  const s = Math.sin(cam.yaw), c = Math.cos(cam.yaw);
+  // forward on screen (down = -1) moves the target away from the eye
+  out.x = (right * c + down * s) * amount;
+  out.y = (-right * s + down * c) * amount;
   return out;
 }
 
-// cam.x / cam.y are the iso-space coordinates shown at the centre of the viewport.
-export function worldToScreen(cam, vw, vh, wx, wy, out) {
-  out.x = ((wx - wy) * HW - cam.x) * cam.zoom + vw / 2;
-  out.y = ((wx + wy) * HH - cam.y) * cam.zoom + vh / 2;
+// Ray (origin o, direction d; three.js axes) against the horizontal plane y = h. Returns the world
+// tile point in out ({x, y}) or null when the ray points away from the plane.
+export function rayPlane(o, d, h, out) {
+  if (Math.abs(d.y) < 1e-6) return null;
+  const t = (h - o.y) / d.y;
+  if (t < 0) return null;
+  out.x = o.x + d.x * t;
+  out.y = o.z + d.z * t;
   return out;
-}
-
-export function screenToWorld(cam, vw, vh, sx, sy, out) {
-  const ix = (sx - vw / 2) / cam.zoom + cam.x;
-  const iy = (sy - vh / 2) / cam.zoom + cam.y;
-  return isoToWorld(ix, iy, out);
-}
-
-export function clampCamera(cam, mapW, mapH) {
-  const minX = -mapH * HW;
-  const maxX = mapW * HW;
-  const maxY = (mapW + mapH) * HH;
-  cam.x = Math.max(minX, Math.min(maxX, cam.x));
-  cam.y = Math.max(0, Math.min(maxY, cam.y));
-  cam.zoom = Math.max(MIN_ZOOM, Math.min(MAX_ZOOM, cam.zoom));
-}
-
-// Zoom keeping the world point under (sx, sy) fixed.
-export function zoomAbout(cam, vw, vh, sx, sy, factor) {
-  const z2 = Math.max(MIN_ZOOM, Math.min(MAX_ZOOM, cam.zoom * factor));
-  const ix = (sx - vw / 2) / cam.zoom + cam.x;
-  const iy = (sy - vh / 2) / cam.zoom + cam.y;
-  cam.zoom = z2;
-  cam.x = ix - (sx - vw / 2) / z2;
-  cam.y = iy - (sy - vh / 2) / z2;
-}
-
-export function centerOnWorld(cam, wx, wy) {
-  cam.x = (wx - wy) * HW;
-  cam.y = (wx + wy) * HH;
 }

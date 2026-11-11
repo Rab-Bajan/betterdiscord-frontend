@@ -3,7 +3,6 @@ import { EffectComposer } from 'three/addons/postprocessing/EffectComposer.js';
 import { RenderPass } from 'three/addons/postprocessing/RenderPass.js';
 import { ShaderPass } from 'three/addons/postprocessing/ShaderPass.js';
 import { OutputPass } from 'three/addons/postprocessing/OutputPass.js';
-import { VignetteShader } from 'three/addons/shaders/VignetteShader.js';
 import { FilmShader } from 'three/addons/shaders/FilmShader.js';
 
 import {
@@ -13,6 +12,9 @@ import {
   RainParticles,
   FreezingBreathParticles
 } from '../shaders/index.js';
+import { QUALITY_PRESETS, normalizeQuality, createNightEnvironment, ColorGradeShader } from '../visual/Atmosphere.js';
+import { setTextureQuality, disposeTextureLibrary } from '../visual/ProceduralTextures.js';
+import { createGhostFigure } from '../visual/HumanFigure.js';
 
 /**
  * PhobiaEngine
@@ -28,15 +30,43 @@ import {
  * - Custom GLSL materials (Ghost Dissolve, D.O.T.S. Laser Matrix Projectors)
  * - Full lifecycle: ResizeObserver, pause/resume render loop, clean resource disposal
  */
+// Safe multiplicative vignette (three's VignetteShader goes negative for darkness > 1,
+// which tone-mapping turns into bright garbage at the screen edges).
+const SafeVignetteShader = {
+  uniforms: {
+    tDiffuse: { value: null },
+    strength: { value: 0.55 },
+    radius: { value: 0.95 }
+  },
+  vertexShader: `
+    varying vec2 vUv;
+    void main() { vUv = uv; gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0); }
+  `,
+  fragmentShader: `
+    uniform sampler2D tDiffuse;
+    uniform float strength;
+    uniform float radius;
+    varying vec2 vUv;
+    void main() {
+      vec4 c = texture2D(tDiffuse, vUv);
+      vec2 d = (vUv - 0.5) * vec2(1.0, 0.85) * 1.6;
+      float v = smoothstep(radius, 0.15, length(d));
+      c.rgb *= mix(1.0 - strength, 1.0, v);
+      gl_FragColor = c;
+    }
+  `
+};
+
 export class PhobiaEngine {
   constructor(options = {}) {
-    const { canvas, container } = options;
-    if (!canvas) {
-      throw new Error('PhobiaEngine requires a HTMLCanvasElement in options.canvas');
+    const { canvas, container, mount } = options;
+    if (!canvas && !mount) {
+      throw new Error('PhobiaEngine requires a HTMLCanvasElement in options.canvas or a mount element in options.mount');
     }
 
-    this.canvas = canvas;
-    this.container = container || canvas.parentElement || canvas;
+    this.canvas = canvas || null;
+    this.mount = mount || null;
+    this.container = container || mount || canvas.parentElement || canvas;
 
     this.clock = new THREE.Clock();
     this.isRunning = false;
@@ -49,20 +79,37 @@ export class PhobiaEngine {
     this.flashlightOn = true;
     this.flashlightFlickerActive = false;
     this.flashlightFlickerIntensity = 0.0;
-    this.flashlightBaseIntensity = 2.2;
+    this.flashlightBaseIntensity = 60.0; // candela-ish (physically based decay)
     this.flashlightTimer = 0.0;
 
     // Hunt and environment states
     this.huntIntensity = 0.0;
     this.ambientTemperature = 15.0; // Celsius
 
+    // Quality: options.quality ('low' | 'medium' | 'high'), else ?quality= in the URL, else adaptive
+    // (starts on 'high' and measures average frame time for ~2s after start, downgrading on slow GPUs).
+    // Resolved before the renderer/map exist so texture resolution and AA can follow the preset.
+    this.qualityLevel = 'high';
+    this._qualityProbe = { time: 0, frames: 0, done: false };
+    let requested = normalizeQuality(options.quality);
+    try {
+      const q = typeof location !== 'undefined' ? normalizeQuality(new URLSearchParams(location.search).get('quality')) : null;
+      if (!requested && q) requested = q;
+    } catch (_) {}
+    if (requested || options.adaptiveQuality === false) this._qualityProbe.done = true;
+    if (requested) this.qualityLevel = requested;
+    this.maxPixelRatio = QUALITY_PRESETS[this.qualityLevel].pixelRatio;
+    setTextureQuality(QUALITY_PRESETS[this.qualityLevel].textures);
+
     this._initRenderer();
     this._initScene();
+    this._initEnvironment();
     this._initCameraAndPlayer();
     this._initLighting();
     this._initPostProcessing();
     this._initParticleSystems();
     this._initResizeObserver();
+    this.setQuality(this.qualityLevel);
   }
 
   /* -------------------------------------------------------------------------- */
@@ -76,7 +123,9 @@ export class PhobiaEngine {
     freshCanvas.className = this.canvas?.className || 'w-full h-full block cursor-crosshair focus:outline-none';
     freshCanvas.tabIndex = 0;
 
-    if (this.canvas && this.canvas.parentNode) {
+    if (this.mount) {
+      this.mount.appendChild(freshCanvas);
+    } else if (this.canvas && this.canvas.parentNode) {
       this.canvas.parentNode.replaceChild(freshCanvas, this.canvas);
     } else if (this.container) {
       this.container.appendChild(freshCanvas);
@@ -86,8 +135,8 @@ export class PhobiaEngine {
     try {
       this.renderer = new THREE.WebGLRenderer({
         canvas: this.canvas,
-        antialias: true,
-        powerPreference: 'default',
+        antialias: QUALITY_PRESETS[this.qualityLevel].antialias,
+        powerPreference: 'high-performance',
         alpha: false,
         stencil: false
       });
@@ -115,14 +164,15 @@ export class PhobiaEngine {
 
     const initialWidth = this.container.clientWidth || window.innerWidth;
     const initialHeight = this.container.clientHeight || window.innerHeight;
-    this.renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
+    this.renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, this.maxPixelRatio || 2));
     this.renderer.setSize(initialWidth, initialHeight, false);
   }
 
   _initScene() {
     this.scene = new THREE.Scene();
-    this.scene.background = new THREE.Color(0x06070e);
-    this.scene.fog = new THREE.FogExp2(0x090a18, 0.022);
+    this.scene.background = new THREE.Color(0x0b0e1c);
+    // Exponential-squared fog reads as damp night air: clear within ~15 m, thick past ~60 m
+    this.scene.fog = new THREE.FogExp2(0x0b0e1c, QUALITY_PRESETS[this.qualityLevel].fogDensity);
 
     // Layered Scene Hierarchy
     this.worldMeshGroup = new THREE.Group();
@@ -151,6 +201,19 @@ export class PhobiaEngine {
     this.scene.add(this.localPlayerGroup);
   }
 
+  /** Baked night IBL so metals/wet surfaces reflect something (skipped on 'low'). */
+  _initEnvironment() {
+    this._envTarget = null;
+    if (!QUALITY_PRESETS[this.qualityLevel].envMap) return;
+    try {
+      this._envTarget = createNightEnvironment(this.renderer);
+      this.scene.environment = this._envTarget.texture;
+      this.scene.environmentIntensity = 0.45;
+    } catch (err) {
+      console.warn('Night environment map failed, continuing without IBL:', err);
+    }
+  }
+
   _initCameraAndPlayer() {
     const width = this.container.clientWidth || window.innerWidth;
     const height = this.container.clientHeight || window.innerHeight;
@@ -169,21 +232,37 @@ export class PhobiaEngine {
 
   _initLighting() {
     // Dim ambient baseline for night horror atmosphere
-    this.ambientLight = new THREE.AmbientLight(0x161a2e, 0.18);
+    this.ambientLight = new THREE.AmbientLight(0x5a6694, 0.9);
     this.lightingGroup.add(this.ambientLight);
+
+    // Cold moonlight: sky/ground bounce + a soft directional so the yard is readable at night
+    this.moonFill = new THREE.HemisphereLight(0x8aa0e0, 0x2a2830, 0.9);
+    this.lightingGroup.add(this.moonFill);
+    this.moonLight = new THREE.DirectionalLight(0x9fb4f0, 1.4);
+    this.moonLight.position.set(-30, 60, 20);
+    // Key-light shadows: an orthographic window that follows the player (see _updateMoonShadow)
+    this.moonLight.castShadow = true;
+    this.moonLight.shadow.mapSize.set(1024, 1024);
+    const msc = this.moonLight.shadow.camera;
+    msc.left = -26; msc.right = 26; msc.top = 26; msc.bottom = -26; msc.near = 10; msc.far = 140;
+    this.moonLight.shadow.bias = -0.0004;
+    this.moonLight.shadow.normalBias = 0.04;
+    this._moonOffset = new THREE.Vector3(-30, 60, 20);
+    this.lightingGroup.add(this.moonLight);
+    this.lightingGroup.add(this.moonLight.target);
 
     // Dynamic player camera child SpotLight (Flashlight)
     this.flashlight = new THREE.SpotLight(0xfff4e0, this.flashlightBaseIntensity);
-    this.flashlight.distance = 18.0;
-    this.flashlight.angle = Math.PI / 6; // 30 degrees cone
-    this.flashlight.penumbra = 0.35;
+    this.flashlight.distance = 28.0;
+    this.flashlight.angle = Math.PI / 5; // 36 degrees cone
+    this.flashlight.penumbra = 0.5;
     this.flashlight.decay = 2.0; // quadratic attenuation
     this.flashlight.castShadow = true;
 
-    this.flashlight.shadow.mapSize.width = 1024;
-    this.flashlight.shadow.mapSize.height = 1024;
+    this.flashlight.shadow.mapSize.width = 512;
+    this.flashlight.shadow.mapSize.height = 512;
     this.flashlight.shadow.camera.near = 0.1;
-    this.flashlight.shadow.camera.far = 18.0;
+    this.flashlight.shadow.camera.far = 28.0;
     this.flashlight.shadow.bias = -0.0005;
 
     // Flashlight target fixed forward in front of camera
@@ -207,14 +286,13 @@ export class PhobiaEngine {
       this.composer.addPass(this.renderPass);
 
       // Pass 2: Vignette Shader
-      this.vignettePass = new ShaderPass(VignetteShader);
-      this.vignettePass.uniforms.offset.value = 1.05;
-      this.vignettePass.uniforms.darkness.value = 1.25;
+      this.vignettePass = new ShaderPass(SafeVignetteShader);
       this.composer.addPass(this.vignettePass);
 
       // Pass 3: Film Grain Shader
       this.filmPass = new ShaderPass(FilmShader);
-      this.filmPass.uniforms.intensity.value = 0.22;
+      this.filmPass.uniforms.intensity.value = 0.06;
+      if (this.filmPass.uniforms.grayscale) this.filmPass.uniforms.grayscale.value = 0;
       this.filmPass.uniforms.time.value = 0.0;
       this.composer.addPass(this.filmPass);
 
@@ -223,6 +301,11 @@ export class PhobiaEngine {
       this.vhsPass.uniforms.uHuntIntensity.value = 0.0;
       this.vhsPass.uniforms.uTime.value = 0.0;
       this.composer.addPass(this.vhsPass);
+
+      // Pass 4b: linear-space colour grade (cold shadows, warm highlights); before tone mapping
+      this.gradePass = new ShaderPass(ColorGradeShader);
+      this.gradePass.enabled = QUALITY_PRESETS[this.qualityLevel].grade;
+      this.composer.addPass(this.gradePass);
 
       // Pass 5: Output Color Space & Tone Mapping pass
       this.outputPass = new OutputPass();
@@ -238,7 +321,7 @@ export class PhobiaEngine {
   _initParticleSystems() {
     // 1. Dynamic Rain System: 3000 line streaks + ground mist
     this.rain = new RainParticles({
-      rainCount: 3000,
+      rainCount: Math.round(1800 * QUALITY_PRESETS[this.qualityLevel].rainScale),
       mistCount: 100,
       boxWidth: 70,
       boxHeight: 20,
@@ -279,11 +362,88 @@ export class PhobiaEngine {
     this.camera.aspect = width / height;
     this.camera.updateProjectionMatrix();
 
-    this.renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
+    this.renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, this.maxPixelRatio || 2));
     this.renderer.setSize(width, height, false);
 
     if (this.composer) {
       this.composer.setSize(width, height);
+    }
+  }
+
+  /**
+   * 'low' | 'medium' | 'high' (anything else maps to 'high'). Drives pixel ratio, shadow maps and sizes,
+   * grading, fog density. Texture resolution and IBL are decided at construction (before assets exist).
+   */
+  setQuality(level) {
+    this.qualityLevel = normalizeQuality(level) || 'high';
+    const preset = QUALITY_PRESETS[this.qualityLevel];
+    if (!this.renderer) return;
+    this.maxPixelRatio = preset.pixelRatio;
+    const shadowToggled = this.renderer.shadowMap.enabled !== preset.shadows;
+    this.renderer.shadowMap.enabled = preset.shadows;
+    this.renderer.shadowMap.needsUpdate = true;
+    if (this.flashlight) {
+      this.flashlight.castShadow = preset.flashlightShadow;
+      this._resizeShadow(this.flashlight, preset.flashlightShadowSize);
+    }
+    if (this.moonLight) {
+      this.moonLight.castShadow = preset.shadows;
+      this._resizeShadow(this.moonLight, preset.shadows ? (this.qualityLevel === 'high' ? 2048 : 1024) : 512);
+    }
+    if (this.gradePass) this.gradePass.enabled = preset.grade;
+    if (this.scene?.fog) this.scene.fog.density = preset.fogDensity;
+    if (this.scene) {
+      this.scene.traverse((o) => {
+        if (o.isLight && o !== this.flashlight && o !== this.moonLight && o.shadow) {
+          o.userData._shadowWanted ??= o.castShadow;
+          o.castShadow = preset.shadows && o.userData._shadowWanted;
+          this._resizeShadow(o, preset.floodShadowSize);
+        }
+        if (shadowToggled && o.isMesh && o.material) {
+          const mats = Array.isArray(o.material) ? o.material : [o.material];
+          mats.forEach((m) => { m.needsUpdate = true; });
+        }
+      });
+    }
+    const w = this.container?.clientWidth, h = this.container?.clientHeight;
+    if (w && h) this.handleResize(w, h);
+  }
+
+  _resizeShadow(light, size) {
+    if (!light.shadow || light.shadow.mapSize.x === size) return;
+    light.shadow.mapSize.set(size, size);
+    if (light.shadow.map) {
+      light.shadow.map.dispose();
+      light.shadow.map = null;
+    }
+  }
+
+  /** Slide the moon shadow window over the player so one map covers the area around them. */
+  _updateMoonShadow() {
+    if (!this.moonLight || !this.moonLight.castShadow) return;
+    const p = this.camera.getWorldPosition(this._tmpV || (this._tmpV = new THREE.Vector3()));
+    // snap to the shadow texel grid to avoid shimmering
+    const texel = 52 / this.moonLight.shadow.mapSize.x;
+    p.x = Math.round(p.x / texel) * texel;
+    p.z = Math.round(p.z / texel) * texel;
+    this.moonLight.target.position.set(p.x, 0, p.z);
+    this.moonLight.position.copy(this.moonLight.target.position).add(this._moonOffset);
+    this.moonLight.target.updateMatrixWorld();
+  }
+
+  _probeQuality(delta) {
+    const pr = this._qualityProbe;
+    if (pr.done) return;
+    pr.time += delta;
+    if (pr.time < 0.75) return; // ignore shader-compile warm-up
+    pr.frames++;
+    pr.sum = (pr.sum || 0) + delta;
+    if (pr.time >= 2.75) {
+      pr.done = true;
+      const avgMs = (pr.sum / Math.max(1, pr.frames)) * 1000;
+      this.avgFrameMs = avgMs;
+      if (avgMs > 40) this.setQuality(this.qualityLevel === 'high' ? 'medium' : 'low');
+      else if (avgMs > 30 && this.qualityLevel === 'high') this.setQuality('medium');
     }
   }
 
@@ -320,6 +480,7 @@ export class PhobiaEngine {
   render() {
     const delta = this.clock.getDelta();
     const elapsedTime = this.clock.getElapsedTime();
+    this._probeQuality(delta);
 
     // 1. Update Post-processing uniforms
     if (this.filmPass) {
@@ -329,6 +490,11 @@ export class PhobiaEngine {
       this.vhsPass.uniforms.uTime.value = elapsedTime;
       this.vhsPass.uniforms.uHuntIntensity.value = this.huntIntensity;
     }
+
+    // Lights added by the map after construction pick up the quality preset on the 3rd frame
+    if (this._qualityFrames === undefined) this._qualityFrames = 0;
+    if (this._qualityFrames < 3 && ++this._qualityFrames === 3) this.setQuality(this.qualityLevel);
+    this._updateMoonShadow();
 
     // 2. Update Flashlight Flicker (active during hunts or ghost interference)
     this._updateFlashlight(delta, elapsedTime);
@@ -475,6 +641,15 @@ export class PhobiaEngine {
   }
 
   /**
+   * Factory: articulated ghost figure (hunched, floating, long hair and shroud) wearing `material`
+   * (default: a fresh Ghost Dissolve material). Returns { group, figure, update(delta, { moving, hunting }), dispose }.
+   * `group` has its feet at y = 0 and faces +Z; the caller adds it to ghostGroup and owns the material.
+   */
+  createGhostFigure(material = null) {
+    return createGhostFigure(material || this.createGhostMaterial());
+  }
+
+  /**
    * Factory: Creates and tracks a D.O.T.S. Laser Matrix projector
    */
   createDotsProjector(options = {}) {
@@ -598,9 +773,18 @@ export class PhobiaEngine {
       this.composer = null;
     }
 
-    // Traverse and dispose scene meshes, materials, and geometries
+    // Traverse and dispose scene meshes, materials, geometries and their textures
     if (this.scene) {
       this.scene.traverse((obj) => {
+        if (obj.material) {
+          const list = Array.isArray(obj.material) ? obj.material : [obj.material];
+          for (const m of list) {
+            for (const key of Object.keys(m)) {
+              const v = m[key];
+              if (v && v.isTexture) v.dispose();
+            }
+          }
+        }
         if (obj.geometry) {
           obj.geometry.dispose();
         }
@@ -612,16 +796,26 @@ export class PhobiaEngine {
           }
         }
       });
+      this.scene.environment = null;
       this.scene.clear();
       this.scene = null;
     }
+    if (this._envTarget) {
+      this._envTarget.dispose();
+      this._envTarget = null;
+    }
+    disposeTextureLibrary();
 
-    // Dispose renderer
+    // Dispose renderer and release the WebGL context (avoids context leaks on remount)
     if (this.renderer) {
       try {
         this.renderer.dispose();
+        this.renderer.forceContextLoss?.();
       } catch (_) {}
       this.renderer = null;
+    }
+    if (this.mount && this.canvas?.parentNode === this.mount) {
+      this.mount.removeChild(this.canvas);
     }
   }
 }

@@ -284,6 +284,48 @@ export class ElectricalSystem {
   }
 
   /**
+   * Applies the authoritative server electrical state verbatim (no sockets, no SFX).
+   * @param {{breakerOn?: boolean, activeLights?: string[]}} state
+   */
+  syncFromServer(state = {}) {
+    if (typeof state.breakerOn === 'boolean') {
+      const wasOn = this.isOn;
+      this.isOn = state.breakerOn;
+      this.tripped = !state.breakerOn;
+      if (this.knifeSwitchPivot) {
+        this.knifeSwitchPivot.rotation.x = this.isOn ? KNIFE_SWITCH_ANGLES.ON : KNIFE_SWITCH_ANGLES.OFF;
+      }
+      if (this.map) {
+        this.map.isBreakerOn = this.isOn;
+        this.map.breakerTripped = !this.isOn;
+        if (this.map.knifeSwitchPivot) {
+          this.map.knifeSwitchPivot.rotation.x = this.isOn ? Math.PI / 4 : -Math.PI / 4;
+        }
+      }
+      if (wasOn !== this.isOn) {
+        this.onPlaySound(SFX_KEYS.BREAKER_FLIP, BREAKER_POSITION);
+      }
+    }
+
+    const active = Array.isArray(state.activeLights) ? new Set(state.activeLights) : null;
+    this.fixtures.forEach((fix, id) => {
+      const on = this.isOn && !fix.shattered && (active ? active.has(id) : fix.isOn);
+      fix.isOn = on;
+      fix.switchState = active ? active.has(id) : fix.switchState;
+      if (fix.light) {
+        fix.light.visible = on;
+        fix.light.intensity = on ? fix.intensity : 0;
+      }
+      if (on) this.activeLights.add(id);
+      else this.activeLights.delete(id);
+    });
+    // Keep the ScrapYardMap mirror consistent for HUD / prompts
+    if (this.map) {
+      this.map.activeLights = new Set(this.activeLights);
+    }
+  }
+
+  /**
    * Toggles the master breaker switch (UP/DOWN).
    */
   toggleBreaker(reason = 'USER', emitSocket = true) {
@@ -720,7 +762,11 @@ export class ElectricalSystem {
 
     this._onBreakerUpdated = (data) => {
       if (data && typeof data.breakerOn === 'boolean') {
-        this.setBreakerState(data.breakerOn, data.reason || 'SERVER', false);
+        // Server is authoritative: lights stay off after a breaker reset until toggled again
+        this.syncFromServer({
+          breakerOn: data.breakerOn,
+          activeLights: Array.isArray(data.activeLights) ? data.activeLights : (data.breakerOn ? Array.from(this.activeLights) : [])
+        });
       }
     };
 
@@ -730,18 +776,20 @@ export class ElectricalSystem {
 
     this._onLightUpdated = (data) => {
       if (!data || !data.lightId) return;
+      if (Array.isArray(data.activeLights)) {
+        this.syncFromServer({ activeLights: data.activeLights });
+        this.onPlaySound(SFX_KEYS.SWITCH_CLICK, this.fixtures.get(data.lightId)?.position || BREAKER_POSITION);
+        return;
+      }
       const fixture = this.fixtures.get(data.lightId);
       if (fixture && !fixture.shattered) {
-        fixture.isOn = Boolean(data.state);
+        fixture.isOn = Boolean(data.state) && this.isOn;
         if (fixture.light) {
-          fixture.light.visible = fixture.isOn && this.isOn;
+          fixture.light.visible = fixture.isOn;
           fixture.light.intensity = fixture.isOn ? fixture.intensity : 0;
         }
-        if (fixture.isOn) {
-          this.activeLights.add(data.lightId);
-        } else {
-          this.activeLights.delete(data.lightId);
-        }
+        if (fixture.isOn) this.activeLights.add(data.lightId);
+        else this.activeLights.delete(data.lightId);
       }
     };
 

@@ -42,7 +42,7 @@ export class RainParticles {
       const x = (Math.random() - 0.5) * this.boxWidth;
       const y = Math.random() * this.boxHeight;
       const z = (Math.random() - 0.5) * this.boxDepth;
-      const length = 0.6 + Math.random() * 0.7; // 0.6m to 1.3m streak
+      const length = 0.3 + Math.random() * 0.35; // 0.3m to 0.65m streak
       this.rainLengths[i] = length;
 
       // Top vertex
@@ -63,12 +63,13 @@ export class RainParticles {
     this.rainMaterial = new THREE.LineBasicMaterial({
       color: 0x98b8df,
       transparent: true,
-      opacity: 0.42,
+      opacity: 0.22,
       blending: THREE.NormalBlending,
       depthWrite: false
     });
 
     this.rainMesh = new THREE.LineSegments(this.rainGeometry, this.rainMaterial);
+    this.rainMesh.frustumCulled = false; // positions follow the camera; bounding sphere would be stale
     this.group.add(this.rainMesh);
   }
 
@@ -112,6 +113,7 @@ export class RainParticles {
         ctx.fillStyle = grad;
         ctx.fillRect(0, 0, 128, 128);
         mistTex = new THREE.CanvasTexture(canvas);
+        mistTex.colorSpace = THREE.SRGBColorSpace;
       }
     }
     if (!mistTex) {
@@ -120,15 +122,16 @@ export class RainParticles {
 
     this.mistMaterial = new THREE.PointsMaterial({
       color: 0x90a5be,
-      size: 4.5,
+      size: 3.5,
       map: mistTex,
       transparent: true,
-      opacity: 0.32,
+      opacity: 0.18,
       blending: THREE.NormalBlending,
       depthWrite: false
     });
 
     this.mistPoints = new THREE.Points(this.mistGeometry, this.mistMaterial);
+    this.mistPoints.frustumCulled = false;
     this.group.add(this.mistPoints);
   }
 

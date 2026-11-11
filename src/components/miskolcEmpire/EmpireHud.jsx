@@ -1,11 +1,16 @@
-import React, { useEffect, useRef, useState } from 'react';
-import { Flag, Library, LogOut, Pause, WifiOff, X } from 'lucide-react';
-import { selectionInfo, isMine, playerOf, playerColor } from './empireStore';
-import { renderMinimap, miniToWorld } from './empireRender';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
+import { Flag, Library, LogOut, Pause, WifiOff, X, Volume2, VolumeX, Hammer, Eye } from 'lucide-react';
+import { selectionInfo, isMine, playerOf, playerColor, spyReportFor, notify } from './empireStore';
+import { renderMinimap, miniToWorld } from './empireMinimap';
 import { centerOnWorld } from './empireMath';
 import {
   RES_KEYS, RES_META, canAfford, costEntries, reqEpoch, epochName, buildingLabel, unitLabel, isBuilderKind
 } from './empireContent';
+import { saveMuted } from './empireAudio';
+import EmpireHeader from './EmpireHeader';
+import ControlGroupsBar from './ControlGroupsBar';
+import EmpireChat from './EmpireChat';
+import { DefeatBanner, SpectatorBar } from './EmpireSpectator';
 
 export const GLASS = {
   background: 'rgba(21, 24, 50, 0.78)',
@@ -14,12 +19,32 @@ export const GLASS = {
   border: '1px solid rgba(125, 105, 255, 0.22)'
 };
 
-const STATUS_HU = { idle: 'Tétlen', move: 'Úton', gather: 'Gyűjt', return: 'Visszaviszi', build: 'Épít', attack: 'Támad', repair: 'Javít' };
+const RES_HU = { iron: 'Vas', copper: 'Réz', food: 'Kaja', wood: 'Fa' };
+const STATUS_HU = { idle: 'Tétlen', move: 'Úton', gather: 'Gyűjt', return: 'Visszaviszi', build: 'Épít', attack: 'Támad', repair: 'Javít', siphon: 'Dézsmál' };
 const CLASS_HU = {
   worker: 'Munkás', light: 'Könnyű közelharc', lightMelee: 'Könnyű közelharc', heavy: 'Nehéz közelharc', heavyMelee: 'Nehéz közelharc',
-  ranged: 'Távolsági', vehicle: 'Jármű', fastVehicle: 'Gyors jármű', siege: 'Ostromgép', hero: 'Hős', building: 'Épület'
+  ranged: 'Távolsági', vehicle: 'Jármű', fastVehicle: 'Gyors jármű', siege: 'Ostromgép', hero: 'Hős', building: 'Épület', spy: 'Kém'
 };
-const RES_HU = { iron: 'Vas', copper: 'Réz', food: 'Kaja', wood: 'Fa' };
+const DEFAULT_DEMOLISH = { maxRefund: 0.5, minRefund: 0.35, holdMs: 1500 };
+
+// Client-side preview of the server's refund rule (contract section 2); the ack is authoritative.
+export function demolishRefundPreview(def, b, cfg = DEFAULT_DEMOLISH) {
+  const cost = def?.cost || {};
+  let r;
+  if (b.bp < 100) r = cfg.maxRefund * (b.bp / 100);
+  else {
+    const f = Math.max(0, Math.min(1, b.hp / (b.mhp || 1)));
+    r = f >= 0.5 ? cfg.minRefund + (cfg.maxRefund - cfg.minRefund) * ((f - 0.5) / 0.5) : cfg.minRefund * (f / 0.5);
+  }
+  const out = {};
+  for (const k of Object.keys(cost)) out[k] = Math.floor(cost[k] * r + 1e-9);
+  return out;
+}
+
+export function refundText(refund) {
+  const parts = RES_KEYS.filter((k) => refund?.[k] > 0).map((k) => `+${refund[k]} ${RES_HU[k]}`);
+  return parts.length ? `Bontás: ${parts.join(', ')}` : 'Bontás: nincs visszatérítés.';
+}
 
 // Re-render around 4 Hz so the HUD can read the mutable store without per-tick React state.
 function useHudTick(ms = 250) {
@@ -75,17 +100,16 @@ function ActionButton({ label, sub, cost, res, disabled, reason, active, onClick
   );
 }
 
-function TopBar({ store, content, onOpenTech, onCommand, onResign, onLeave }) {
+function TopBar({ store, content, onOpenTech, onCommand, onResign, onLeave, onToggleMute }) {
   const res = store.res;
-  const me = playerOf(store, store.you.idx);
-  const epoch = res.epoch || me?.epoch || 1;
+  const epoch = res.epoch || 1;
   const next = content?.epochs?.find((e) => e.n === epoch + 1);
   const researching = res.research;
   const nextReason = researching ? 'Kutatás folyamatban' : !canAfford(res, next?.cost) ? 'Nincs elég nyersanyag' : '';
   return (
     <div className="pointer-events-auto flex flex-wrap items-center gap-2 px-3 py-2 rounded-2xl" style={GLASS}>
       {RES_KEYS.map((k) => (
-        <div key={k} className="flex items-center gap-1.5 px-2.5 py-1 rounded-xl" style={{ background: '#101329' }} title={RES_META[k].hint}>
+        <div key={k} className="flex items-center gap-1.5 px-2.5 py-1 rounded-xl" style={{ background: '#101329' }} title={content?.raw?.resources?.[k]?.name || RES_META[k].hint}>
           <span className="text-sm">{RES_META[k].icon}</span>
           <span className="text-[10px] uppercase tracking-wider hidden md:inline" style={{ color: '#999BBE' }}>{RES_META[k].label}</span>
           <span className="text-sm font-bold tabular-nums" style={{ color: RES_META[k].color }}>{Math.floor(res[k] || 0)}</span>
@@ -96,25 +120,23 @@ function TopBar({ store, content, onOpenTech, onCommand, onResign, onLeave }) {
         <span className="text-[10px] uppercase tracking-wider hidden md:inline" style={{ color: '#999BBE' }}>Lakosság</span>
         <span className="text-sm font-bold tabular-nums" style={{ color: res.pop >= res.popCap ? '#E94B64' : '#F4F3FF' }}>{res.pop || 0}/{res.popCap || 0}</span>
       </div>
-      <div className="flex items-center gap-2 px-2.5 py-1 rounded-xl min-w-[150px]" style={{ background: '#101329' }} title="Aktuális Korszak">
-        <div className="flex-1">
-          <div className="text-[9px] uppercase tracking-wider" style={{ color: '#999BBE' }}>Aktuális Korszak</div>
-          <div className="text-xs font-bold truncate" style={{ color: '#c7bfff' }}>{epoch}. {epochName(content, epoch).replace(/^\d+\.\s*/, '')}</div>
-          {researching && <Bar frac={(researching.pct || 0) / 100} color="#536CFF" h={4} />}
-        </div>
-        {next && (
-          <button
-            onClick={() => onCommand('advance-epoch', {})}
-            disabled={!!nextReason}
-            title={nextReason || `Fejlesztés: ${next.name}`}
-            className="px-2 py-1 rounded-lg text-[11px] font-bold transition enabled:hover:brightness-125 disabled:opacity-40 disabled:cursor-not-allowed"
-            style={{ background: 'linear-gradient(135deg,#7655F5,#536CFF)', color: '#fff' }}
-          >
-            Fejlesztés
-          </button>
-        )}
-      </div>
+      {next && (
+        <button
+          onClick={() => onCommand('advance-epoch', {})}
+          disabled={!!nextReason}
+          title={nextReason || `Fejlesztés: ${next.n}. Korszak: ${next.name}`}
+          className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl text-[11px] font-bold transition enabled:hover:brightness-125 disabled:opacity-40 disabled:cursor-not-allowed min-w-0"
+          style={{ background: 'linear-gradient(135deg,#7655F5,#536CFF)', color: '#fff' }}
+        >
+          <span>Fejlesztés</span>
+          <span className="hidden lg:inline truncate max-w-[160px] font-semibold opacity-90">→ {next.name}</span>
+          <CostChips cost={next.cost} res={res} />
+        </button>
+      )}
       <div className="ml-auto flex items-center gap-1.5">
+        <button onClick={onToggleMute} title={store.ui.muted ? 'Hang bekapcsolása' : 'Némítás'} className="p-1.5 rounded-xl transition hover:brightness-125" style={{ background: '#1B2040', color: '#999BBE' }}>
+          {store.ui.muted ? <VolumeX className="w-4 h-4" /> : <Volume2 className="w-4 h-4" />}
+        </button>
         <button onClick={onOpenTech} className="flex items-center gap-1 px-2.5 py-1.5 rounded-xl text-xs font-semibold transition hover:brightness-125" style={{ background: '#1B2040', color: '#F4F3FF', border: '1px solid rgba(125,105,255,0.25)' }}>
           <Library className="w-3.5 h-3.5" /><span className="hidden sm:inline">Technológiák</span>
         </button>
@@ -129,53 +151,34 @@ function TopBar({ store, content, onOpenTech, onCommand, onResign, onLeave }) {
   );
 }
 
-function PlayerList({ store, content }) {
-  return (
-    <div className="pointer-events-auto rounded-2xl px-2.5 py-2 space-y-1 text-[11px]" style={GLASS}>
-      {store.players.map((p) => (
-        <div key={p.idx} className="flex items-center gap-1.5" style={{ opacity: p.alive === false ? 0.45 : 1 }}>
-          <span className="w-2.5 h-2.5 rounded-full flex-shrink-0" style={{ background: playerColor(store, p.idx) }} />
-          <span className="font-semibold truncate max-w-[110px]" style={{ color: '#F4F3FF' }}>{p.name}</span>
-          <span style={{ color: '#999BBE' }}>{p.team + 1}. csapat</span>
-          {p.isAi && <span className="px-1 rounded" style={{ background: '#1B2040', color: '#999BBE' }}>MI</span>}
-          {p.connected === false && !p.isAi && <span title="Lekapcsolódott"><WifiOff className="w-3 h-3" style={{ color: '#E94B64' }} /></span>}
-          <span className="ml-auto" style={{ color: '#999BBE' }} title={epochName(content, p.epoch)}>{p.epoch || 1}. k.</span>
-        </div>
-      ))}
-    </div>
-  );
-}
-
+const MINI = 172;
 function Minimap({ store }) {
   const ref = useRef(null);
-  const W = 220, H = 124;
   useEffect(() => {
     const c = ref.current;
     const ctx = c.getContext('2d');
     const dpr = Math.min(window.devicePixelRatio || 1, 2);
-    c.width = W * dpr; c.height = H * dpr;
-    const id = setInterval(() => {
-      const vp = store.viewport || { w: 800, h: 600 };
-      renderMinimap(ctx, store, W, H, dpr, vp.w, vp.h);
-    }, 100);
+    c.width = MINI * dpr; c.height = MINI * dpr;
+    const id = setInterval(() => renderMinimap(ctx, store, MINI, MINI, dpr), 100);
     return () => clearInterval(id);
   }, [store]);
 
   const tmp = { x: 0, y: 0 };
   const pan = (e) => {
     const r = ref.current.getBoundingClientRect();
-    miniToWorld(store, W, H, (e.clientX - r.left) * (W / r.width), (e.clientY - r.top) * (H / r.height), tmp);
+    miniToWorld(store, MINI, MINI, (e.clientX - r.left) * (MINI / r.width), (e.clientY - r.top) * (MINI / r.height), tmp);
     return tmp;
   };
   const drag = useRef(false);
   return (
-    <div className="pointer-events-auto rounded-2xl p-1.5" style={GLASS}>
+    <div className="pointer-events-auto rounded-2xl p-1.5 flex-shrink-0" style={GLASS}>
       <canvas
         ref={ref}
-        style={{ width: W, height: H, borderRadius: 12, cursor: 'crosshair', display: 'block', touchAction: 'none' }}
+        style={{ width: MINI, height: MINI, borderRadius: 12, cursor: 'crosshair', display: 'block', touchAction: 'none' }}
         onContextMenu={(e) => e.preventDefault()}
         onPointerDown={(e) => {
           if (e.button === 2) {
+            if (store.spectator) return;
             const p = pan(e);
             const ids = selectionInfo(store).units.filter((u) => isMine(store, u.o)).slice(0, 60).map((u) => u.i);
             if (ids.length) store.onMiniOrder?.(ids, +p.x.toFixed(2), +p.y.toFixed(2));
@@ -201,8 +204,8 @@ function InfoPanel({ store, content, sel }) {
       <div>
         <div className="flex items-center gap-2">
           <span className="w-2.5 h-2.5 rounded-full" style={{ background: playerColor(store, u.o) }} />
-          <span className="font-bold text-sm">{unitLabel(content, u.k)}</span>
-          <span className="text-[10px]" style={{ color: '#999BBE' }}>{CLASS_HU[def?.class] || def?.class || ''}</span>
+          <span className="font-bold text-sm">{u.k === 'civilian' ? 'Vándorló civil' : unitLabel(content, u.k)}</span>
+          <span className="text-[10px]" style={{ color: '#999BBE' }}>{u.k === 'civilian' ? 'Semleges' : CLASS_HU[def?.class] || def?.class || ''}</span>
         </div>
         <div className="mt-1"><Bar frac={u.hp / u.mhp} color="#28C997" /></div>
         <div className="text-[11px] mt-0.5" style={{ color: '#c9cdea' }}>{Math.ceil(u.hp)}/{Math.ceil(u.mhp)} élet · {STATUS_HU[u.st] || u.st}</div>
@@ -226,7 +229,7 @@ function InfoPanel({ store, content, sel }) {
         <div className="font-bold text-sm mb-1">{units.length} egység kijelölve</div>
         <div className="flex flex-wrap gap-1.5">
           {[...counts].map(([k, n]) => (
-            <span key={k} className="px-2 py-0.5 rounded-lg text-[11px]" style={{ background: '#1B2040' }}>{unitLabel(content, k)} ×{n}</span>
+            <span key={k} className="px-2 py-0.5 rounded-lg text-[11px]" style={{ background: '#1B2040' }}>{k === 'civilian' ? 'Vándorló civil' : unitLabel(content, k)} ×{n}</span>
           ))}
         </div>
       </div>
@@ -272,15 +275,149 @@ function InfoPanel({ store, content, sel }) {
   }
   return (
     <div className="text-[11px] leading-relaxed" style={{ color: '#999BBE' }}>
-      <div className="font-bold text-sm mb-1" style={{ color: '#F4F3FF' }}>Parancsnoki híd</div>
-      Bal gomb: kijelölés (húzással keret) · Jobb gomb: mozgás / gyűjtés / támadás / javítás<br />
-      WASD vagy a képernyő széle: kamera · Görgő: nagyítás · Középső gomb: húzás<br />
-      Ctrl+1..9: csoport mentése · X: megállj · H: vissza a Vajda Házához
+      <div className="font-bold text-sm mb-1" style={{ color: '#F4F3FF' }}>{store.spectator ? 'Megfigyelő mód' : 'Parancsnoki híd'}</div>
+      {store.spectator ? (
+        <>Szabad kamera: WASD vagy a képernyő széle · Görgő: nagyítás · Középső gomb (vagy Alt+bal gomb): forgatás · Q/E: elforgatás<br />Kattints egy egységre vagy épületre a részletekért.</>
+      ) : (
+        <>
+          Bal gomb: kijelölés · Bal gomb húzása: térkép mozgatása · Ctrl + bal gomb húzása: keretes kijelölés · Jobb gomb: mozgás / gyűjtés / támadás / javítás / dézsmálás<br />
+          WASD vagy a képernyő széle: kamera · Görgő: nagyítás · Középső gomb (vagy Alt+bal gomb): forgatás · Q/E: elforgatás<br />
+          Ctrl+1..9: csoport mentése · 1..9: csoport (dupla: odaugrás) · X: megállj · H: Vajda Háza · Delete (nyomva tartva): bontás · Enter: csevegés
+        </>
+      )}
     </div>
   );
 }
 
-function ActionPanel({ store, content, sel, onCommand }) {
+function DemolishButton({ store, content, buildings, onDemolish }) {
+  const cfg = { ...DEFAULT_DEMOLISH, ...(content?.raw?.demolish || {}) };
+  const holdMs = cfg.holdMs || 1500;
+  const [prog, setProg] = useState(0);
+  const [busy, setBusy] = useState(false);
+  const startRef = useRef(null);
+  const rafRef = useRef(0);
+  const idsRef = useRef([]);
+  idsRef.current = buildings.map((b) => b.i);
+
+  const cancel = useCallback(() => {
+    startRef.current = null;
+    cancelAnimationFrame(rafRef.current);
+    setProg(0);
+  }, []);
+  const fire = useCallback(async () => {
+    setBusy(true);
+    const refund = await onDemolish(idsRef.current);
+    setBusy(false);
+    if (refund) notify(store, refundText(refund), 'good');
+  }, [onDemolish, store]);
+  const begin = useCallback(() => {
+    if (startRef.current !== null || busy) return;
+    startRef.current = performance.now();
+    const step = () => {
+      if (startRef.current === null) return;
+      const k = (performance.now() - startRef.current) / holdMs;
+      if (k >= 1) { cancel(); fire(); return; }
+      setProg(k);
+      rafRef.current = requestAnimationFrame(step);
+    };
+    rafRef.current = requestAnimationFrame(step);
+  }, [busy, holdMs, cancel, fire]);
+
+  useEffect(() => {
+    const typing = (e) => { const t = e.target; return t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.isContentEditable); };
+    const down = (e) => { if (e.key === 'Delete' && !typing(e)) { e.preventDefault(); begin(); } };
+    const up = (e) => { if (e.key === 'Delete') cancel(); };
+    window.addEventListener('keydown', down);
+    window.addEventListener('keyup', up);
+    window.addEventListener('blur', cancel);
+    return () => { window.removeEventListener('keydown', down); window.removeEventListener('keyup', up); window.removeEventListener('blur', cancel); cancel(); };
+  }, [begin, cancel]);
+
+  const preview = {};
+  for (const b of buildings) {
+    const r = demolishRefundPreview(content?.buildings?.[b.k], b, cfg);
+    for (const [k, v] of Object.entries(r)) preview[k] = (preview[k] || 0) + v;
+  }
+  const previewEntries = RES_KEYS.filter((k) => preview[k] > 0);
+  return (
+    <div key="demolish">
+      <div className="text-[10px] font-bold uppercase tracking-widest mb-1" style={{ color: '#999BBE' }}>Bontás</div>
+      <button
+        onPointerDown={(e) => { e.preventDefault(); begin(); }}
+        onPointerUp={cancel}
+        onPointerLeave={cancel}
+        onPointerCancel={cancel}
+        onContextMenu={(e) => e.preventDefault()}
+        disabled={busy}
+        title={`Tartsd lenyomva ${(holdMs / 1000).toFixed(1)} mp-ig (vagy a Delete billentyűt)`}
+        className="relative overflow-hidden rounded-xl px-3 py-2 text-left select-none transition active:scale-[0.98] disabled:opacity-50"
+        style={{ minWidth: 190, background: 'rgba(233,75,100,0.14)', border: '1px solid rgba(233,75,100,0.55)', color: '#ffb3c0', boxShadow: prog > 0 ? '0 0 18px rgba(233,75,100,0.45)' : 'none' }}
+      >
+        <span className="absolute inset-y-0 left-0" style={{ width: `${prog * 100}%`, background: 'linear-gradient(90deg,rgba(233,75,100,0.55),rgba(255,120,90,0.75))' }} />
+        <span className="relative flex items-center gap-2">
+          <Hammer className="w-4 h-4" />
+          <span>
+            <span className="block text-xs font-black">Bontás / Épület törlése{buildings.length > 1 ? ` (${buildings.length})` : ''}</span>
+            <span className="block text-[10px] font-semibold" style={{ color: '#f3c7cf' }}>
+              {busy ? 'Bontás folyamatban...' : prog > 0 ? 'Tartsd lenyomva...' : 'Nyomva tartva (Delete)'}
+            </span>
+          </span>
+        </span>
+      </button>
+      <div className="text-[10px] mt-1" style={{ color: '#999BBE' }}>
+        Várható visszatérítés: {previewEntries.length ? previewEntries.map((k) => `${RES_META[k].icon}${preview[k]}`).join(' ') : 'semmi'}
+      </div>
+    </div>
+  );
+}
+
+function SpyReportPanel({ store, content }) {
+  if (store.spectator) return null;
+  const spies = selectionInfo(store).units.filter((u) => u.k === 'infiltrator' && isMine(store, u.o));
+  let report = null;
+  for (const u of spies) { report = spyReportFor(store, u.i); if (report) break; }
+  if (!spies.length) return null;
+  if (!report) {
+    return (
+      <div className="pointer-events-auto w-[250px] rounded-2xl px-3 py-2.5 text-[11px]" style={{ ...GLASS, borderColor: 'rgba(245,176,65,0.35)' }}>
+        <div className="flex items-center gap-1.5 font-black text-xs" style={{ color: '#f5b041' }}><Eye className="w-3.5 h-3.5" /> Kémjelentés</div>
+        <div className="mt-1" style={{ color: '#999BBE' }}>Nincs ellenséges épület a közelben. Vidd a Vándor Kémet egy ellenséges telep közelébe.</div>
+      </div>
+    );
+  }
+  const color = typeof report.color === 'string' ? report.color : playerColor(store, report.victim);
+  const rows = [['iron', 'Vas'], ['copper', 'Réz'], ['food', 'Kaja'], ['wood', 'Fa']];
+  return (
+    <div className="pointer-events-auto w-[250px] rounded-2xl px-3 py-2.5" style={{ ...GLASS, borderColor: 'rgba(245,176,65,0.45)', boxShadow: '0 8px 26px rgba(0,0,0,0.35)' }}>
+      <div className="flex items-center gap-1.5 font-black text-xs" style={{ color: '#f5b041' }}><Eye className="w-3.5 h-3.5" /> Kémjelentés</div>
+      <div className="mt-1.5 flex items-center gap-2 min-w-0">
+        <span className="w-2.5 h-2.5 rounded-full flex-shrink-0" style={{ background: color }} />
+        <span className="font-bold text-sm truncate" title={report.name}>{report.name}</span>
+      </div>
+      <div className="mt-1.5 grid grid-cols-2 gap-1">
+        {rows.map(([k, label]) => (
+          <div key={k} className="flex items-center justify-between px-2 py-1 rounded-lg text-[11px]" style={{ background: '#101329' }}>
+            <span style={{ color: '#999BBE' }}>{RES_META[k].icon} {label}</span>
+            <b className="tabular-nums" style={{ color: RES_META[k].color }}>{Math.floor(report.res?.[k] || 0)}</b>
+          </div>
+        ))}
+      </div>
+      <div className="mt-1.5 text-[11px]" style={{ color: '#c9cdea' }}>
+        Korszak: <b>{report.epoch}. {epochName(content, report.epoch)}</b>
+      </div>
+      {report.research ? (
+        <div className="mt-1">
+          <div className="text-[10px]" style={{ color: '#999BBE' }}>Kutatás: {epochName(content, report.research.epoch)} · {Math.floor(report.research.pct || 0)}%</div>
+          <Bar frac={(report.research.pct || 0) / 100} color="#536CFF" h={4} />
+        </div>
+      ) : <div className="text-[10px] mt-0.5" style={{ color: '#7f83a8' }}>Nem kutat semmit.</div>}
+      <div className="mt-1 text-[11px]" style={{ color: '#c9cdea' }}>Katonai létszám: <b style={{ color: '#E94B64' }}>{report.military}</b></div>
+    </div>
+  );
+}
+
+function ActionPanel({ store, content, sel, onCommand, onDemolish }) {
+  if (store.spectator) return null;
   const res = store.res;
   const epoch = res.epoch || 1;
   const placing = store.ui.placing;
@@ -366,6 +503,9 @@ function ActionPanel({ store, content, sel, onCommand }) {
       }
     }
   }
+  if (myB.length && sel.units.length === 0) {
+    sections.push(<DemolishButton key="demolish" store={store} content={content} buildings={myB.slice(0, 10)} onDemolish={onDemolish} />);
+  }
   if (!sections.length) return null;
   return <div className="space-y-2">{sections}</div>;
 }
@@ -391,7 +531,7 @@ function ResultsScreen({ store, results, onBackToLobby }) {
               <thead>
                 <tr style={{ color: '#999BBE' }}>
                   <th className="text-left p-2">Játékos</th><th className="p-2">Csapat</th><th className="p-2">Eredmény</th>
-                  <th className="p-2">Legyőzött egység</th><th className="p-2">Lerombolt épület</th><th className="p-2">Gyűjtött</th>
+                  <th className="p-2">Legyőzött egység</th><th className="p-2">Elvesztett egység</th><th className="p-2">Lerombolt épület</th><th className="p-2">Okozott sebzés</th><th className="p-2">Gyűjtött</th>
                 </tr>
               </thead>
               <tbody>
@@ -402,7 +542,8 @@ function ResultsScreen({ store, results, onBackToLobby }) {
                     </td>
                     <td className="p-2">{r.team + 1}</td>
                     <td className="p-2 font-bold" style={{ color: r.won ? '#28C997' : '#E94B64' }}>{r.won ? 'Győztes' : 'Vesztes'}</td>
-                    <td className="p-2">{r.unitsKilled}</td><td className="p-2">{r.buildingsDestroyed}</td><td className="p-2">{Math.floor(r.gathered || 0)}</td>
+                    <td className="p-2">{r.unitsKilled}</td><td className="p-2">{r.unitsLost ?? '–'}</td><td className="p-2">{r.buildingsDestroyed}</td>
+                    <td className="p-2">{r.damageDealt !== undefined ? Math.floor(r.damageDealt) : '–'}</td><td className="p-2">{Math.floor(r.gathered || 0)}</td>
                   </tr>
                 ))}
               </tbody>
@@ -419,12 +560,25 @@ function ResultsScreen({ store, results, onBackToLobby }) {
   );
 }
 
-export default function EmpireHud({ store, content, connected, results, phase, onCommand, onResign, onExit, onBackToLobby, onOpenTech }) {
+export default function EmpireHud({ store, content, connected, results, phase, mode, onCommand, onResign, onExit, onBackToLobby, onOpenTech, onDemolish, onChat }) {
   useHudTick(250);
   const [confirmResign, setConfirmResign] = useState(false);
+  const [defeatSeen, setDefeatSeen] = useState(false);
+  const [, setMuteTick] = useState(0);
   const sel = selectionInfo(store);
   const paused = store.paused;
   const pauseLeft = paused?.untilMs ? Math.max(0, Math.ceil((paused.untilMs - Date.now()) / 1000)) : null;
+  const spectator = store.spectator;
+  const showDefeat = !!store.defeat && !defeatSeen && phase === 'playing';
+  const finishDefeat = useCallback(() => {
+    setDefeatSeen(true);
+    notify(store, 'Megfigyelő mód: a teljes térkép látható, a kamera szabadon mozog.', 'info');
+  }, [store]);
+  const toggleMute = () => {
+    store.ui.muted = !store.ui.muted;
+    saveMuted(store.ui.muted);
+    setMuteTick((n) => n + 1);
+  };
 
   useEffect(() => {
     store.onMiniOrder = (ids, x, y) => {
@@ -438,23 +592,31 @@ export default function EmpireHud({ store, content, connected, results, phase, o
   return (
     <div className="absolute inset-0 pointer-events-none z-10 flex flex-col justify-between p-2 gap-2">
       <div className="flex flex-col gap-2">
-        <TopBar
-          store={store}
-          content={content}
-          onOpenTech={onOpenTech}
-          onCommand={onCommand}
-          onResign={() => setConfirmResign(true)}
-          onLeave={onExit}
-        />
+        {spectator ? (
+          <SpectatorBar store={store} content={content} onLeave={onBackToLobby} onOpenTech={onOpenTech} onToggleMute={toggleMute} />
+        ) : (
+          <TopBar
+            store={store}
+            content={content}
+            onOpenTech={onOpenTech}
+            onCommand={onCommand}
+            onResign={() => setConfirmResign(true)}
+            onLeave={onExit}
+            onToggleMute={toggleMute}
+          />
+        )}
         <div className="flex items-start justify-between gap-2">
-          <div className="space-y-1.5 max-w-sm">
+          <div className="space-y-1.5 max-w-sm min-w-0">
             {store.notices.map((n, i) => (
               <div key={`${n.t0}-${i}`} className="pointer-events-auto px-3 py-1.5 rounded-xl text-xs font-semibold animate-in fade-in" style={{ ...GLASS, color: n.kind === 'alert' ? '#E94B64' : n.kind === 'good' ? '#28C997' : '#F4F3FF' }}>
                 {n.text}
               </div>
             ))}
           </div>
-          <PlayerList store={store} content={content} />
+          <div className="flex flex-col items-end gap-2">
+            {!spectator && <EmpireHeader store={store} content={content} mode={mode} />}
+            <SpyReportPanel store={store} content={content} />
+          </div>
         </div>
       </div>
 
@@ -467,25 +629,32 @@ export default function EmpireHud({ store, content, connected, results, phase, o
         </div>
       )}
 
-      <div className="flex items-end gap-2 flex-wrap md:flex-nowrap">
-        <Minimap store={store} />
-        <div className="pointer-events-auto flex-1 min-w-[260px] rounded-2xl p-3 flex flex-col md:flex-row gap-4 max-h-[42vh] overflow-y-auto" style={GLASS}>
-          <div className="md:w-[40%] min-w-0"><InfoPanel store={store} content={content} sel={sel} /></div>
-          <div className="flex-1 min-w-0"><ActionPanel store={store} content={content} sel={sel} onCommand={onCommand} /></div>
+      <div className="flex flex-col gap-2">
+        <div className="flex items-end justify-between gap-2">
+          <EmpireChat store={store} onSend={onChat} />
+          {!spectator && <ControlGroupsBar store={store} content={content} />}
+          <div className="w-[1px]" />
+        </div>
+        <div className="flex items-end gap-2 flex-wrap md:flex-nowrap">
+          <Minimap store={store} />
+          <div className="pointer-events-auto flex-1 min-w-[260px] rounded-2xl p-3 flex flex-col md:flex-row gap-4 max-h-[42vh] overflow-y-auto" style={GLASS}>
+            <div className="md:w-[40%] min-w-0"><InfoPanel store={store} content={content} sel={sel} /></div>
+            <div className="flex-1 min-w-0"><ActionPanel store={store} content={content} sel={sel} onCommand={onCommand} onDemolish={onDemolish} /></div>
+          </div>
         </div>
       </div>
 
-      {store.ui.placing && (
-        <div className="absolute bottom-48 left-1/2 -translate-x-1/2 px-3 py-1.5 rounded-xl text-xs font-semibold pointer-events-none" style={{ ...GLASS, color: '#c7bfff' }}>
+      {store.ui.placing && !spectator && (
+        <div className="absolute bottom-64 left-1/2 -translate-x-1/2 px-3 py-1.5 rounded-xl text-xs font-semibold pointer-events-none" style={{ ...GLASS, color: '#c7bfff' }}>
           Kattints a lerakáshoz (Shift: többet is) · Jobb gomb / Esc: mégse
         </div>
       )}
 
-      {confirmResign && (
+      {confirmResign && !spectator && (
         <div className="absolute inset-0 z-20 flex items-center justify-center pointer-events-auto" style={{ background: 'rgba(5,6,15,0.6)' }}>
           <div className="rounded-2xl p-5 max-w-xs text-center" style={GLASS}>
             <div className="font-bold mb-1">Biztosan feladod?</div>
-            <div className="text-xs mb-4" style={{ color: '#999BBE' }}>Ezzel kiesel a meccsből.</div>
+            <div className="text-xs mb-4" style={{ color: '#999BBE' }}>Ezzel kiesel a meccsből, de megfigyelőként tovább nézheted.</div>
             <div className="flex gap-2 justify-center">
               <button onClick={() => setConfirmResign(false)} className="px-4 py-2 rounded-xl text-xs font-semibold" style={{ background: '#1B2040' }}>Mégsem</button>
               <button onClick={() => { setConfirmResign(false); onResign(); }} className="px-4 py-2 rounded-xl text-xs font-bold" style={{ background: '#E94B64', color: '#fff' }}>Feladom</button>
@@ -493,6 +662,8 @@ export default function EmpireHud({ store, content, connected, results, phase, o
           </div>
         </div>
       )}
+
+      {showDefeat && <DefeatBanner stats={store.defeat.stats} onContinue={finishDefeat} />}
 
       {!store.map.w && (
         <div className="absolute inset-0 flex items-center justify-center pointer-events-none">

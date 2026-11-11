@@ -1,4 +1,5 @@
-import React, { useState, lazy, Suspense } from 'react';
+import React, { useState, useEffect, useRef, lazy, Suspense } from 'react';
+import { Maximize, Minimize } from 'lucide-react';
 import WhiteboardView from './WhiteboardView';
 import CodeEditorView from './CodeEditorView';
 import CasinoView from './CasinoView';
@@ -46,8 +47,6 @@ export default function VoiceRoomView({
   chessSession,
   empireSession,
   phobiaSession,
-  onStartPhobia,
-  onStopPhobia,
   onStartChess,
   onJoinChess,
   onMoveChess,
@@ -56,6 +55,7 @@ export default function VoiceRoomView({
   onStopChess,
   gameSession,
   setPeerVolume,
+  setPeerSpatial,
   browserSession,
   onStartBrowser,
   onNavigateBrowser,
@@ -78,6 +78,36 @@ export default function VoiceRoomView({
   // 'stage' | 'whiteboard' | 'code' | 'casino' | 'watch' | 'chess' | 'empire' | 'browser'
   const [subView, setSubView] = useState('stage');
   const backToStage = () => setSubView('stage');
+
+  // Teljes képernyő a játékokhoz / aktivitásokhoz (a böngészőnek saját gombja van)
+  const mainRef = useRef(null);
+  const [isMainFullscreen, setIsMainFullscreen] = useState(false);
+  const canFullscreen = subView !== 'stage' && subView !== 'browser';
+
+  useEffect(() => {
+    const onChange = () => setIsMainFullscreen(document.fullscreenElement === mainRef.current);
+    document.addEventListener('fullscreenchange', onChange);
+    return () => document.removeEventListener('fullscreenchange', onChange);
+  }, []);
+
+  const toggleMainFullscreen = () => {
+    if (document.fullscreenElement) document.exitFullscreen?.().catch(() => {});
+    else mainRef.current?.requestFullscreen?.().catch(() => {});
+  };
+
+  // Ha elhagyjuk a nézetet, kilépünk a teljes képernyőből
+  useEffect(() => {
+    if (!canFullscreen && document.fullscreenElement === mainRef.current) {
+      document.exitFullscreen?.().catch(() => {});
+    }
+  }, [canFullscreen]);
+
+  // A MiskolcPhobia megnyitásakor megpróbálunk teljes képernyőre váltani (a böngésző elutasíthatja)
+  useEffect(() => {
+    if (subView === 'phobia' && !document.fullscreenElement) {
+      mainRef.current?.requestFullscreen?.().catch(() => {});
+    }
+  }, [subView]);
   const toggleView = (view) => setSubView((current) => (current === view ? 'stage' : view));
 
   const sharers = useScreenSharers({
@@ -138,6 +168,7 @@ export default function VoiceRoomView({
               channelId={channelId}
               currentUser={currentUser}
               session={phobiaSession}
+              setPeerSpatial={setPeerSpatial}
               onClose={backToStage}
             />
           </Suspense>
@@ -256,6 +287,7 @@ export default function VoiceRoomView({
 
       <ActivityBanners
         subView={subView}
+        phobiaSession={phobiaSession}
         watchState={watchState}
         casinoSession={casinoSession}
         chessSession={chessSession}
@@ -265,7 +297,24 @@ export default function VoiceRoomView({
         onOpen={setSubView}
       />
 
-      {renderMain()}
+      <div
+        ref={mainRef}
+        className="flex-1 flex flex-col min-h-0 min-w-0 relative overflow-hidden"
+        style={{ background: '#090A18' }}
+      >
+        {renderMain()}
+        {canFullscreen && (
+          <button
+            type="button"
+            onClick={toggleMainFullscreen}
+            title={isMainFullscreen ? 'Kilépés a teljes képernyőből' : 'Teljes képernyő'}
+            aria-label={isMainFullscreen ? 'Kilépés a teljes képernyőből' : 'Teljes képernyő'}
+            className="absolute top-2 right-2 z-[70] p-2 rounded-lg bg-black/60 hover:bg-black/80 text-white/80 hover:text-white border border-white/10 transition"
+          >
+            {isMainFullscreen ? <Minimize className="w-4 h-4" /> : <Maximize className="w-4 h-4" />}
+          </button>
+        )}
+      </div>
 
       <RoomControlBar
         subView={subView}

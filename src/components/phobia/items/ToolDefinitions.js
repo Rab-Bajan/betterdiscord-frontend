@@ -27,6 +27,9 @@
 
 import * as THREE from 'three';
 import { DotsLaserMatrix } from '../shaders/DotsLaserMatrix.js';
+import { getPBRMaterial } from '../visual/ProceduralTextures.js';
+import { mergeParts, roundedBox } from '../visual/GeometryKit.js';
+import { P, tube } from '../visual/YardProps.js';
 
 // ============================================================================
 // CANONICAL TOOL TYPES & ALIASES
@@ -317,30 +320,10 @@ export const TOOL_DEFINITIONS = {
 // ============================================================================
 
 const sharedMaterials = {
-  yellowPlastic: new THREE.MeshStandardMaterial({
-    color: 0xdd9911,
-    roughness: 0.35,
-    metalness: 0.1
-  }),
-  darkRubber: new THREE.MeshStandardMaterial({
-    color: 0x1a1a1e,
-    roughness: 0.85,
-    metalness: 0.05
-  }),
-  blackMetal: new THREE.MeshStandardMaterial({
-    color: 0x1f2126,
-    roughness: 0.45,
-    metalness: 0.75
-  }),
   chromeMetal: new THREE.MeshStandardMaterial({
     color: 0xcccccc,
     roughness: 0.15,
     metalness: 0.95
-  }),
-  oliveMetal: new THREE.MeshStandardMaterial({
-    color: 0x3b4237,
-    roughness: 0.6,
-    metalness: 0.4
   }),
   pureGold: new THREE.MeshStandardMaterial({
     color: 0xffd23f,
@@ -400,6 +383,33 @@ const sharedMaterials = {
   })
 };
 
+// Textured tool materials are created lazily (after the engine chose the texture quality) and cached.
+const lazyToolMaterials = {
+  yellowPlastic: () => getPBRMaterial('plastic', { color: 0xdd9911, tile: 1, normalScale: 0.5 }),
+  darkRubber: () => getPBRMaterial('plastic', { color: 0x222226, tile: 1, normalScale: 0.8, roughnessScale: 1.5 }),
+  blackMetal: () => getPBRMaterial('anodized', { color: 0x1f2126, tile: 1, normalScale: 0.4 }),
+  oliveMetal: () => getPBRMaterial('anodized', { color: 0x4a5240, tile: 1, normalScale: 0.4 })
+};
+for (const [key, make] of Object.entries(lazyToolMaterials)) {
+  let cached = null;
+  Object.defineProperty(sharedMaterials, key, {
+    enumerable: true,
+    get: () => (cached ||= make())
+  });
+}
+
+/** Merge detail parts per material and attach them to a tool root (small decorative meshes: no shadows). */
+function addDetail(root, groups) {
+  for (const [mat, parts] of groups) {
+    const mesh = new THREE.Mesh(mergeParts(parts), mat);
+    mesh.name = 'Detail';
+    root.add(mesh);
+  }
+}
+
+const ringsAlong = (axis, r, tubeR, positions) =>
+  positions.map((p) => (axis === 'z' ? P.torus(r, tubeR, 5, 14, 0, 0, p) : P.torus(r, tubeR, 5, 14, 0, p, 0, Math.PI / 2, 0, 0)));
+
 // ============================================================================
 // PROCEDURAL CANVAS TEXTURE HELPERS (Dynamic LCDs & Handwriting)
 // ============================================================================
@@ -450,7 +460,7 @@ export function createEmfReaderModel(isViewmodel = true) {
   root.name = 'Tool_EmfReader';
 
   // Body casing: yellow industrial wire-finder
-  const bodyGeo = new THREE.BoxGeometry(0.085, 0.16, 0.038);
+  const bodyGeo = roundedBox(0.085, 0.16, 0.038, 0.009);
   const bodyMesh = new THREE.Mesh(bodyGeo, sharedMaterials.yellowPlastic);
   bodyMesh.position.set(0, 0, 0);
   root.add(bodyMesh);
@@ -507,6 +517,15 @@ export function createEmfReaderModel(isViewmodel = true) {
   const btnMesh = new THREE.Mesh(btnGeo, sharedMaterials.darkRubber);
   btnMesh.position.set(0, -0.045, 0.02);
   root.add(btnMesh);
+
+  // Moulded detail: face screws, speaker slots, antenna collar and tip, scale ticks, strap loop, belt clip, battery cover
+  const emfScrews = [];
+  for (const sx of [-0.034, 0.034]) for (const sy of [0.066, -0.06]) emfScrews.push(P.cyl(0.0035, 0.0035, 0.003, 6, sx, sy, 0.0205, Math.PI / 2, 0, 0));
+  const emfDark = [P.cyl(0.011, 0.011, 0.012, 10, 0, 0.083, 0), P.sphere(0.006, 1, 1, 1, 0, 0.133, 0, 8), P.box(0.07, 0.003, 0.003, 0, 0.065, 0.021)];
+  for (let i = 0; i < 6; i++) emfDark.push(P.box(0.044, 0.0025, 0.002, 0, -0.058 - i * 0.0055 + 0.012, 0.0205));
+  for (let i = 0; i < 5; i++) emfDark.push(P.box(0.0015, 0.007 + i * 0.002, 0.002, -0.024 + i * 0.012, 0.0595, 0.0212));
+  emfDark.push(P.box(0.05, 0.02, 0.004, 0, -0.07, -0.0195), P.torus(0.012, 0.0025, 4, 10, 0.034, 0.07, -0.002, 0, Math.PI / 2, 0));
+  addDetail(root, [[sharedMaterials.chromeMetal, emfScrews], [sharedMaterials.blackMetal, emfDark]]);
 
   // State Controller Interface
   let currentLevel = 1;
@@ -582,7 +601,7 @@ export function createSpiritBoxModel(isViewmodel = true) {
   root.name = 'Tool_SpiritBox';
 
   // Heavy radio casing: scratched olive drab / dark grey
-  const boxGeo = new THREE.BoxGeometry(0.11, 0.15, 0.05);
+  const boxGeo = roundedBox(0.11, 0.15, 0.05, 0.011);
   const boxMesh = new THREE.Mesh(boxGeo, sharedMaterials.oliveMetal);
   root.add(boxMesh);
 
@@ -619,6 +638,17 @@ export function createSpiritBoxModel(isViewmodel = true) {
   const screenMesh = new THREE.Mesh(screenGeo, screenMat);
   screenMesh.position.set(0, 0.042, 0.026);
   root.add(screenMesh);
+
+  // Radio detail: grille rings, ridged knobs, push buttons, antenna collar and bead, carry handle, screws
+  const sbChrome = [P.torus(0.012, 0.0016, 4, 14, 0, -0.025, 0.028), P.torus(0.022, 0.0016, 4, 18, 0, -0.025, 0.028), P.torus(0.032, 0.0018, 4, 20, 0, -0.025, 0.028),
+    P.cyl(0.006, 0.006, 0.012, 8, 0.045, 0.078, -0.015), P.sphere(0.0045, 1, 1, 1, 0.045, 0.283, -0.015, 8)];
+  for (const sx of [-0.047, 0.047]) for (const sy of [0.066, -0.066]) sbChrome.push(P.cyl(0.0035, 0.0035, 0.003, 6, sx, sy, 0.0255, Math.PI / 2, 0, 0));
+  const sbDark = [P.cyl(0.011, 0.011, 0.01, 12, -0.035, -0.045, 0.028, Math.PI / 2, 0, 0), P.box(0.003, 0.012, 0.004, -0.035, -0.045, 0.034),
+    P.torus(0.03, 0.004, 5, 10, -0.02, 0.078, 0, 0, 0, 0)];
+  for (let i = 0; i < 4; i++) sbDark.push(P.rbox(0.014, 0.008, 0.006, 0.002, -0.036 + i * 0.024, 0.0, 0.027));
+  for (let i = 0; i < 10; i++) sbDark.push(P.box(0.002, 0.004, 0.003, 0.035 + Math.cos(i / 10 * Math.PI * 2) * 0.0125, -0.045 + Math.sin(i / 10 * Math.PI * 2) * 0.0125, 0.033, 0, 0, i / 10 * Math.PI * 2));
+  for (let i = 0; i < 5; i++) sbDark.push(P.box(0.0025, 0.004, 0.0015, -0.045 + i * 0.0035, 0.07, 0.0262)); // signal bars
+  addDetail(root, [[sharedMaterials.chromeMetal, sbChrome], [sharedMaterials.darkRubber, sbDark]]);
 
   let isScanning = false;
   let frequency = 104.2;
@@ -727,6 +757,13 @@ export function createUvFlashlightModel(isViewmodel = true) {
   uvSpot.position.set(0, 0, -0.115);
   uvSpot.castShadow = false;
 
+  // Knurled grip rings, tail-cap switch, lanyard loop and a ring of LEDs behind the lens
+  const uvDark = ringsAlong('z', 0.0215, 0.0018, [-0.06, -0.045, -0.03, -0.015, 0, 0.015, 0.03, 0.045, 0.06]);
+  uvDark.push(P.cyl(0.021, 0.021, 0.015, 14, 0, 0, 0.09, Math.PI / 2, 0, 0), P.cyl(0.009, 0.009, 0.01, 8, 0, 0, 0.1, Math.PI / 2, 0, 0), P.torus(0.01, 0.0022, 4, 10, 0.012, 0.012, 0.1, 0, 0, 0));
+  const uvLeds = [];
+  for (let i = 0; i < 6; i++) uvLeds.push(P.cyl(0.0034, 0.0034, 0.003, 6, Math.cos(i / 6 * Math.PI * 2) * 0.016, Math.sin(i / 6 * Math.PI * 2) * 0.016, -0.1105, Math.PI / 2, 0, 0));
+  addDetail(root, [[sharedMaterials.darkRubber, uvDark], [new THREE.MeshBasicMaterial({ color: 0xb066ff }), uvLeds]]);
+
   const targetObj = new THREE.Object3D();
   targetObj.position.set(0, 0, -5.0);
   root.add(targetObj);
@@ -785,7 +822,7 @@ export function createThermometerModel(isViewmodel = true) {
   root.name = 'Tool_Thermometer';
 
   // Yellow pistol grip body
-  const bodyGeo = new THREE.BoxGeometry(0.045, 0.12, 0.08);
+  const bodyGeo = roundedBox(0.045, 0.12, 0.08, 0.011);
   const bodyMesh = new THREE.Mesh(bodyGeo, sharedMaterials.yellowPlastic);
   bodyMesh.position.set(0, 0, 0);
   root.add(bodyMesh);
@@ -812,6 +849,13 @@ export function createThermometerModel(isViewmodel = true) {
   laserDiode.rotation.x = Math.PI / 2;
   laserDiode.position.set(0, 0.015, -0.065);
   root.add(laserDiode);
+
+  // Trigger with guard, barrel ribs, reticle ring, buttons, hand strap loop
+  addDetail(root, [
+    [sharedMaterials.darkRubber, [P.rbox(0.012, 0.032, 0.014, 0.003, 0, -0.036, -0.022, 0.2, 0, 0), P.torus(0.016, 0.0025, 4, 12, 0, -0.04, -0.012, 0, Math.PI / 2, 0),
+      P.rbox(0.012, 0.008, 0.01, 0.002, -0.01, -0.0, 0.042), P.rbox(0.012, 0.008, 0.01, 0.002, 0.01, 0.0, 0.042), P.torus(0.014, 0.003, 4, 10, 0, -0.132, 0.03, Math.PI / 2, 0, 0)]],
+    [sharedMaterials.chromeMetal, [P.torus(0.017, 0.0016, 4, 14, 0, 0.035, -0.045), P.torus(0.017, 0.0016, 4, 14, 0, 0.035, -0.058), P.torus(0.012, 0.0016, 4, 12, 0, 0.035, -0.078), P.cyl(0.0035, 0.0035, 0.003, 6, 0.016, 0.05, 0.041, Math.PI / 2, 0, 0)]]
+  ]);
 
   // Rear angled digital LCD screen
   const canvas = createDynamicCanvas(256, 128);
@@ -881,7 +925,7 @@ export function createVideoCameraModel(isTripodMounted = false) {
   const cameraGroup = new THREE.Group();
 
   // Camcorder main body
-  const bodyGeo = new THREE.BoxGeometry(0.065, 0.075, 0.14);
+  const bodyGeo = roundedBox(0.065, 0.075, 0.14, 0.01);
   const bodyMesh = new THREE.Mesh(bodyGeo, sharedMaterials.blackMetal);
   cameraGroup.add(bodyMesh);
 
@@ -899,6 +943,17 @@ export function createVideoCameraModel(isTripodMounted = false) {
   );
   recLed.position.set(-0.022, 0.028, -0.072);
   cameraGroup.add(recLed);
+
+  // Camcorder detail: lens hood and glass, focus rings, top handle, mic windscreen, eyecup, battery, strap
+  addDetail(cameraGroup, [
+    [sharedMaterials.blackMetal, [
+      P.cyl(0.032, 0.03, 0.03, 16, 0, 0, -0.112, Math.PI / 2, 0, 0), P.torus(0.027, 0.003, 5, 16, 0, 0, -0.07), P.torus(0.028, 0.003, 5, 16, 0, 0, -0.06),
+      P.cyl(0.004, 0.004, 0.14, 6, -0.018, 0.058, 0.0, Math.PI / 2, 0, 0), P.cyl(0.004, 0.004, 0.14, 6, 0.018, 0.058, 0.0, Math.PI / 2, 0, 0),
+      P.rbox(0.05, 0.03, 0.05, 0.008, 0, 0.012, 0.095), P.cyl(0.018, 0.02, 0.025, 12, 0, 0.012, 0.125, Math.PI / 2, 0, 0)
+    ]],
+    [sharedMaterials.darkRubber, [P.cyl(0.011, 0.011, 0.07, 10, 0, 0.052, -0.035, Math.PI / 2, 0, 0), P.rbox(0.012, 0.05, 0.06, 0.004, 0.034, -0.002, 0.01), P.torus(0.014, 0.0025, 4, 10, 0.036, 0.0, 0.03, 0, Math.PI / 2, 0)]],
+    [new THREE.MeshStandardMaterial({ color: 0x0a0c12, roughness: 0.05, metalness: 0.2 }), [P.cyl(0.021, 0.021, 0.004, 16, 0, 0, -0.1285, Math.PI / 2, 0, 0)]]
+  ]);
 
   // Flip-out side LCD monitor (rotated 85 degrees outward)
   const lcdArm = new THREE.Group();
@@ -998,8 +1053,10 @@ export function createVideoCameraModel(isTripodMounted = false) {
     tripodMount.position.set(0, 0.88, 0);
     root.add(tripodMount);
 
-    // 3 Telescopic yellow metal legs (#E5A912)
+    // 3 Telescopic yellow metal legs (#E5A912) with clamp rings, rubber feet, spreader and pan handle
     const legGeo = new THREE.CylinderGeometry(0.012, 0.008, 0.92, 8);
+    const tripodParts = [P.cyl(0.02, 0.02, 0.05, 10, 0, 0.84, 0), P.cyl(0.006, 0.006, 0.22, 6, 0.1, 0.9, 0.04, 0, 0, Math.PI / 2 - 0.4)];
+    const feet = [];
     for (let i = 0; i < 3; i++) {
       const angle = (i * Math.PI * 2) / 3;
       const leg = new THREE.Mesh(legGeo, sharedMaterials.yellowPlastic);
@@ -1007,7 +1064,11 @@ export function createVideoCameraModel(isTripodMounted = false) {
       leg.rotation.z = Math.sin(angle) * 0.22;
       leg.rotation.x = -Math.cos(angle) * 0.22;
       root.add(leg);
+      tripodParts.push(P.cyl(0.016, 0.016, 0.04, 8, Math.sin(angle) * 0.19, 0.55, Math.cos(angle) * 0.19, -Math.cos(angle) * 0.22, 0, Math.sin(angle) * 0.22));
+      tripodParts.push(tube([Math.sin(angle) * 0.17, 0.48, Math.cos(angle) * 0.17], [0, 0.4, 0], 0.004));
+      feet.push(P.cyl(0.014, 0.011, 0.03, 8, Math.sin(angle) * 0.215, 0.015, Math.cos(angle) * 0.215));
     }
+    addDetail(root, [[sharedMaterials.blackMetal, tripodParts], [sharedMaterials.darkRubber, feet]]);
   }
 
   root.userData = {
@@ -1197,12 +1258,12 @@ export function createPhotoCameraModel(isViewmodel = true) {
   root.name = 'Tool_PhotoCamera';
 
   // Vintage 35mm rangefinder camera body: chrome top and textured black body
-  const bodyGeo = new THREE.BoxGeometry(0.12, 0.075, 0.04);
+  const bodyGeo = roundedBox(0.12, 0.075, 0.04, 0.006);
   const bodyMesh = new THREE.Mesh(bodyGeo, sharedMaterials.darkRubber);
   root.add(bodyMesh);
 
   // Chrome top plate
-  const topGeo = new THREE.BoxGeometry(0.122, 0.02, 0.042);
+  const topGeo = roundedBox(0.122, 0.02, 0.042, 0.005);
   const topMesh = new THREE.Mesh(topGeo, sharedMaterials.chromeMetal);
   topMesh.position.set(0, 0.045, 0);
   root.add(topMesh);
@@ -1231,6 +1292,15 @@ export function createPhotoCameraModel(isViewmodel = true) {
   const btnMesh = new THREE.Mesh(btnGeo, sharedMaterials.chromeMetal);
   btnMesh.position.set(0.038, 0.06, 0);
   root.add(btnMesh);
+
+  // Rangefinder windows, lens rings, film wind lever, rewind knob, shutter dial, strap lugs, leatherette
+  addDetail(root, [
+    [sharedMaterials.chromeMetal, [
+      P.torus(0.029, 0.0022, 4, 18, 0, 0.005, -0.046), P.torus(0.031, 0.002, 4, 18, 0, 0.005, -0.03), P.cyl(0.011, 0.011, 0.012, 12, -0.048, 0.062, 0.0), P.cyl(0.013, 0.013, 0.008, 12, 0.038, 0.058, 0.0),
+      P.box(0.032, 0.003, 0.003, 0.05, 0.062, 0.012, 0, 0.4, 0), P.sphere(0.004, 1, 1, 1, 0.066, 0.062, 0.02, 6), P.torus(0.006, 0.0014, 4, 8, -0.064, 0.02, 0.0, 0, Math.PI / 2, 0), P.torus(0.006, 0.0014, 4, 8, 0.064, 0.02, 0.0, 0, Math.PI / 2, 0)
+    ]],
+    [sharedMaterials.blackMetal, [P.rbox(0.014, 0.012, 0.004, 0.002, 0.02, 0.032, -0.021), P.rbox(0.014, 0.012, 0.004, 0.002, 0.04, 0.032, -0.021), P.cyl(0.014, 0.014, 0.004, 10, 0.0, -0.039, 0.0)]]
+  ]);
 
   // White point light for momentary flash illumination
   const flashLight = new THREE.PointLight(0xffffff, 0, 15.0);
@@ -1340,6 +1410,16 @@ export function createMobileJesusModel(chargesRemaining = 2) {
     const ring = new THREE.Mesh(ringGeo, jesusMat);
     ring.position.set(0, 0.205, 0.012);
     crossGroup.add(ring);
+
+    // Figure detail: shoulders, hands, legs, loincloth, nimbus, finials, INRI plaque, cup rim
+    const figure = mergeParts([
+      P.sphere(0.011, 1.4, 0.8, 0.8, 0, 0.18, 0.013, 8), P.sphere(0.005, 1, 1, 1, -0.057, 0.178, 0.012, 6), P.sphere(0.005, 1, 1, 1, 0.057, 0.178, 0.012, 6),
+      P.cyl(0.004, 0.003, 0.05, 6, -0.004, 0.092, 0.012), P.cyl(0.004, 0.003, 0.05, 6, 0.004, 0.092, 0.012),
+      P.cyl(0.006, 0.014, 0.025, 8, 0, 0.115, 0.012), P.box(0.014, 0.004, 0.006, 0, 0.234, 0.0), P.cyl(0.011, 0.011, 0.002, 10, 0, 0.198, 0.011, Math.PI / 2, 0, 0),
+      P.box(0.01, 0.01, 0.017, 0, 0.234 - 0.002, 0.0), P.box(0.01, 0.01, 0.017, -0.07, 0.165, 0.0), P.box(0.01, 0.01, 0.017, 0.07, 0.165, 0.0), P.box(0.014, 0.012, 0.017, 0, 0.012, 0.0),
+      P.torus(0.04, 0.004, 5, 18, 0, 0.022, 0, Math.PI / 2, 0, 0)
+    ]);
+    crossGroup.add(new THREE.Mesh(figure, jesusMat));
   } else {
     // Snapped broken ash pile model
     const ashGeo = new THREE.ConeGeometry(0.06, 0.025, 12);
@@ -1543,12 +1623,12 @@ export function createSanityPalinkaModel() {
   root.name = 'Tool_SanityPalinka';
 
   // Curved glass hip flask
-  const flaskGeo = new THREE.BoxGeometry(0.085, 0.13, 0.034);
+  const flaskGeo = roundedBox(0.085, 0.13, 0.034, 0.014);
   const flaskMesh = new THREE.Mesh(flaskGeo, sharedMaterials.glassClear);
   root.add(flaskMesh);
 
   // Amber plum brandy liquid inside
-  const liquidGeo = new THREE.BoxGeometry(0.078, 0.09, 0.028);
+  const liquidGeo = roundedBox(0.078, 0.09, 0.028, 0.012);
   const liquidMesh = new THREE.Mesh(liquidGeo, sharedMaterials.palinkaAmberLiquid);
   liquidMesh.position.set(0, -0.015, 0);
   root.add(liquidMesh);
@@ -1558,6 +1638,10 @@ export function createSanityPalinkaModel() {
   const capMesh = new THREE.Mesh(capGeo, sharedMaterials.chromeMetal);
   capMesh.position.set(0, 0.074, 0);
   root.add(capMesh);
+
+  // Neck, knurled cap, retaining chain loop
+  addDetail(root, [[sharedMaterials.chromeMetal, [P.cyl(0.011, 0.014, 0.012, 12, 0, 0.066, 0), P.torus(0.013, 0.0016, 4, 12, 0, 0.083, 0, Math.PI / 2, 0, 0), P.torus(0.013, 0.0016, 4, 12, 0, 0.065, 0, Math.PI / 2, 0, 0),
+    P.torus(0.016, 0.0015, 4, 10, 0.012, 0.07, 0.0, 0, 0.8, 0)]]]);
 
   // Authentic Hungarian vintage paper label: "BORSODI HÁZI SZILVAPÁLINKA 52%"
   const canvas = createDynamicCanvas(256, 128);
@@ -1634,6 +1718,12 @@ export function createFlashlightModel(tier = 1) {
     headMesh.position.set(0, 0, -0.10);
     root.add(headMesh);
 
+    addDetail(root, [
+      [sharedMaterials.darkRubber, [...ringsAlong('z', 0.0245, 0.0025, [-0.06, -0.04, -0.02, 0, 0.02, 0.04, 0.06]), P.cyl(0.024, 0.024, 0.012, 12, 0, 0, 0.096, Math.PI / 2, 0, 0), P.torus(0.012, 0.0025, 4, 10, 0.016, 0.012, 0.098, 0, 0, 0)]],
+      [sharedMaterials.chromeMetal, [P.torus(0.037, 0.002, 4, 16, 0, 0, -0.128), P.cyl(0.007, 0.007, 0.01, 8, 0, 0.026, 0.02, 0, 0, 0)]],
+      [sharedMaterials.glassClear, [P.cyl(0.033, 0.033, 0.003, 16, 0, 0, -0.127, Math.PI / 2, 0, 0)]]
+    ]);
+
     spotLight = new THREE.SpotLight(0xffeaa7, 1.8, 18.0, THREE.MathUtils.degToRad(30), 0.35, 2.0);
     spotLight.position.set(0, 0, -0.125);
 
@@ -1651,6 +1741,13 @@ export function createFlashlightModel(tier = 1) {
     const headMesh = new THREE.Mesh(headGeo, sharedMaterials.chromeMetal);
     headMesh.position.set(0, 0, -0.12);
     root.add(headMesh);
+
+    const tacDark = ringsAlong('z', 0.0215, 0.0016, [-0.08, -0.065, -0.05, -0.035, -0.02, -0.005, 0.01, 0.025, 0.04, 0.055, 0.07, 0.085]);
+    tacDark.push(P.cyl(0.0215, 0.0215, 0.012, 12, 0, 0, 0.115, Math.PI / 2, 0, 0), P.cyl(0.008, 0.008, 0.01, 8, 0, 0.0, 0.124, Math.PI / 2, 0, 0), P.rbox(0.014, 0.01, 0.024, 0.002, 0, 0.024, -0.03));
+    for (let i = 0; i < 8; i++) tacDark.push(P.box(0.01, 0.014, 0.012, Math.cos(i / 8 * Math.PI * 2) * 0.042, Math.sin(i / 8 * Math.PI * 2) * 0.042, -0.15, 0, 0, i / 8 * Math.PI * 2));
+    const tacChrome = [P.cyl(0.04, 0.04, 0.004, 16, 0, 0, -0.152, Math.PI / 2, 0, 0)];
+    for (let i = 0; i < 5; i++) tacChrome.push(P.torus(0.04, 0.0025, 4, 16, 0, 0, -0.1 + i * 0.007));
+    addDetail(root, [[sharedMaterials.blackMetal, tacDark], [sharedMaterials.chromeMetal, tacChrome], [sharedMaterials.glassClear, [P.cyl(0.036, 0.036, 0.003, 16, 0, 0, -0.154, Math.PI / 2, 0, 0)]]]);
 
     spotLight = new THREE.SpotLight(0xe8f4fd, 3.5, 32.0, THREE.MathUtils.degToRad(45), 0.2, 2.0);
     spotLight.position.set(0, 0, -0.15);

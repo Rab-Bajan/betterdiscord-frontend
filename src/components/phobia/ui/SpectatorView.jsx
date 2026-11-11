@@ -85,6 +85,15 @@ export default function SpectatorView({
           </div>
         </div>
 
+        {onCycleTarget && aliveTeammates.length > 1 && (
+          <button
+            onClick={onCycleTarget}
+            className="pointer-events-auto px-3 py-2 rounded-xl bg-cyan-950/80 border border-cyan-500/40 text-cyan-200 text-xs font-bold hover:bg-cyan-900"
+          >
+            Következő játékos
+          </button>
+        )}
+
         {/* Surviving Teammates List */}
         {aliveTeammates.length > 0 && (
           <div className="p-3 px-4 rounded-2xl bg-[#001733]/80 backdrop-blur-md border border-cyan-500/30 text-xs text-cyan-200 flex items-center gap-3">
@@ -95,7 +104,7 @@ export default function SpectatorView({
               {aliveTeammates.map((teammate) => (
                 <div
                   key={teammate.id || teammate.username}
-                  className="px-2.5 py-1 rounded-xl bg-cyan-950/70 border border-cyan-600/40 flex items-center gap-2"
+                  className={`px-2.5 py-1 rounded-xl bg-cyan-950/70 border flex items-center gap-2 ${spectatorTarget && (spectatorTarget.id === teammate.id) ? 'border-cyan-300' : 'border-cyan-600/40'}`}
                 >
                   <span className="font-bold text-white text-[11px]">
                     {teammate.username || teammate.name || 'Nyomozó'}

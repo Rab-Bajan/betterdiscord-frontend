@@ -1,5 +1,6 @@
 import { useState, useRef, useEffect, useCallback } from 'react';
-import { createStore, applySnapshot, applyTick } from '../components/miskolcEmpire/empireStore';
+import { createStore, applySnapshot, applyTick, addChat, notify, cueAsszonyVoice } from '../components/miskolcEmpire/empireStore';
+import { loadMuted } from '../components/miskolcEmpire/empireAudio';
 import { normalizeContent } from '../components/miskolcEmpire/empireContent';
 
 const CURRENT_KEY = 'empire:current';
@@ -28,7 +29,10 @@ let contentCache = null;
 // tick); React state only changes on lobby/phase transitions.
 export function useEmpireMatch(socket) {
   const storeRef = useRef(null);
-  if (!storeRef.current) storeRef.current = createStore();
+  if (!storeRef.current) {
+    storeRef.current = createStore();
+    storeRef.current.ui.muted = loadMuted();
+  }
   const store = storeRef.current;
 
   const [connected, setConnected] = useState(!!socket.connected);
@@ -96,7 +100,9 @@ export function useEmpireMatch(socket) {
     setPhase('browse');
     setResults(null);
     const content0 = store.content;
+    const muted = store.ui.muted;
     Object.assign(store, createStore(), { content: content0 });
+    store.ui.muted = muted;
   }, [store]);
 
   // Rejoin (page reload or socket reconnect) using the stored per-room token
@@ -150,11 +156,16 @@ export function useEmpireMatch(socket) {
       if (currentRef.current || ss.get(CURRENT_KEY)) rejoin(true);
     };
     const onDisconnect = () => setConnected(false);
+    const onChat = (msg) => {
+      if (!msg || (msg.roomId && msg.roomId !== currentRef.current?.roomId)) return;
+      addChat(store, msg);
+    };
 
     socket.on('empire:snapshot', onSnapshot);
     socket.on('empire:tick', onTick);
     socket.on('empire:matches', onMatches);
     socket.on('empire:match-ended', onEnded);
+    socket.on('empire:chat', onChat);
     socket.on('connect', onConnect);
     socket.on('disconnect', onDisconnect);
     if (socket.connected) onConnect();
@@ -165,6 +176,7 @@ export function useEmpireMatch(socket) {
       socket.off('empire:tick', onTick);
       socket.off('empire:matches', onMatches);
       socket.off('empire:match-ended', onEnded);
+      socket.off('empire:chat', onChat);
       socket.off('connect', onConnect);
       socket.off('disconnect', onDisconnect);
     };
@@ -217,14 +229,40 @@ export function useEmpireMatch(socket) {
 
   const command = useCallback((type, payload) => {
     const roomId = currentRef.current?.roomId;
-    if (!roomId || phaseRef.current !== 'playing') return;
+    if (!roomId || phaseRef.current !== 'playing' || store.spectator) return;
     socket.emit('empire:command', { roomId, type, ...payload }, (res) => {
       if (res && res.ok === false) showError(res.error);
     });
-  }, [socket, showError]);
+    if (Array.isArray(payload?.unitIds)) cueAsszonyVoice(store, payload.unitIds);
+  }, [socket, store, showError]);
+
+  // Demolish own buildings; resolves with the summed refund ({ iron, wood, ... }) or null on failure.
+  const demolishBuilding = useCallback(async (buildingIds) => {
+    const roomId = currentRef.current?.roomId;
+    if (!roomId || phaseRef.current !== 'playing' || store.spectator) return null;
+    const list = (Array.isArray(buildingIds) ? buildingIds : [buildingIds]).slice(0, 10);
+    const refund = {};
+    let any = false;
+    for (const buildingId of list) {
+      const res = await emitAck(socket, 'empire:demolish-building', { roomId, buildingId });
+      if (!res.ok) { showError(res.error || 'A bontás nem sikerült.'); continue; }
+      any = true;
+      for (const [k, v] of Object.entries(res.refund || {})) refund[k] = (refund[k] || 0) + (Number(v) || 0);
+    }
+    return any ? refund : null;
+  }, [socket, store, showError]);
+
+  const sendChat = useCallback(async (text) => {
+    const roomId = currentRef.current?.roomId;
+    const msg = String(text || '').trim().slice(0, 200);
+    if (!roomId || !msg) return false;
+    const res = await emitAck(socket, 'empire:chat', { roomId, text: msg });
+    if (!res.ok) { notify(store, res.error || 'Az üzenet nem ment el.', 'alert'); return false; }
+    return true;
+  }, [socket, store]);
 
   return {
     store, connected, content, matches, current, phase, results, error, busy,
-    setError, refreshMatches, createMatch, joinMatch, startMatch, leaveMatch, resign, command, requestState
+    setError, refreshMatches, createMatch, joinMatch, startMatch, leaveMatch, resign, command, requestState, demolishBuilding, sendChat
   };
 }

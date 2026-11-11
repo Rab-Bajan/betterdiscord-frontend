@@ -50,6 +50,7 @@ export class EnvironmentalPhysics {
     this.onNoiseSpike = options.onNoiseSpike || ((_level, _src) => {});
     this.socket = options.socket || null;
     this.roomId = options.roomId || null;
+    this.seedDefaults = options.seedDefaults !== false; // false: the server snapshot is the only prop source
 
     // Active scrap physics entities: id -> PropEntity
     this.props = new Map();
@@ -86,7 +87,7 @@ export class EnvironmentalPhysics {
     }
 
     // Initialize default scrap props across the MÉH yard
-    this._initDefaultScrapProps();
+    if (this.seedDefaults) this._initDefaultScrapProps();
     this._initCarAlarmComponents();
     this._initPuddleMaterials();
   }
@@ -190,6 +191,7 @@ export class EnvironmentalPhysics {
     );
 
     prop.isResting = false;
+    prop.localOwned = true; // we threw it: report where it comes to rest
     prop.emfSignature = 0; // Standard player throw doesn't inherently emit paranormal EMF
 
     if (prop.mesh) {
@@ -500,6 +502,7 @@ export class EnvironmentalPhysics {
           prop.velocity.set(0, 0, 0);
           prop.angularVelocity.set(0, 0, 0);
           prop.isResting = true;
+          this._reportSettled(prop);
         }
       }
 
@@ -548,8 +551,20 @@ export class EnvironmentalPhysics {
 
     if (!this.socket) return;
 
-    this._onItemThrown = (data) => {
-      if (!data || !data.itemId) return;
+    this._onItemThrown = (raw) => {
+      if (!raw) return;
+      // Accepts both the client shape (itemId/position/velocity) and the server shapes
+      // ({ propId, x, y, z, impulse } for ghost throws, { item, impulse } for player drops).
+      const data = {
+        itemId: raw.itemId || raw.propId || raw.item?.id,
+        position: raw.position || (typeof (raw.x ?? raw.item?.x) === 'number'
+          ? { x: raw.x ?? raw.item.x, y: raw.y ?? raw.item.y, z: raw.z ?? raw.item.z }
+          : null),
+        velocity: raw.velocity || (Array.isArray(raw.impulse) && raw.impulse.length === 3
+          ? { x: raw.impulse[0], y: raw.impulse[1], z: raw.impulse[2] }
+          : null)
+      };
+      if (!data.itemId) return;
       let prop = this.props.get(data.itemId);
       if (!prop) {
         prop = this.registerProp({
@@ -569,6 +584,89 @@ export class EnvironmentalPhysics {
     };
 
     this.socket.on('phobia:item-thrown', this._onItemThrown);
+  }
+
+  /** Tells the server where a prop we threw came to rest (authoritative world item sync). */
+  _reportSettled(prop) {
+    if (!prop.localOwned) return;
+    prop.localOwned = false;
+    if (!this.socket || !this.roomId) return;
+    this.socket.emit('phobia:item-moved', {
+      roomId: this.roomId,
+      itemId: prop.id,
+      position: { x: prop.position.x, y: prop.position.y, z: prop.position.z },
+      rotation: { x: prop.rotation.x, y: prop.rotation.y, z: prop.rotation.z }
+    });
+  }
+
+  static propTypeFromServer(type) {
+    switch (String(type || '').replace(/^scrap_/, '')) {
+      case 'pipe': return PROP_TYPES.PIPE;
+      case 'can': case 'beer_can': return PROP_TYPES.BEER_CAN;
+      case 'radiator': return PROP_TYPES.RADIATOR;
+      case 'muffler': return PROP_TYPES.MUFFLER;
+      case 'battery': return PROP_TYPES.BATTERY;
+      default: return PROP_TYPES.SCRAP_CHUNK;
+    }
+  }
+
+  /** Places (or creates) a prop at a server transform { id, type, x, y, z, rx, ry, rz }. */
+  _placeFromServer(item) {
+    if (!item || !item.id || ![item.x, item.y, item.z].every((n) => Number.isFinite(n))) return null;
+    let prop = this.props.get(item.id);
+    if (!prop) {
+      const type = EnvironmentalPhysics.propTypeFromServer(item.type);
+      prop = this.registerProp({
+        id: item.id,
+        type,
+        nameHu: item.name,
+        position: new THREE.Vector3(item.x, item.y, item.z),
+        mesh: this._createProceduralPropMesh(type)
+      });
+    }
+    prop.position.set(item.x, item.y, item.z);
+    prop.rotation.set(item.rx || 0, item.ry || 0, item.rz || 0);
+    prop.velocity.set(0, 0, 0);
+    prop.angularVelocity.set(0, 0, 0);
+    prop.isResting = true;
+    prop.localOwned = false;
+    if (prop.mesh) {
+      prop.mesh.position.copy(prop.position);
+      prop.mesh.rotation.copy(prop.rotation);
+      prop.mesh.visible = true;
+    }
+    return prop;
+  }
+
+  _removeProp(id) {
+    const prop = this.props.get(id);
+    if (!prop) return;
+    if (prop.mesh) {
+      if (prop.mesh.parent) prop.mesh.parent.remove(prop.mesh);
+      prop.mesh.geometry?.dispose();
+      prop.mesh.material?.dispose();
+    }
+    this.props.delete(id);
+  }
+
+  /** Full snapshot of server scrap props: replaces whatever the client holds (late join, reconnect). */
+  syncFromServer(scrapProps) {
+    if (!Array.isArray(scrapProps)) return;
+    const keep = new Set(scrapProps.map((p) => p?.id));
+    for (const id of [...this.props.keys()]) {
+      if (!keep.has(id)) this._removeProp(id);
+    }
+    for (const item of scrapProps) this._placeFromServer(item);
+  }
+
+  /** Incremental `phobia:world-item-updated` for a scrap prop. Returns true when the item was a prop we own. */
+  applyWorldItem(action, item) {
+    if (!item || !item.id) return false;
+    const known = this.props.has(item.id) || String(item.type || '').startsWith('scrap_');
+    if (!known) return false;
+    if (action === 'removed') this._removeProp(item.id);
+    else this._placeFromServer(item);
+    return true;
   }
 
   detachSocket() {
