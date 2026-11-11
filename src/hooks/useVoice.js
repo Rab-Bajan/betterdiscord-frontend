@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { useSocketEvents } from './useSocketEvents';
 import { RTC_CONFIG } from '../config';
-import { playJoinSound, playLeaveSound, playMuteSound } from '../sounds';
+import { playJoinSound, playLeaveSound, playMuteSound } from '../shared/services/audio';
 
 // Hangszoba: WebRTC kapcsolatok, mikrofon + beszédérzékelés, némítás/süketítés, képernyőmegosztás.
 // Az összes WebRTC-állapot refben él, így a socket-kezelők sosem látnak elavult értéket.

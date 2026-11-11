@@ -1,6 +1,6 @@
 import { useState, useRef } from 'react';
 import { useSocketEvents } from './useSocketEvents';
-import { playPrivateMessageSound } from '../sounds';
+import { playPrivateMessageSound } from '../shared/services/audio';
 
 const lower = (s) => (s || '').toLowerCase();
 export const dmKeyFor = (a, b) => [lower(a), lower(b)].sort().join('::');

@@ -1,9 +1,4 @@
-export const SOCKET_URL =
-  window.location.port === '3000'
-    ? `https://${window.location.hostname}:5000`
-    : window.location.origin;
-
-export const RTC_CONFIG = {
+export const RTC_CONFIG: RTCConfiguration = {
   iceServers: [
     { urls: 'stun:stun.l.google.com:19302' },
     { urls: 'stun:stun1.l.google.com:19302' },
@@ -17,6 +12,3 @@ export const RTC_CONFIG = {
   bundlePolicy: 'max-bundle',
   rtcpMuxPolicy: 'require'
 };
-
-export const TOKEN_KEY = 'sharkvoic_token';
-export const USER_KEY = 'sharkvoic_user';

@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { useSocketEvents } from './useSocketEvents';
-import { playMessageSound } from '../sounds';
+import { playMessageSound } from '../shared/services/audio';
 
 // Csatornák, csevegőüzenetek, online felhasználók és hangszoba-állapotok
 export function useServerData(socket, currentUserRef) {

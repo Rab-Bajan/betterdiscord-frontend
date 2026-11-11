@@ -37,8 +37,8 @@ import {
   createFlashlightModel,
   createSaltShakerModel,
   createSaltPileModel
-} from './src/components/phobia/items/ToolDefinitions.js';
-import { ItemSystem } from './src/components/phobia/items/ItemSystem.js';
+} from '../../src/components/phobia/items/ToolDefinitions.js';
+import { ItemSystem } from '../../src/components/phobia/items/ItemSystem.js';
 
 console.log('======================================================================');
 console.log('   MISKOLC PHOBIA 3D - INVESTIGATION TOOLS & SURVIVAL ITEMS TESTS');

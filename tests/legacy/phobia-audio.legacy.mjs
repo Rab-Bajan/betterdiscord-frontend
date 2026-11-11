@@ -6,7 +6,7 @@ import {
   EMF_PULSE_RATES,
   createOverdriveCurve,
   createMockAudioContext
-} from './src/components/phobia/audio/PhobiaAudio.js';
+} from '../../src/components/phobia/audio/PhobiaAudio.js';
 
 console.log('Testing PhobiaAudio Horror Sound & Voice Engine...');
 
