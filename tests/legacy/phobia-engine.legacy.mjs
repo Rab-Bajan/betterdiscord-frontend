@@ -5,7 +5,7 @@ import {
   RainParticles,
   FreezingBreathParticles,
   VhsHuntGlitchShader
-} from '../../src/components/phobia/shaders/index.js';
+} from '../../src/features/games/phobia/lib/shaders/index.js';
 
 console.log('Testing Phobia Shaders & Particles...');
 
@@ -78,7 +78,7 @@ if (!VhsHuntGlitchShader.uniforms.uHuntIntensity) {
 console.log('✓ VhsHuntGlitchShader passed');
 
 // 6. PhobiaEngine Class exports and prototype verification
-import { PhobiaEngine } from '../../src/components/phobia/engine/PhobiaEngine.js';
+import { PhobiaEngine } from '../../src/features/games/phobia/lib/engine/PhobiaEngine.js';
 if (typeof PhobiaEngine !== 'function') {
   throw new Error('PhobiaEngine must be a class/function');
 }
