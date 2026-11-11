@@ -5,7 +5,7 @@ import { unitLabel, buildingLabel } from './empireContent';
 
 export const KIND_ICON = {
   scavenger: '🛒', builder: '🔨', knife: '🔪', brawler: '🥊', slingshot: '🎯', airgunner: '🔫', horseWagon: '🐴',
-  lada: '🚗', grinder: '⚙️', ram: '🛢️', elder: '👑', infiltrator: '🕵️', civilian: '🚶'
+  lada: '🚗', grinder: '⚙️', ram: '🛢️', elder: '👑', infiltrator: '🕵️', ciganyAsszony: '🩴', civilian: '🚶'
 };
 const BUILDING_ICON = '🏠';
 

@@ -11,6 +11,7 @@ const DEFAULT_UNIT_SIGHT = 6;
 const DEFAULT_BUILDING_SIGHT = 7;
 const MAX_CHAT = 60;
 const COLLAPSE_DUR = 1.9;
+const VOICE_UNIT = 'ciganyAsszony';
 
 export function createStore() {
   return {
@@ -212,6 +213,8 @@ export function applyTick(store, tk) {
       const ex = store.units.get(p.i);
       if (!ex && p.k === undefined) { resync = true; continue; }
       store.units.set(p.i, mergeUnit(store, ex, p));
+      // own units are never fogged, so a new own record means it was just trained
+      if (!ex && p.k === VOICE_UNIT && isMine(store, p.o)) pushSfx(store, { id: 'voice_asszony_trained' });
     }
   }
   if (tk.b) {
@@ -242,6 +245,33 @@ export function applyTick(store, tk) {
 
 const PROJ_SPEED = 14; // tiles per second, visual only
 
+function pushSfx(store, s) {
+  store.sfx.push(s);
+  if (store.sfx.length > 8) store.sfx.shift();
+}
+
+// Queue her order line when any of ids is one of our own Cigány asszonyok (selection or command).
+export function cueAsszonyVoice(store, ids) {
+  for (const id of ids) {
+    const u = store.units.get(id);
+    if (u && u.k === VOICE_UNIT && isMine(store, u.o)) { pushSfx(store, { id: 'voice_asszony_order' }); return; }
+  }
+}
+
+// Clog throw/hit sounds; a ricochet (rb) starts when the parent clog lands, so its flight is deferred.
+function clogProjectile(store, ev, pr) {
+  if (ev.rb) {
+    const parent = store.projectiles.findLast((q) => q.a === ev.a && !q.rb && q.tx === ev.x && q.ty === ev.y);
+    if (parent) pr.t0 = parent.t0 + parent.dur;
+    pushSfx(store, { id: 'sfx_clog_ricochet', x: ev.tx, y: ev.ty, delay: pr.t0 - store.time + pr.dur });
+    return;
+  }
+  pushSfx(store, { id: 'sfx_clog_throw', x: ev.x, y: ev.y });
+  pushSfx(store, { id: 'sfx_clog_hit', x: ev.tx, y: ev.ty, delay: pr.dur });
+  const thrower = store.units.get(ev.a);
+  if (thrower && isMine(store, thrower.o)) pushSfx(store, { id: 'voice_asszony_attack', x: ev.x, y: ev.y });
+}
+
 // b: the building record if still known; ev: { i, k, size } plus the footprint corner (x0, y0) and centre (cx, cy)
 function pushCollapse(store, b, ev, demolish) {
   if (store.collapses.some((c) => c.i === ev.i)) return;
@@ -252,8 +282,7 @@ function pushCollapse(store, b, ev, demolish) {
     i: ev.i, k, o: b ? b.o : -1, x: b ? b.x : ev.cx - size / 2, y: b ? b.y : ev.cy - size / 2,
     size, bp: b?.bp ?? 100, epoch: owner?.epoch ?? 1, t0: store.time, dur: COLLAPSE_DUR, demolish
   });
-  store.sfx.push({ id: 'sfx_building_collapse', x: ev.cx, y: ev.cy });
-  if (store.sfx.length > 8) store.sfx.shift();
+  pushSfx(store, { id: 'sfx_building_collapse', x: ev.cx, y: ev.cy });
   if (store.collapses.length > 24) store.collapses.shift();
 }
 
@@ -261,7 +290,9 @@ function applyEvent(store, ev) {
   switch (ev?.e) {
     case 'proj': {
       const dist = Math.hypot(ev.tx - ev.x, ev.ty - ev.y);
-      store.projectiles.push({ x: ev.x, y: ev.y, tx: ev.tx, ty: ev.ty, k: ev.k, t0: store.time, dur: Math.max(0.12, dist / PROJ_SPEED), a: ev.a });
+      const pr = { x: ev.x, y: ev.y, tx: ev.tx, ty: ev.ty, k: ev.k, t0: store.time, dur: Math.max(0.12, dist / PROJ_SPEED), a: ev.a, rb: !!ev.rb };
+      if (ev.k === VOICE_UNIT) clogProjectile(store, ev, pr);
+      store.projectiles.push(pr);
       if (store.projectiles.length > 200) store.projectiles.shift();
       break;
     }

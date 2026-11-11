@@ -17,6 +17,8 @@ const SUN_OFFSET = new THREE.Vector3(34, 52, -12);
 const CARGO_COLORS = { iron: 0x8f96a8, copper: 0xd2753a, food: 0xd8b04a, wood: 0x8a5a34 };
 const RING = { mine: '#28C997', ally: '#5ec8ff', enemy: '#E94B64', neutral: '#b9bcc4', node: '#f5b041' };
 const MELEE_SPARK = new Set(['grinder', 'ram', 'knife', 'brawler']);
+// camera distance beyond which the simplified models are drawn (and the distance to come back from)
+const LOD_FAR = 30, LOD_NEAR = 26;
 
 function makeEnvironment(renderer) {
   const scene = new THREE.Scene();
@@ -82,7 +84,7 @@ export function createEmpireScene(canvas, store) {
   scene.add(entityRoot, overlayRoot);
   const batcher = new Batcher(entityRoot);
   const ob = new Batcher(overlayRoot);
-  const fx = createFx(scene, lib, kit.mats.crumble);
+  const fx = createFx(scene, lib, kit.mats.debris);
 
   // ---- overlay materials and geometry ----
   const owned = [];
@@ -93,7 +95,11 @@ export function createEmpireScene(canvas, store) {
   const flatGeo = new THREE.PlaneGeometry(1, 1); flatGeo.rotateX(-Math.PI / 2);
   const beamGeo = new THREE.CylinderGeometry(0.06, 0.18, 1, 10, 1, true); beamGeo.translate(0, 0.5, 0);
   const projGeo = new THREE.SphereGeometry(0.06, 8, 6);
-  owned.push(ringGeo, discGeo, planeGeo, flatGeo, beamGeo, projGeo);
+  const boxGeo = new THREE.BoxGeometry(1, 1, 1);
+  owned.push(ringGeo, discGeo, planeGeo, flatGeo, beamGeo, projGeo, boxGeo);
+  const rallyPoleMat = new THREE.MeshStandardMaterial({ color: 0x9a9da3, roughness: 0.4, metalness: 0.9 });
+  const rallyFlagMat = new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 0.85, metalness: 0 });
+  owned.push(rallyPoleMat, rallyFlagMat);
   const ringMat = basic({ transparent: true, depthWrite: false, opacity: 0.95 });
   const blobMat = basic({ map: lib.blob(), transparent: true, depthWrite: false, color: 0xffffff });
   const barBackMat = basic({ color: 0x0a0b14, transparent: true, opacity: 0.8, depthTest: false, depthWrite: false });
@@ -148,7 +154,7 @@ export function createEmpireScene(canvas, store) {
 
   // ---- temporaries ----
   const M = new THREE.Matrix4(), base = new THREE.Matrix4(), base2 = new THREE.Matrix4(), loc = new THREE.Matrix4();
-  const Q = new THREE.Quaternion(), QA = new THREE.Quaternion(), QS = new THREE.Quaternion(), QT = new THREE.Quaternion();
+  const Q = new THREE.Quaternion(), QA = new THREE.Quaternion(), QT = new THREE.Quaternion();
   const V = new THREE.Vector3(), V2 = new THREE.Vector3(), S = new THREE.Vector3(), ONE = new THREE.Vector3(1, 1, 1);
   const AX = new THREE.Vector3(1, 0, 0), AY = new THREE.Vector3(0, 1, 0);
   const E = new THREE.Euler();
@@ -156,10 +162,52 @@ export function createEmpireScene(canvas, store) {
   const colorCache = new Map();
   const tc = (hex) => { let c = colorCache.get(hex); if (!c) { c = new THREE.Color(hex); colorCache.set(hex, c); } return c; };
   const unitState = new Map();
+  const WHITE = tc(0xffffff), STILL = { st: null, t: 0 };
+  let lod = 0;
   const emitAcc = new Map();
   const acc = (key, rate, dt) => { const a = (emitAcc.get(key) || Math.random()) + rate * dt; const n = Math.floor(a); emitAcc.set(key, a - n); return n; };
 
+  // Pose a model's skeleton for one instance: JM[i] = joint i's matrix in model space.
+  //   angle = hold + walk-cycle wave * swing + (while acting) actBase + sin(act + actPh) * actAmp
+  const JM = [];
+  const NO_SHADOW = { castShadow: false };
+  const AXES = { x: AX, y: AY, z: new THREE.Vector3(0, 0, 1) };
+  function poseJoints(model, st, t, phase) {
+    const joints = model.joints;
+    while (JM.length < joints.length) JM.push(new THREE.Matrix4());
+    const mv = st ? st.mv : 0, w = st ? st.walk : 0, ac = st ? st.ac : 0;
+    for (let i = 0; i < joints.length; i++) {
+      const j = joints[i];
+      let ang = j.hold, slide = 0, wave = 0;
+      switch (j.src) {
+        case 'legL': wave = Math.sin(w) * 0.55; break;
+        case 'legR': wave = -Math.sin(w) * 0.55; break;
+        case 'kneeL': wave = Math.max(0, -Math.cos(w)) * 0.95; break;
+        case 'kneeR': wave = Math.max(0, Math.cos(w)) * 0.95; break;
+        case 'armL': wave = -Math.sin(w) * 0.45; break;
+        case 'armR': wave = Math.sin(w) * 0.45; break;
+        case 'elbowL': wave = -Math.max(0, Math.sin(w)) * 0.35; break;
+        case 'elbowR': wave = -Math.max(0, -Math.sin(w)) * 0.35; break;
+        case 'wheel': ang = st ? st.wheel * j.swing : 0; break;
+        case 'disk': ang = t * (5 + ac * 40); break;
+        case 'piston': slide = st ? ac * Math.max(0, Math.sin(st.act * 0.7)) * 0.2 : 0; break;
+        case 'crane': ang = t * 0.35 + phase; break;
+        case 'search': ang = t * 0.9 + phase; break;
+        default:
+      }
+      if (wave) ang += wave * mv * j.swing;
+      if (ac && (j.actBase || j.actAmp)) ang += ac * (j.actBase + Math.sin(st.act + j.actPh) * j.actAmp);
+      QA.setFromAxisAngle(AXES[j.axis], ang);
+      if (j.rest) QT.multiplyQuaternions(j.rest, QA); else QT.copy(QA);
+      V.copy(j.p);
+      if (slide) V.z += slide;
+      loc.compose(V, QT, ONE);
+      if (j.parent >= 0) JM[i].multiplyMatrices(JM[j.parent], loc); else JM[i].copy(loc);
+    }
+  }
+
   const pushParts = (model, baseM, teamC, flash, opts) => {
+    if (model.joints.length) poseJoints(model, opts.st, opts.t, opts.phase || 0);
     for (const part of model.parts) {
       if (part.scaffold) {
         if (!opts.scaffoldM) continue;
@@ -169,39 +217,15 @@ export function createEmpireScene(canvas, store) {
       if (part.team) { r = teamC.r; g = teamC.g; b = teamC.b; } else if (part.cargo) { r = opts.cargo.r; g = opts.cargo.g; b = opts.cargo.b; }
       const k = flash * (opts.dim ?? 1);
       const bm = part.scaffold ? opts.scaffoldM : baseM;
-      if (!part.anim) {
-        batcher.push(batcher.get(part.geo, part.mat), bm, r * k, g * k, b * k);
+      const batch = part.batch || (part.batch = batcher.get(part.geo, part.mat, part.mat.userData.noShadow ? NO_SHADOW : undefined));
+      if (part.ji < 0) {
+        batcher.push(batch, bm, r * k, g * k, b * k);
         continue;
       }
-      animLocal(part, opts.st, opts.t, opts.phase || 0);
-      M.multiplyMatrices(bm, loc);
-      batcher.push(batcher.get(part.geo, part.mat), M, r * k, g * k, b * k);
+      M.multiplyMatrices(bm, JM[part.ji]);
+      batcher.push(batch, M, r * k, g * k, b * k);
     }
   };
-
-  // local = T(p + Ra*o + slide) * Ra * Rspin * Rq * S
-  function animLocal(part, st, t, phase) {
-    const a = part.anim;
-    let ang = 0, axis = AX, slide = 0;
-    switch (a.src) {
-      case 'legL': ang = st ? Math.sin(st.walk) * 0.6 * st.mv : 0; break;
-      case 'legR': ang = st ? -Math.sin(st.walk) * 0.6 * st.mv : 0; break;
-      case 'armL': ang = st ? (st.mv > 0.1 ? -Math.sin(st.walk) * 0.45 * st.mv : st.acting ? -0.35 : 0) : 0; break;
-      case 'armR': ang = st ? (st.mv > 0.1 ? Math.sin(st.walk) * 0.45 * st.mv : st.acting ? -0.75 + Math.sin(st.act) * 0.8 : 0) : 0; break;
-      case 'wheel': ang = st ? st.wheel : 0; break;
-      case 'piston': slide = st && st.acting ? Math.max(0, Math.sin(st.act * 0.7)) * 0.2 : 0; break;
-      case 'flag': axis = AY; ang = Math.sin(t * 3 + phase) * 0.35; break;
-      case 'crane': axis = AY; ang = t * 0.35 + phase; break;
-      case 'search': axis = AY; ang = t * 0.9 + phase; break;
-      default:
-    }
-    QA.setFromAxisAngle(axis, ang);
-    if (a.spin === 'disk') { QS.setFromAxisAngle(AX, t * (st && st.acting ? 45 : 5)); QT.multiplyQuaternions(QA, QS).multiply(part.q); } else QT.multiplyQuaternions(QA, part.q);
-    V.copy(part.p);
-    if (part.o) { V2.copy(part.o).applyQuaternion(QA); V.add(V2); }
-    if (slide) V.z += slide;
-    loc.compose(V, QT, part.s);
-  }
 
   function relationColor(o) {
     if (isNeutral(o)) return RING.neutral;
@@ -241,10 +265,11 @@ export function createEmpireScene(canvas, store) {
     if (g) return g;
     const model = kit.building(kind, epoch, size);
     g = new THREE.Group();
+    if (model.joints.length) poseJoints(model, null, 0, 0);
     for (const part of model.parts) {
-      if (part.scaffold || part.mat === kit.mats.decal) continue;
+      if (part.scaffold || part.mat.userData.overlay) continue;
       const mesh = new THREE.Mesh(part.geo, ghostOk);
-      if (part.anim) { animLocal(part, null, 0, 0); mesh.matrixAutoUpdate = false; mesh.matrix.copy(loc); }
+      if (part.ji >= 0) { mesh.matrixAutoUpdate = false; mesh.matrix.copy(JM[part.ji]); }
       mesh.renderOrder = 4;
       g.add(mesh);
     }
@@ -369,13 +394,12 @@ export function createEmpireScene(canvas, store) {
     const [rx, ry] = b.ra;
     const tc0 = tc(playerColor(store, b.o));
     const gy = heightAt(rx, ry);
-    const pole = kit.mats.steel, cloth = kit.mats.cloth;
     M.compose(V.set(rx, gy + 0.45, ry), Q.identity(), S.set(0.03, 0.9, 0.03));
-    batcher.push(batcher.get(B.boxGeo || (B.boxGeo = new THREE.BoxGeometry(1, 1, 1)), pole), M, 1, 1, 1);
+    batcher.push(batcher.get(boxGeo, rallyPoleMat), M, 1, 1, 1);
     QA.setFromAxisAngle(AY, Math.sin(store.time * 3) * 0.3);
     V2.set(0.17, 0, 0).applyQuaternion(QA);
     M.compose(V.set(rx, gy + 0.78, ry).add(V2), QA, S.set(0.34, 0.2, 0.015));
-    batcher.push(batcher.get(B.boxGeo, cloth), M, tc0.r, tc0.g, tc0.b);
+    batcher.push(batcher.get(boxGeo, rallyFlagMat), M, tc0.r, tc0.g, tc0.b);
     // dotted path from the building centre
     const sx = b.x + b.size / 2, sy = b.y + b.size / 2;
     const len = Math.hypot(rx - sx, ry - sy);
@@ -396,8 +420,10 @@ export function createEmpireScene(canvas, store) {
     if (!ensureWorld()) { renderer.render(scene, camera); return; }
     const t = store.time;
     updateCamera();
+    if (lod === 0 ? store.camera.dist > LOD_FAR : store.camera.dist < LOD_NEAR) lod = 1 - lod;
     world.terrain.update(t);
     world.fog.update(t);
+    kit.setTime(t);
     batcher.begin();
     ob.begin();
     rallyCount.n = 0;
@@ -407,10 +433,10 @@ export function createEmpireScene(canvas, store) {
     // ---- units ----
     for (const u of store.units.values()) {
       if (!isUnitShown(store, u)) continue;
-      const model = kit.unit(u.k);
+      const model = kit.unit(u.k, lod);
       const x = u.x + u.dx, y = u.y + u.dy;
       let st = unitState.get(u.i);
-      if (!st) { st = { px: x, py: y, yaw: hash2(u.i, 1, 3) * 6.28, tyaw: 0, wheel: 0, walk: 0, act: 0, mv: 0, spd: 0, acting: false, seen: 0 }; st.tyaw = st.yaw; unitState.set(u.i, st); }
+      if (!st) { st = { px: x, py: y, yaw: hash2(u.i, 1, 3) * 6.28, tyaw: 0, wheel: 0, walk: 0, act: 0, mv: 0, spd: 0, acting: false, ac: 0, seen: 0 }; st.tyaw = st.yaw; unitState.set(u.i, st); }
       const mx = x - st.px, my = y - st.py;
       const moved = Math.hypot(mx, my);
       st.px = x; st.py = y;
@@ -427,7 +453,7 @@ export function createEmpireScene(canvas, store) {
         else if (tu) target = [tu.x, tu.y, 'u', tu];
         else if (tn) target = [tn.x + 0.5, tn.y + 0.5, 'n', tn];
       }
-      st.acting = busy && !moving && (!target || Math.hypot(target[0] - x, target[1] - y) < (target[2] === 'b' ? target[3].size * 0.75 + 1.6 : 2.2) || u.k === 'slingshot' || u.k === 'airgunner');
+      st.acting = busy && !moving && (!target || Math.hypot(target[0] - x, target[1] - y) < (target[2] === 'b' ? target[3].size * 0.75 + 1.6 : 2.2) || u.k === 'slingshot' || u.k === 'airgunner' || u.k === 'ciganyAsszony');
       if (st.acting && target) st.tyaw = Math.atan2(target[0] - x, target[1] - y);
       let dy = st.tyaw - st.yaw;
       dy = Math.atan2(Math.sin(dy), Math.cos(dy));
@@ -435,6 +461,7 @@ export function createEmpireScene(canvas, store) {
       st.wheel += moved / 0.11;
       st.walk += moved * 10;
       if (st.acting) st.act += dt * 9;
+      st.ac += ((st.acting ? 1 : 0) - st.ac) * Math.min(1, dt * 9);
       const gy = heightAt(x, y);
       const bob = model.vehicle ? 0 : Math.abs(Math.sin(st.walk)) * 0.025 * st.mv;
       Q.setFromAxisAngle(AY, st.yaw);
@@ -489,7 +516,7 @@ export function createEmpireScene(canvas, store) {
     for (const b of store.buildings.values()) if (b.k === 'fence' || b.k === 'wall') fenceSet.add(b.x * 4096 + b.y);
     for (const b of store.buildings.values()) {
       const owner = playerOf(store, b.o);
-      const model = kit.building(b.k, owner?.epoch ?? 1, b.size);
+      const model = kit.building(b.k, owner?.epoch ?? 1, b.size, lod);
       const sf = b.size / model.size;
       const cx = b.x + b.size / 2, cy = b.y + b.size / 2;
       const gy = heightAt(cx, cy) - 0.02;
@@ -507,6 +534,11 @@ export function createEmpireScene(canvas, store) {
       const teamC = tc(playerColor(store, b.o));
       const flash = b.flash > t ? 1.8 : 1;
       pushParts(model, base, teamC, flash, { st: null, t, phase: b.i * 1.7, scaffoldM: p < 1 ? base2 : null });
+      // soft occlusion where the building meets the ground (runs of fence and wall would stack into a dark band)
+      if (b.size > 1) {
+        M.compose(V.set(cx, gy + 0.045, cy), Q.identity(), S.set(b.size * 1.5, 1, b.size * 1.5));
+        ob.push(B.blob, M, 1, 1, 1);
+      }
       emitBuildingFx(b, model, cx, gy, cy, sf, dt);
       const selected = sel.has(b.i);
       if (selected) pushRing(cx, cy, model.radius * sf * 1.05, relationColor(b.o));
@@ -521,7 +553,7 @@ export function createEmpireScene(canvas, store) {
 
     // ---- collapsing buildings (demolished or destroyed) ----
     for (const c of store.collapses) {
-      const model = kit.building(c.k, c.epoch, c.size);
+      const model = kit.building(c.k, c.epoch, c.size, lod);
       const sf = c.size / model.size;
       const cx = c.x + c.size / 2, cy = c.y + c.size / 2;
       const gy = heightAt(cx, cy) - 0.02;
@@ -532,13 +564,13 @@ export function createEmpireScene(canvas, store) {
       Q.setFromEuler(E.set(e * 0.45 * (c.i % 2 ? 1 : -1), 0, e * 0.28 * (c.i % 3 ? 1 : -1)));
       const rise = Math.max(0.12, c.bp / 100);
       base.compose(V.set(cx, gy - e * model.top * sf * 0.95, cy), Q, S.set(sf * (1 + e * 0.12), sf * rise * (1 - e * 0.35), sf * (1 + e * 0.12)));
-      pushParts(model, base, tc(playerColor(store, c.o)), 1, { st: null, t, dim: 1 - e * 0.55 });
+      pushParts(model, base, tc(playerColor(store, c.o)), 1, { st: null, t, phase: c.i * 1.7, dim: 1 - e * 0.55 });
     }
 
     // ---- resource nodes ----
     for (const n of store.nodes.values()) {
       if (n.a <= 0 || !isTileExplored(store, n.x, n.y)) continue;
-      const model = kit.node(n.k);
+      const model = kit.node(n.k, lod);
       const s = 0.5 + 0.5 * Math.max(0, Math.min(1, n.a / (n.max || n.a || 1)));
       const x = n.x + 0.5, y = n.y + 0.5;
       Q.setFromAxisAngle(AY, hash2(n.i, 7, 1) * 6.283);
@@ -552,10 +584,26 @@ export function createEmpireScene(canvas, store) {
     for (const pr of store.projectiles) {
       const tt = Math.max(0, Math.min(1, (t - pr.t0) / pr.dur));
       const fromTower = pr.k === 'tower';
-      const h0 = fromTower ? 2.3 : 0.5, h1 = 0.45;
-      const arc = pr.k === 'slingshot' ? 0.9 : pr.k === 'airgunner' ? 0.15 : 0.35;
+      // a ricochet (rb) waits for its parent clog to land and bounces on from there
+      const thrown = pr.k === 'ciganyAsszony' ? kit.projectile(pr.k, lod) : null;
+      if (thrown && t < pr.t0) continue;
+      const h0 = fromTower ? 2.3 : thrown && !pr.rb ? 0.95 : 0.5, h1 = 0.45;
+      const arc = pr.k === 'slingshot' ? 0.9 : pr.k === 'airgunner' ? 0.15 : thrown ? (pr.rb ? 0.45 : 0.75) : 0.35;
       const x = pr.x + (pr.tx - pr.x) * tt, y = pr.y + (pr.ty - pr.y) * tt;
       const z = heightAt(x, y) + h0 + (h1 - h0) * tt + 4 * tt * (1 - tt) * arc;
+      if (thrown) {
+        // the clog tumbles end over end along its flight and bursts into splinters and dust on impact
+        QA.setFromAxisAngle(AY, Math.atan2(pr.tx - pr.x, pr.ty - pr.y));
+        QT.setFromAxisAngle(AX, (t - pr.t0) * 14);
+        base.compose(V.set(x, z, y), Q.multiplyQuaternions(QA, QT), ONE);
+        pushParts(thrown, base, WHITE, 1, STILL);
+        if (tt >= 1 && !pr.hitDone) {
+          pr.hitDone = true;
+          fx.dust(x, z - 0.15, y, 3, 0.7, 0.5, 0.42, 0.32);
+          for (let j = 0; j < 7; j++) fx.soft.spawn(x, z, y, (Math.random() - 0.5) * 2.6, 0.8 + Math.random() * 1.4, (Math.random() - 0.5) * 2.6, 0.45 + Math.random() * 0.3, 0.05, 0.035, 0.42, 0.29, 0.17, 0.95, 0.8, 6);
+        }
+        continue;
+      }
       const hot = pr.k !== 'slingshot';
       col.set(hot ? 0xffd27a : 0x8a8478);
       const k = hot ? 3 : 1;
@@ -618,7 +666,6 @@ export function createEmpireScene(canvas, store) {
       batcher.dispose();
       ob.dispose();
       fx.dispose();
-      if (B.boxGeo) B.boxGeo.dispose();
       rallyLines.removeFromParent();
       for (const o of owned) o.dispose();
       kit.dispose();

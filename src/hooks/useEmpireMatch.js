@@ -1,5 +1,5 @@
 import { useState, useRef, useEffect, useCallback } from 'react';
-import { createStore, applySnapshot, applyTick, addChat, notify } from '../components/miskolcEmpire/empireStore';
+import { createStore, applySnapshot, applyTick, addChat, notify, cueAsszonyVoice } from '../components/miskolcEmpire/empireStore';
 import { loadMuted } from '../components/miskolcEmpire/empireAudio';
 import { normalizeContent } from '../components/miskolcEmpire/empireContent';
 
@@ -233,6 +233,7 @@ export function useEmpireMatch(socket) {
     socket.emit('empire:command', { roomId, type, ...payload }, (res) => {
       if (res && res.ok === false) showError(res.error);
     });
+    if (Array.isArray(payload?.unitIds)) cueAsszonyVoice(store, payload.unitIds);
   }, [socket, store, showError]);
 
   // Demolish own buildings; resolves with the summed refund ({ iron, wood, ... }) or null on failure.

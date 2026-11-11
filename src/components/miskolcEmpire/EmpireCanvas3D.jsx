@@ -2,7 +2,7 @@ import React, { useEffect, useRef } from 'react';
 import { clampCamera, centerOnWorld, stepCameraGoal, panDelta, MIN_PITCH, MAX_PITCH } from './empireMath';
 import {
   advance, updateFog, pickAt, boxSelect, visibleOfKind, selectionInfo, canPlace, isMine, isAllied, isNeutral, notify,
-  saveGroup, selectGroup, groupCenter
+  saveGroup, selectGroup, groupCenter, cueAsszonyVoice
 } from './empireStore';
 import { buildingSize, isBuilderKind } from './empireContent';
 import { createEmpireScene } from './empire3d/scene';
@@ -152,6 +152,7 @@ export default function EmpireCanvas3D({ store, onCommand }) {
       } else {
         store.selection.clear();
         store.selection.add(id);
+        cueAsszonyVoice(store, [id]);
       }
     };
 
@@ -227,6 +228,7 @@ export default function EmpireCanvas3D({ store, onCommand }) {
         const sel = boxSelect(store, view, box.x0, box.y0, box.x1, box.y1);
         if (!e.shiftKey) store.selection.clear();
         for (const id of sel) store.selection.add(id);
+        cueAsszonyVoice(store, sel);
         box = null;
       } else {
         const [x, y] = local(e);
@@ -370,7 +372,7 @@ export default function EmpireCanvas3D({ store, onCommand }) {
       while (store.sfx.length) {
         const s = store.sfx.shift();
         const d = Math.hypot((s.x ?? cam.x) - cam.x, (s.y ?? cam.y) - cam.y);
-        playEmpireSfx(s.id, { volume: 0.85 * Math.max(0, 1 - d / (cam.dist * 1.6 + 10)), muted: store.ui.muted });
+        playEmpireSfx(s.id, { volume: 0.85 * Math.max(0, 1 - d / (cam.dist * 1.6 + 10)), muted: store.ui.muted, delay: s.delay });
       }
 
       if (box) {

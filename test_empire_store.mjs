@@ -2,7 +2,7 @@
 import assert from 'node:assert';
 import {
   createStore, applySnapshot, applyTick, advance, saveGroup, selectGroup, groupSummary, groupCenter, purgeGroups,
-  pickAt, boxSelect, isTileVisible, playerColor, NEUTRAL_COLOR, addChat, spyReportFor
+  pickAt, boxSelect, isTileVisible, playerColor, NEUTRAL_COLOR, addChat, spyReportFor, cueAsszonyVoice
 } from './src/components/miskolcEmpire/empireStore.js';
 import { normalizeContent } from './src/components/miskolcEmpire/empireContent.js';
 import { clampCamera, centerOnWorld, stepCameraGoal, panDelta, createCamera, MAX_DIST } from './src/components/miskolcEmpire/empireMath.js';
@@ -168,6 +168,32 @@ test('chat buffer keeps last 60 and bumps version', () => {
   assert.equal(s.chat.length, 60);
   assert.equal(s.chat[0].text, 'm10');
   assert.equal(s.chatVersion, 70);
+});
+
+test('Cigány asszony: clog sounds, deferred ricochet, voice cues only for own units', () => {
+  const s = fresh();
+  const ids = (q) => q.map((x) => x.id);
+  applyTick(s, { t: 11, u: [{ i: 40, o: 0, k: 'ciganyAsszony', x: 5, y: 5, tx: 5, ty: 5, v: 0, hp: 150, st: 'idle' }, { i: 41, o: 1, k: 'ciganyAsszony', x: 8, y: 5, tx: 8, ty: 5, v: 0, hp: 150, st: 'idle' }] });
+  assert.deepEqual(ids(s.sfx), ['voice_asszony_trained']);
+  s.sfx.length = 0;
+  applyTick(s, { t: 12, ev: [
+    { e: 'proj', a: 40, x: 5, y: 5, tx: 12, ty: 5, k: 'ciganyAsszony' },
+    { e: 'proj', a: 40, x: 12, y: 5, tx: 14, ty: 5, k: 'ciganyAsszony', rb: 1 },
+    { e: 'proj', a: 41, x: 8, y: 5, tx: 3, ty: 3, k: 'ciganyAsszony' }
+  ] });
+  assert.deepEqual(ids(s.sfx), ['sfx_clog_throw', 'sfx_clog_hit', 'voice_asszony_attack', 'sfx_clog_ricochet', 'sfx_clog_throw', 'sfx_clog_hit']);
+  const [first, bounce] = s.projectiles;
+  assert.equal(first.dur, 0.5);
+  assert.equal(bounce.rb, true);
+  assert.equal(bounce.t0, first.t0 + first.dur);
+  assert.ok(Math.abs(s.sfx[3].delay - (first.dur + bounce.dur)) < 1e-9);
+  advance(s, 0.3);
+  assert.equal(s.projectiles.length, 3, 'deferred ricochet is not pruned before it starts');
+  s.sfx.length = 0;
+  cueAsszonyVoice(s, [41, 1]);
+  assert.equal(s.sfx.length, 0);
+  cueAsszonyVoice(s, [1, 40]);
+  assert.deepEqual(ids(s.sfx), ['voice_asszony_order']);
 });
 
 test('camera: clamp, smooth centring and yaw-relative pan', () => {

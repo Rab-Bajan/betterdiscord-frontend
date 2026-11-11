@@ -1,8 +1,12 @@
 // Scenery ring around the playable map: foothills that start flush with the map edge and rise into
 // forested, rocky Bükk-style ridges with a dusting of snow on the peaks, plus a far ground plane so
 // the camera never looks into empty space. Purely visual: not pickable, not fogged, no gameplay.
+// The slopes blend the terrain's dry-grass texture with grey limestone; the forest is instanced tiered
+// conifers and lumpy autumn beech crowns, with cheaper versions beyond the first band of trees.
 import * as THREE from 'three';
+import { mergeGeometries, mergeVertices } from 'three/addons/utils/BufferGeometryUtils.js';
 import { vnoise, hash2 } from './textures.js';
+import { NOISE_GLSL } from './terrain.js';
 
 const BORDER = 72; // tiles of scenery outside each map edge
 const STEP = 1; // grid spacing in tiles
@@ -27,11 +31,139 @@ function ridged(u, v, period, octaves, seed) {
   return sum / norm;
 }
 
-const C_GRASS = [0.25, 0.25, 0.14];
-const C_FOREST = [0.1, 0.14, 0.07];
-const C_AUTUMN = [0.26, 0.16, 0.07];
-const C_ROCK = [0.3, 0.29, 0.27];
-const C_SNOW = [0.78, 0.8, 0.83];
+const NEAR = 11; // tiles from the map edge that get the detailed tree models
+
+const lin = (c) => c.map((x) => Math.pow(x, 2.2));
+// colour tints multiplied onto the textures (grass texture for meadow/forest floor, limestone for rock/snow)
+const T_MEADOW = [1, 1, 1];
+const T_FOREST = [0.5, 0.58, 0.42];
+const T_AUTUMN = [0.78, 0.55, 0.38];
+const T_ROCK = [0.78, 0.77, 0.74];
+const T_SNOW = [1.75, 1.8, 1.9];
+
+function patchMountainShader(mat, grass, rock) {
+  mat.onBeforeCompile = (shader) => {
+    shader.uniforms.tGrass = { value: grass.map }; shader.uniforms.tGrassN = { value: grass.normalMap };
+    shader.uniforms.tRock = { value: rock.map }; shader.uniforms.tRockN = { value: rock.normalMap };
+    shader.vertexShader = 'attribute float rockW;\nvarying float vRockW;\nvarying vec2 vMUv;\n' + shader.vertexShader.replace(
+      '#include <begin_vertex>', '#include <begin_vertex>\n vRockW = rockW;\n vMUv = uv;'
+    );
+    shader.fragmentShader = [
+      'uniform sampler2D tGrass; uniform sampler2D tGrassN; uniform sampler2D tRock; uniform sampler2D tRockN;',
+      'varying float vRockW; varying vec2 vMUv;',
+      NOISE_GLSL,
+      shader.fragmentShader
+    ].join('\n')
+      .replace('#include <map_fragment>', `
+        vec4 mg = texture2D(tGrass, vMUv);
+        vec4 mr = texture2D(tRock, vMUv * 0.3);
+        float macro = tNoise(vMUv * 0.9) * 0.6 + tNoise(vMUv * 2.6 + 7.0) * 0.4;
+        mg.rgb *= mix(vec3(1.1, 1.03, 0.86), vec3(0.84, 0.95, 0.86), macro);
+        // limestone breaks through where its texture is bright, so the grass/rock edge follows the rock relief
+        float rw = smoothstep(0.35, 0.65, vRockW + (mr.r - 0.55) * 0.8);
+        diffuseColor.rgb *= mix(mg.rgb, mr.rgb, rw);
+      `)
+      .replace('#include <normal_fragment_maps>', `
+        vec3 mapN = mix(texture2D(tGrassN, vMUv).xyz, texture2D(tRockN, vMUv * 0.3).xyz, rw) * 2.0 - 1.0;
+        mapN.xy *= normalScale;
+        normal = normalize( tbn * mapN );
+      `);
+  };
+  mat.customProgramCacheKey = () => 'empire-mountains-v2';
+}
+
+// ---- tree models: one merged geometry each (trunk + foliage), vertex colours, soft outward normals ----
+class Builder {
+  constructor() { this.p = []; this.n = []; this.c = []; this.i = []; }
+  v(x, y, z, nx, ny, nz, col) {
+    const l = Math.hypot(nx, ny, nz) || 1;
+    this.p.push(x, y, z); this.n.push(nx / l, ny / l, nz / l); this.c.push(col[0], col[1], col[2]);
+    return this.p.length / 3 - 1;
+  }
+  tri(a, b, c) { this.i.push(a, b, c); }
+  trunk(r0, r1, h, segs, col) {
+    const base = this.p.length / 3;
+    for (let s = 0; s <= segs; s++) {
+      const a = (s / segs) * Math.PI * 2, cx = Math.cos(a), cz = Math.sin(a);
+      this.v(cx * r0, -0.1, cz * r0, cx, 0, cz, col.map((x) => x * 0.6));
+      this.v(cx * r1, h, cz * r1, cx, 0, cz, col);
+    }
+    for (let s = 0; s < segs; s++) { const a = base + s * 2; this.tri(a, a + 1, a + 2); this.tri(a + 1, a + 3, a + 2); }
+  }
+  geometry() {
+    const g = new THREE.BufferGeometry();
+    g.setAttribute('position', new THREE.Float32BufferAttribute(this.p, 3));
+    g.setAttribute('normal', new THREE.Float32BufferAttribute(this.n, 3));
+    g.setAttribute('color', new THREE.Float32BufferAttribute(this.c, 3));
+    g.setIndex(this.i);
+    return g;
+  }
+}
+const BARK = lin([0.3, 0.24, 0.19]);
+const BEECH_BARK = lin([0.46, 0.44, 0.4]);
+const NEEDLE_DARK = lin([0.07, 0.11, 0.07]);
+const NEEDLE = lin([0.14, 0.21, 0.12]);
+const NEEDLE_TIP = lin([0.25, 0.32, 0.16]);
+
+// spruce: stacked drooping skirts with a ragged rim, each tier narrower; tips lighter, inside and low tiers darker
+function coniferGeo(tiers, segs, seed) {
+  const B = new Builder();
+  B.trunk(0.07, 0.03, 1.2, Math.max(3, segs - 3), BARK);
+  const H = 2.9, base = 0.4, step = (H - base) / (tiers + 0.6);
+  for (let k = 0; k < tiers; k++) {
+    const yb = base + k * step, top = yb + step * 1.9, R = 0.6 * (1 - (k / tiers) * 0.75);
+    const ao = 0.55 + 0.45 * (k / Math.max(1, tiers - 1));
+    const apex = B.v(0, top, 0, 0, 1, 0, NEEDLE_TIP.map((x) => x * (0.8 + ao * 0.3)));
+    const mid = [], rim = [];
+    for (let s = 0; s < segs; s++) {
+      const a = ((s + (k % 2) * 0.5) / segs) * Math.PI * 2, cx = Math.cos(a), cz = Math.sin(a);
+      const rr = R * (s % 2 ? 0.82 : 1) * (0.92 + hash2(seed, k * 31 + s, 3) * 0.16);
+      mid.push(B.v(cx * R * 0.5, top - step * 1.05, cz * R * 0.5, cx * 0.6, 1, cz * 0.6, NEEDLE_DARK.map((x) => x * (0.7 + ao * 0.5))));
+      rim.push(B.v(cx * rr, yb - step * 0.35, cz * rr, cx, 0.45, cz, NEEDLE.map((x, q) => (x + (NEEDLE_TIP[q] - x) * 0.4) * ao)));
+    }
+    for (let s = 0; s < segs; s++) {
+      const n = (s + 1) % segs;
+      B.tri(apex, mid[n], mid[s]);
+      B.tri(mid[s], mid[n], rim[s]); B.tri(mid[n], rim[n], rim[s]);
+    }
+  }
+  return B.geometry();
+}
+// beech/oak: trunk and a clumpy crown of noise-displaced lobes; normals point away from the crown centre so the
+// lobes shade as one canopy, vertex colours darken the underside and the gaps between lobes. The crown is near
+// white so the instance colour sets the autumn hue.
+function broadleafGeo(lobeCount, seed) {
+  const B = new Builder();
+  B.trunk(0.08, 0.05, 1.15, lobeCount > 3 ? 6 : 4, BEECH_BARK);
+  const parts = [B.geometry()];
+  const r = (k) => hash2(seed, k, 23), cy = 1.5;
+  for (let li = 0; li < lobeCount; li++) {
+    const a = (li / lobeCount) * Math.PI * 2 + r(li) * 0.8, up = li === 0 ? 1 : (r(li + 40) - 0.35) * 0.9;
+    const off = li === 0 ? 0.32 : 0.42, rad = (li === 0 ? 0.5 : 0.36 + r(li + 80) * 0.14) * (lobeCount > 3 ? 1 : 1.35);
+    const ox = li === 0 ? 0 : Math.cos(a) * off * Math.sqrt(1 - up * up * 0.5), oy = cy + up * off * 0.7, oz = li === 0 ? 0 : Math.sin(a) * off * Math.sqrt(1 - up * up * 0.5);
+    let c = new THREE.IcosahedronGeometry(rad, 0);
+    c.deleteAttribute('normal'); c.deleteAttribute('uv');
+    c = mergeVertices(c);
+    const p = c.attributes.position, nrm = [], col = [], tint = 0.82 + r(li + 120) * 0.3;
+    for (let i = 0; i < p.count; i++) {
+      const x = p.getX(i) * (0.85 + hash2(i, seed + li, 5) * 0.3) + ox, y = p.getY(i) * (0.8 + hash2(i, seed + li, 6) * 0.25) + oy, z = p.getZ(i) * (0.85 + hash2(i, seed + li, 7) * 0.3) + oz;
+      p.setXYZ(i, x, y, z);
+      const ex = x, ey = (y - cy) * 1.3, ez = z, el = Math.hypot(ex, ey, ez) || 1;
+      const lx = p.getX(i) - ox, ly = p.getY(i) - oy, lz = p.getZ(i) - oz, ll = Math.hypot(lx, ly, lz) || 1;
+      nrm.push(ex / el * 0.7 + lx / ll * 0.3, ey / el * 0.7 + ly / ll * 0.3 + 0.15, ez / el * 0.7 + lz / ll * 0.3);
+      const k = (0.45 + 0.55 * Math.min(1, Math.max(0, (ey / el + 0.7) / 1.5))) * (0.75 + 0.25 * Math.min(1, el / 0.8)) * tint;
+      col.push(k * 1.02, k, k * 0.95);
+    }
+    c.setAttribute('normal', new THREE.Float32BufferAttribute(nrm, 3));
+    c.normalizeNormals();
+    c.setAttribute('color', new THREE.Float32BufferAttribute(col, 3));
+    parts.push(c);
+  }
+  const g = mergeGeometries(parts);
+  parts.forEach((q) => q.dispose());
+  return g;
+}
+const AUTUMN = [[0.44, 0.28, 0.14], [0.48, 0.37, 0.17], [0.37, 0.24, 0.12], [0.3, 0.32, 0.15], [0.24, 0.29, 0.13], [0.4, 0.33, 0.18], [0.28, 0.31, 0.14]];
 
 export function buildMountains(w, h, edgeHeight, lib) {
   const x0 = -BORDER, y0 = -BORDER;
@@ -63,7 +195,8 @@ export function buildMountains(w, h, edgeHeight, lib) {
       const vi = j * nx + i;
       heights[vi] = hgt;
       pos[vi * 3] = x; pos[vi * 3 + 1] = hgt; pos[vi * 3 + 2] = y;
-      uv[vi * 2] = x * 0.9; uv[vi * 2 + 1] = y * 0.9;
+      // same world mapping as the terrain (0.5 per tile) so the grass continues seamlessly over the map edge
+      uv[vi * 2] = x * 0.5; uv[vi * 2 + 1] = y * 0.5;
     }
   }
 
@@ -83,9 +216,10 @@ export function buildMountains(w, h, edgeHeight, lib) {
   geo.setIndex(new THREE.BufferAttribute(new Uint32Array(tris), 1));
   geo.computeVertexNormals();
 
-  // colour by altitude, slope and noise: grass foothills, mixed autumn forest, bare rock, snowy crests
+  // tint by altitude, slope and noise: grass foothills, mixed autumn forest floor, bare limestone, snowy crests
   const nrm = geo.getAttribute('normal');
   const col = new Float32Array(nx * ny * 3);
+  const rockA = new Float32Array(nx * ny);
   for (let vi = 0; vi < nx * ny; vi++) {
     const x = pos[vi * 3], y = pos[vi * 3 + 2], hgt = heights[vi];
     const u = (x - x0) / spanX, v = (y - y0) / spanY;
@@ -93,24 +227,27 @@ export function buildMountains(w, h, edgeHeight, lib) {
     const n = fbm(u, v, 24, 3, 503);
     const forest = smooth(0.6, 3, hgt) * (1 - smooth(17, 23, hgt + n * 4)) * (1 - smooth(0.55, 0.75, steep));
     const autumn = smooth(0.45, 0.7, fbm(u, v, 14, 2, 601));
-    const rock = Math.max(smooth(0.5, 0.72, steep), smooth(19, 25, hgt + n * 4));
+    const rock = Math.max(smooth(0.45, 0.7, steep), smooth(19, 25, hgt + n * 4));
     const snow = smooth(22, 27, hgt + n * 5) * (1 - smooth(0.45, 0.65, steep));
-    const c = [0, 1, 2].map((k) => {
-      let val = C_GRASS[k];
-      val = mix(val, mix(C_FOREST[k], C_AUTUMN[k], autumn * 0.6), forest);
-      val = mix(val, C_ROCK[k], rock);
-      val = mix(val, C_SNOW[k], snow);
-      return val * (0.7 + n * 0.25);
-    });
-    col[vi * 3] = c[0]; col[vi * 3 + 1] = c[1]; col[vi * 3 + 2] = c[2];
+    for (let k = 0; k < 3; k++) {
+      let val = T_MEADOW[k];
+      val = mix(val, mix(T_FOREST[k], T_AUTUMN[k], autumn * 0.6), forest);
+      val = mix(val, T_ROCK[k], rock);
+      val = mix(val, T_SNOW[k], snow);
+      col[vi * 3 + k] = val * (0.85 + n * 0.3);
+    }
+    rockA[vi] = Math.max(rock, snow);
   }
   geo.setAttribute('color', new THREE.BufferAttribute(col, 3));
+  geo.setAttribute('rockW', new THREE.BufferAttribute(rockA, 1));
   geo.computeBoundingSphere();
 
-  const rockSet = lib.set('gravel', { normalStrength: 2.4 });
+  const grassSet = lib.set('deadGrass', { size: 512, normalStrength: 1.6 });
+  const rockSet = lib.set('envRock');
   const mat = new THREE.MeshStandardMaterial({
-    vertexColors: true, roughness: 0.96, metalness: 0, normalMap: rockSet.normalMap, normalScale: new THREE.Vector2(0.55, 0.55)
+    vertexColors: true, roughness: 0.95, metalness: 0, normalMap: rockSet.normalMap, normalScale: new THREE.Vector2(0.8, 0.8)
   });
+  patchMountainShader(mat, grassSet, rockSet);
   const mesh = new THREE.Mesh(geo, mat);
   mesh.receiveShadow = true;
   mesh.name = 'EmpireMountains';
@@ -129,20 +266,22 @@ export function buildMountains(w, h, edgeHeight, lib) {
   group.add(far);
   disposables.push(farGeo, farMat);
 
-  // instanced trees on the forested band (conifers and bare autumn broadleaves)
+  // instanced trees on the forested band, split by the map side they stand on so whole sides frustum-cull
   const heightAt = (x, y) => {
     const gx = Math.max(0, Math.min(nx - 1.001, (x - x0) / STEP)), gy = Math.max(0, Math.min(ny - 1.001, (y - y0) / STEP));
     const i = Math.floor(gx), j = Math.floor(gy), fx = gx - i, fy = gy - j;
     const a = heights[j * nx + i], b = heights[j * nx + i + 1], c = heights[(j + 1) * nx + i], d = heights[(j + 1) * nx + i + 1];
     return a + (b - a) * fx + (c - a) * fy + (a - b - c + d) * fx * fy;
   };
-  const conifers = [], broad = [];
+  const kinds = ['coniferNear', 'coniferFar', 'broadNear', 'broadFar'];
+  const lists = kinds.map(() => [[], [], [], []]);
   for (let ty = y0; ty < h + BORDER; ty += 1) {
     for (let tx = x0; tx < w + BORDER; tx += 1) {
       const dx = Math.max(-tx, tx - w, 0), dy = Math.max(-ty, ty - h, 0);
       const d = Math.hypot(dx, dy);
-      if (d < 1.5 || d > 46) continue; // trees thin out with distance where fog hides them anyway
+      if (d < 1.5 || d > 40) continue; // trees thin out with distance where fog hides them anyway
       const r = (k) => hash2(tx + 5000, ty + 5000, k);
+      if (d > NEAR && r(7) > 1 - (d - NEAR) / 34) continue;
       const x = tx + r(1), y = ty + r(2);
       const hgt = heightAt(x, y);
       const slope = Math.abs(heightAt(x + 0.5, y) - heightAt(x - 0.5, y)) + Math.abs(heightAt(x, y + 0.5) - heightAt(x, y - 0.5));
@@ -150,34 +289,42 @@ export function buildMountains(w, h, edgeHeight, lib) {
       const u = (x - x0) / spanX, v = (y - y0) / spanY;
       const dens = fbm(u, v, 18, 2, 701);
       if (r(3) > dens * 1.5) continue;
-      const s = 0.5 + r(4) * 0.45;
-      (r(5) < 0.65 ? conifers : broad).push([x, hgt, y, s, r(6) * 6.28]);
+      const s = 0.6 + r(4) * 0.55;
+      const side = Math.abs(x - w / 2) * h > Math.abs(y - h / 2) * w ? (x < w / 2 ? 0 : 1) : (y < h / 2 ? 2 : 3);
+      // conifers dominate higher up, beech lower down
+      const conifer = r(5) < 0.45 + smooth(4, 14, hgt) * 0.4;
+      lists[(conifer ? 0 : 2) + (d > NEAR ? 1 : 0)][side].push([x, hgt, y, s, r(6) * 6.28, r(8)]);
     }
   }
-  const tmp = new THREE.Object3D();
-  const addInst = (geom, material, list, place) => {
-    if (!list.length) return;
-    const im = new THREE.InstancedMesh(geom, material, list.length);
-    list.forEach((it, i) => { place(it, tmp); tmp.updateMatrix(); im.setMatrixAt(i, tmp.matrix); });
-    im.castShadow = false; im.receiveShadow = true;
-    im.computeBoundingSphere();
-    group.add(im);
-    disposables.push(geom);
+  const geos = [coniferGeo(4, 7, 11), coniferGeo(2, 5, 13), broadleafGeo(5, 17), broadleafGeo(2, 19)];
+  const treeMat = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.92, metalness: 0, side: THREE.DoubleSide });
+  // open conifer skirts are seen from below too: keep the outward normal on back faces so they stay lit like foliage
+  treeMat.onBeforeCompile = (shader) => {
+    shader.fragmentShader = shader.fragmentShader.replace('#include <normal_fragment_begin>', '#include <normal_fragment_begin>\n normal = normalize( vNormal );\n nonPerturbedNormal = normal;');
   };
-  const trunkMat = new THREE.MeshStandardMaterial({ color: 0x3b2a1c, roughness: 1, metalness: 0 });
-  const pineMat = new THREE.MeshStandardMaterial({ color: 0x1d2b19, roughness: 0.95, metalness: 0, flatShading: true });
-  const leafMat = new THREE.MeshStandardMaterial({ color: 0x6b4520, roughness: 0.95, metalness: 0, flatShading: true });
-  disposables.push(trunkMat, pineMat, leafMat);
-  const trunkGeo = new THREE.CylinderGeometry(0.07, 0.11, 1, 5);
-  trunkGeo.translate(0, 0.5, 0);
-  const pineGeo = new THREE.ConeGeometry(0.55, 2.2, 6);
-  pineGeo.translate(0, 1.7, 0);
-  const crownGeo = new THREE.IcosahedronGeometry(0.75, 0);
-  crownGeo.translate(0, 1.5, 0);
-  const all = conifers.concat(broad);
-  addInst(trunkGeo, trunkMat, all, ([x, y, z, s, rot], t) => { t.position.set(x, y - 0.05, z); t.rotation.set(0, rot, 0); t.scale.set(s, s * 1.1, s); });
-  addInst(pineGeo, pineMat, conifers, ([x, y, z, s, rot], t) => { t.position.set(x, y - 0.05, z); t.rotation.set(0, rot, 0); t.scale.set(s, s * (0.9 + (rot % 1) * 0.4), s); });
-  addInst(crownGeo, leafMat, broad, ([x, y, z, s, rot], t) => { t.position.set(x, y - 0.05, z); t.rotation.set(rot, rot * 0.5, 0); t.scale.set(s, s * 0.85, s); });
+  treeMat.customProgramCacheKey = () => 'empire-trees-v2';
+  disposables.push(treeMat, ...geos);
+  const tmp = new THREE.Object3D(), tc = new THREE.Color();
+  kinds.forEach((kind, ki) => {
+    for (const list of lists[ki]) {
+      if (!list.length) continue;
+      const im = new THREE.InstancedMesh(geos[ki], treeMat, list.length);
+      list.forEach(([x, y, z, s, rot, c], i) => {
+        tmp.position.set(x, y - 0.05, z);
+        tmp.rotation.set(0, rot, 0);
+        tmp.scale.set(s, s * (0.85 + (rot % 1) * 0.35), s);
+        tmp.updateMatrix();
+        im.setMatrixAt(i, tmp.matrix);
+        if (ki < 2) tc.setRGB(0.85 + c * 0.3, 0.9 + c * 0.2, 0.85 + c * 0.2);
+        else tc.setRGB(...AUTUMN[Math.floor(c * AUTUMN.length)], THREE.SRGBColorSpace);
+        im.setColorAt(i, tc);
+      });
+      im.castShadow = false; im.receiveShadow = true;
+      im.computeBoundingSphere();
+      im.name = 'EmpireTrees_' + kind;
+      group.add(im);
+    }
+  });
 
   return {
     group,
