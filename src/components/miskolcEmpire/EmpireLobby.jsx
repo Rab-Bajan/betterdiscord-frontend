@@ -12,6 +12,31 @@ const MODES = [
   { id: '2v2', label: '2v2', max: 4 },
   { id: 'ffa', label: 'Mindenki mindenki ellen', max: 4 }
 ];
+// A szerver MAP_SIZE_OPTIONS kulcsai (csempe oldalhossz)
+const MAP_SIZES = [
+  { id: 'tiny', label: 'Apró', tiles: 56 },
+  { id: 'small', label: 'Kicsi', tiles: 64 },
+  { id: 'medium', label: 'Közepes', tiles: 88 },
+  { id: 'large', label: 'Nagy', tiles: 112 },
+  { id: 'huge', label: 'Óriási', tiles: 136 }
+];
+const MAP_HU = Object.fromEntries(MAP_SIZES.map((x) => [x.id, x.label]));
+// ha a játékos nem választ, a régi viselkedés: 2 főnél kicsi, többnél közepes
+const defaultMapSize = (players) => (players > 2 ? 'medium' : 'small');
+
+function MapSizePicker({ value, onChange }) {
+  return (
+    <div className="flex items-center gap-2 flex-wrap">
+      <span className="text-xs" style={{ color: '#999BBE' }}>Térkép mérete:</span>
+      {MAP_SIZES.map((x) => (
+        <Pill key={x.id} active={value === x.id} onClick={() => onChange(x.id)}>
+          <span title={`${x.tiles}×${x.tiles} mező`}>{x.label}</span>
+        </Pill>
+      ))}
+    </div>
+  );
+}
+
 const MODE_HU = { ai: 'Egyjátékos', '1v1': '1v1', '2v2': '2v2', ffa: 'Mindenki mindenki ellen' };
 const STATUS_HU = { lobby: 'Lobbi', playing: 'Játékban', ended: 'Befejezve' };
 const DIFF_HU = { easy: 'Könnyű', medium: 'Közepes', hard: 'Nehéz' };
@@ -51,6 +76,7 @@ function MatchCard({ match, onJoin, busy, highlight }) {
           <span>{MODE_HU[match.mode] || match.mode}</span>
           <span style={{ color: match.status === 'playing' ? '#28C997' : '#f5b041' }}>{STATUS_HU[match.status] || match.status}</span>
           {match.difficulty && <span>MI: {DIFF_HU[match.difficulty] || match.difficulty}</span>}
+          {match.mapSize && <span>Térkép: {MAP_HU[match.mapSize] || match.mapSize}</span>}
           {hostName(match) && <span>Házigazda: {hostName(match)}</span>}
         </div>
       </div>
@@ -80,7 +106,7 @@ function LobbyRoom({ m, currentUser }) {
       <div className="flex items-center justify-between mb-3">
         <div>
           <div className="font-black text-lg">{summary.name || 'MiskolcEmpire szoba'}</div>
-          <div className="text-xs" style={{ color: '#999BBE' }}>{MODE_HU[summary.mode] || summary.mode} · {summary.players?.length}/{summary.maxPlayers} játékos</div>
+          <div className="text-xs" style={{ color: '#999BBE' }}>{MODE_HU[summary.mode] || summary.mode} · {summary.players?.length}/{summary.maxPlayers} játékos · {MAP_HU[summary.mapSize || defaultMapSize(summary.maxPlayers)]} térkép</div>
         </div>
         <button onClick={m.leaveMatch} className="flex items-center gap-1 px-3 py-1.5 rounded-xl text-xs font-semibold transition hover:brightness-125" style={{ background: 'rgba(233,75,100,0.15)', color: '#E94B64', border: '1px solid rgba(233,75,100,0.4)' }}>
           <LogOut className="w-3.5 h-3.5" />Kilépés
@@ -132,16 +158,20 @@ export default function EmpireLobby({ m, channelId, channelSession, currentUser,
   const [difficulty, setDifficulty] = useState('medium');
   const [mode, setMode] = useState('1v1');
   const [ffaMax, setFfaMax] = useState(4);
+  const [mapSize, setMapSize] = useState(null);
   const [name, setName] = useState('');
   const [bindChannel, setBindChannel] = useState(true);
   const channelTaken = !!channelId && (!!channelSession?.active || m.matches.some((x) => x.roomId === channelId && x.status !== 'ended'));
   const useChannel = !!channelId && bindChannel && !channelTaken;
   const channelMatch = channelId ? m.matches.find((x) => x.roomId === channelId && x.status !== 'ended') : null;
 
+  const playerCount = tab === 'ai' ? 2 : mode === 'ffa' ? ffaMax : MODES.find((x) => x.id === mode).max;
+  const effectiveMap = mapSize || defaultMapSize(playerCount);
+
   const create = () => {
     const base = { name: name.trim() || undefined, ...(useChannel ? { channelId } : {}) };
-    if (tab === 'ai') m.createMatch({ ...base, mode: 'ai', difficulty });
-    else m.createMatch({ ...base, mode, maxPlayers: mode === 'ffa' ? ffaMax : MODES.find((x) => x.id === mode).max });
+    if (tab === 'ai') m.createMatch({ ...base, mode: 'ai', difficulty, mapSize: effectiveMap });
+    else m.createMatch({ ...base, mode, maxPlayers: playerCount, mapSize: effectiveMap });
   };
 
   return (
@@ -204,6 +234,7 @@ export default function EmpireLobby({ m, channelId, channelSession, currentUser,
                   />
                 </div>
               )}
+              <MapSizePicker value={effectiveMap} onChange={setMapSize} />
               {channelId && (
                 <label className="flex items-center gap-2 text-xs cursor-pointer" style={{ color: channelTaken ? '#6b6f95' : '#c9cdea' }}>
                   <input type="checkbox" checked={useChannel} disabled={channelTaken} onChange={(e) => setBindChannel(e.target.checked)} />

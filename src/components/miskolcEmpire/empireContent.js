@@ -77,6 +77,18 @@ export function buildingLabel(content, kind, ownerEpoch) {
   return d?.name || kind;
 }
 
+// Building levels: upgrades[i] describes level i + 2 (popCap / hp are that level's totals)
+export function buildingLevelCount(content, kind) {
+  return 1 + (content?.buildings?.[kind]?.upgrades?.length || 0);
+}
+export function nextUpgradeDef(content, b) {
+  return content?.buildings?.[b?.k]?.upgrades?.[(b?.lv || 1) - 1] || null;
+}
+export function levelPopCap(content, kind, lv = 1) {
+  const d = content?.buildings?.[kind];
+  return lv > 1 ? d?.upgrades?.[lv - 2]?.popCap || 0 : d?.popCap || 0;
+}
+
 export function unitLabel(content, kind) {
   return content?.units?.[kind]?.name || kind;
 }

@@ -14,15 +14,25 @@ export function createCamera() {
   return { x: 0, y: 0, dist: 26, yaw: DEFAULT_YAW, pitch: DEFAULT_PITCH, goal: null };
 }
 
-// Keep the ground target on the map (or loosely around it in spectator mode) and the zoom in range.
+// Share of the zoom distance the ground target keeps away from the map edge, so the view stays over
+// the map instead of scrolling out over the (dark) mountains around it.
+export const EDGE_INSET = 0.5;
+
+// Keep the ground target inside the map (pulled in from the edges in proportion to the zoom, never past
+// the map centre) and the zoom in range. Spectators get a wider zoom range but the same bounds.
 export function clampCamera(cam, mapW, mapH, free = false) {
-  const m = free ? 30 : 0;
-  cam.x = Math.max(-m, Math.min(mapW + m, cam.x));
-  cam.y = Math.max(-m, Math.min(mapH + m, cam.y));
   const lo = free ? SPECTATOR_MIN_DIST : MIN_DIST;
   const hi = free ? SPECTATOR_MAX_DIST : MAX_DIST;
   cam.dist = Math.max(lo, Math.min(hi, cam.dist));
   cam.pitch = Math.max(MIN_PITCH, Math.min(MAX_PITCH, cam.pitch));
+  const inset = cam.dist * EDGE_INSET;
+  const mx = Math.min(inset, mapW / 2), my = Math.min(inset, mapH / 2);
+  cam.x = Math.max(mx, Math.min(mapW - mx, cam.x));
+  cam.y = Math.max(my, Math.min(mapH - my, cam.y));
+  if (cam.goal) {
+    cam.goal.x = Math.max(mx, Math.min(mapW - mx, cam.goal.x));
+    cam.goal.y = Math.max(my, Math.min(mapH - my, cam.goal.y));
+  }
 }
 
 // Jump (or, with smooth = true, glide) the camera target to a world tile position.

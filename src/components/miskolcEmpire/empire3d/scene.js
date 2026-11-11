@@ -48,6 +48,9 @@ function makeEnvironment(renderer) {
   return rt;
 }
 
+
+// upgraded buildings grow a little taller with every level
+const levelScale = (lv) => 1 + 0.14 * ((lv || 1) - 1);
 export function createEmpireScene(canvas, store) {
   const renderer = new THREE.WebGLRenderer({ canvas, antialias: true, powerPreference: 'high-performance' });
   renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 1.75));
@@ -109,6 +112,7 @@ export function createEmpireScene(canvas, store) {
   const footMat = basic({ transparent: true, opacity: 0.35, depthWrite: false });
   const ghostOk = basic({ color: 0x40ff9a, transparent: true, opacity: 0.42, depthWrite: false });
   const ghostBad = basic({ color: 0xff4060, transparent: true, opacity: 0.42, depthWrite: false });
+  const ghostUp = basic({ color: 0xffc94a, transparent: true, opacity: 0.42, depthWrite: false });
 
   const B = {
     ring: ob.get(ringGeo, ringMat, { castShadow: false, receiveShadow: false, renderOrder: 3 }),
@@ -289,15 +293,17 @@ export function createEmpireScene(canvas, store) {
     shownGhost = g;
     const cx = info.x + info.size / 2, cy = info.y + info.size / 2;
     const sf = info.size / g.userData.size;
+    // an upgrade ghost is gold and one level taller than the building under it
+    const target = info.upgrade ? [...store.buildings.values()].find((b) => b.x === info.x && b.y === info.y && b.k === info.kind) : null;
     g.position.set(cx, heightAt(cx, cy), cy);
-    g.scale.setScalar(sf);
-    const mat = info.ok ? ghostOk : ghostBad;
+    g.scale.set(sf, sf * (target ? levelScale(target.lv + 1) : 1), sf);
+    const mat = !info.ok ? ghostBad : info.upgrade ? ghostUp : ghostOk;
     for (const m of g.children) m.material = mat;
     g.visible = true;
     ghostFoot.visible = true;
     ghostFoot.position.set(cx, heightAt(cx, cy) + 0.07, cy);
     ghostFoot.scale.set(info.size, 1, info.size);
-    ghostFoot.material.color.set(info.ok ? 0x40ff9a : 0xff4060);
+    ghostFoot.material.color.set(!info.ok ? 0xff4060 : info.upgrade ? 0xffc94a : 0x40ff9a);
   }
 
   // ---- view helpers for picking (CSS pixel space) ----
@@ -361,7 +367,7 @@ export function createEmpireScene(canvas, store) {
   }
 
   function emitBuildingFx(b, model, cx, gy, cy, sf, dt) {
-    if (b.bp < 100) {
+    if (b.bp < 100 || b.up >= 0) {
       if (acc(`c${b.i}`, 2.5, dt)) fx.dust(cx + (Math.random() - 0.5) * b.size, gy + 0.05, cy + (Math.random() - 0.5) * b.size, 1, 0.8);
       return;
     }
@@ -528,7 +534,7 @@ export function createEmpireScene(canvas, store) {
         if (alongY && !alongX) yaw = Math.PI / 2;
       }
       Q.setFromAxisAngle(AY, yaw);
-      const rise = p < 1 ? 0.12 + 0.88 * p : 1;
+      const rise = (p < 1 ? 0.12 + 0.88 * p : 1) * levelScale(b.lv);
       base.compose(V.set(cx, gy, cy), Q, S.set(sf, sf * rise, sf));
       if (p < 1) base2.compose(V.set(cx, gy, cy), Q, S.set(sf, sf, sf));
       const teamC = tc(playerColor(store, b.o));
@@ -544,9 +550,12 @@ export function createEmpireScene(canvas, store) {
       if (selected) pushRing(cx, cy, model.radius * sf * 1.05, relationColor(b.o));
       else if (hover === b.i) pushRing(cx, cy, model.radius * sf * 1.05, '#ffffff', 0.5);
       if (p < 1) pushBar(cx, gy + model.top * sf * rise + 0.35, cy, p, Math.min(1.6, 0.5 + b.size * 0.35), '#536CFF');
-      else if (selected || hover === b.i || b.hp < b.mhp - 0.5) {
-        const f = Math.max(0, Math.min(1, b.hp / (b.mhp || 1)));
-        pushBar(cx, gy + model.top * sf + 0.3, cy, f, Math.min(1.6, 0.5 + b.size * 0.35), hpColor(f));
+      else {
+        if (selected || hover === b.i || b.hp < b.mhp - 0.5) {
+          const f = Math.max(0, Math.min(1, b.hp / (b.mhp || 1)));
+          pushBar(cx, gy + model.top * sf * rise + 0.3, cy, f, Math.min(1.6, 0.5 + b.size * 0.35), hpColor(f));
+        }
+        if (b.up >= 0) pushBar(cx, gy + model.top * sf * rise + 0.45, cy, b.up / 100, Math.min(1.6, 0.5 + b.size * 0.35), '#ffc94a');
       }
       if (selected && isMine(store, b.o) && Array.isArray(b.ra)) pushRally(b);
     }
