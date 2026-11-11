@@ -1,6 +1,7 @@
 // Scenery ring around the playable map: foothills that start flush with the map edge and rise into
 // forested, rocky Bükk-style ridges with a dusting of snow on the peaks, plus a far ground plane so
-// the camera never looks into empty space. Purely visual: not pickable, not fogged, no gameplay.
+// the camera never looks into empty space. Purely visual: not pickable, no gameplay. It is always covered
+// by dark mist (applyOutsideMist) so the area outside the map reads like unexplored fog of war.
 // The slopes blend the terrain's dry-grass texture with grey limestone; the forest is instanced tiered
 // conifers and lumpy autumn beech crowns, with cheaper versions beyond the first band of trees.
 import * as THREE from 'three';
@@ -70,6 +71,39 @@ function patchMountainShader(mat, grass, rock) {
       `);
   };
   mat.customProgramCacheKey = () => 'empire-mountains-v2';
+}
+
+// Everything outside the playable rectangle is drawn as the same near-black mist as unexplored fog of war
+// (see fog.js), fading in over the first tiles past the edge. Chains onto any existing onBeforeCompile.
+const MIST_FADE = 2.5; // tiles past the edge until the mist is fully dark
+function applyOutsideMist(mat, w, h, key) {
+  const prev = mat.onBeforeCompile;
+  mat.onBeforeCompile = (shader, renderer) => {
+    if (prev) prev(shader, renderer);
+    shader.uniforms.uMapSize = { value: new THREE.Vector2(w, h) };
+    shader.vertexShader = 'varying vec2 vOutXZ;\n' + shader.vertexShader.replace('#include <project_vertex>', `#include <project_vertex>
+      vec4 outP = vec4(transformed, 1.0);
+      #ifdef USE_INSTANCING
+        outP = instanceMatrix * outP;
+      #endif
+      vOutXZ = (modelMatrix * outP).xz;`);
+    shader.fragmentShader = 'uniform vec2 uMapSize;\nvarying vec2 vOutXZ;\n' + shader.fragmentShader.replace('#include <dithering_fragment>', `#include <dithering_fragment>
+      {
+        vec2 od = max(max(-vOutXZ, vOutXZ - uMapSize), vec2(0.0));
+        float outK = smoothstep(0.0, ${MIST_FADE.toFixed(1)}, length(od));
+        vec2 mp = vOutXZ * 0.35;
+        vec2 mi = floor(mp), mf = fract(mp); mf = mf * mf * (3.0 - 2.0 * mf);
+        float h00 = fract(sin(dot(mi, vec2(127.1, 311.7))) * 43758.5453);
+        float h10 = fract(sin(dot(mi + vec2(1, 0), vec2(127.1, 311.7))) * 43758.5453);
+        float h01 = fract(sin(dot(mi + vec2(0, 1), vec2(127.1, 311.7))) * 43758.5453);
+        float h11 = fract(sin(dot(mi + vec2(1, 1), vec2(127.1, 311.7))) * 43758.5453);
+        float mm = mix(mix(h00, h10, mf.x), mix(h01, h11, mf.x), mf.y);
+        vec3 mistCol = mix(vec3(0.025, 0.03, 0.05), vec3(0.11, 0.12, 0.15), 0.15);
+        gl_FragColor.rgb = mix(gl_FragColor.rgb, mistCol, outK * (0.86 + 0.14 * mm));
+      }`);
+  };
+  const prevKey = mat.customProgramCacheKey ? mat.customProgramCacheKey.bind(mat) : () => '';
+  mat.customProgramCacheKey = () => prevKey() + '|outside-mist-' + key;
 }
 
 // ---- tree models: one merged geometry each (trunk + foliage), vertex colours, soft outward normals ----
@@ -248,6 +282,7 @@ export function buildMountains(w, h, edgeHeight, lib) {
     vertexColors: true, roughness: 0.95, metalness: 0, normalMap: rockSet.normalMap, normalScale: new THREE.Vector2(0.8, 0.8)
   });
   patchMountainShader(mat, grassSet, rockSet);
+  applyOutsideMist(mat, w, h, 'mountains');
   const mesh = new THREE.Mesh(geo, mat);
   mesh.receiveShadow = true;
   mesh.name = 'EmpireMountains';
@@ -260,6 +295,7 @@ export function buildMountains(w, h, edgeHeight, lib) {
   const farGeo = new THREE.PlaneGeometry(4000, 4000);
   farGeo.rotateX(-Math.PI / 2);
   const farMat = new THREE.MeshStandardMaterial({ color: 0x2c3320, roughness: 1, metalness: 0 });
+  applyOutsideMist(farMat, w, h, 'far');
   const far = new THREE.Mesh(farGeo, farMat);
   far.position.set(w / 2, -1.5, h / 2);
   far.name = 'EmpireFarGround';
@@ -303,6 +339,7 @@ export function buildMountains(w, h, edgeHeight, lib) {
     shader.fragmentShader = shader.fragmentShader.replace('#include <normal_fragment_begin>', '#include <normal_fragment_begin>\n normal = normalize( vNormal );\n nonPerturbedNormal = normal;');
   };
   treeMat.customProgramCacheKey = () => 'empire-trees-v2';
+  applyOutsideMist(treeMat, w, h, 'trees');
   disposables.push(treeMat, ...geos);
   const tmp = new THREE.Object3D(), tc = new THREE.Color();
   kinds.forEach((kind, ki) => {

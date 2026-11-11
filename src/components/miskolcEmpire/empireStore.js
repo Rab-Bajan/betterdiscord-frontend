@@ -102,8 +102,11 @@ function decorateBuilding(store, e) {
   if (e.flash === undefined) e.flash = 0;
   const def = entityDef(store, e.k, true);
   e.size = buildingSize(store.content, e.k);
-  e.mhp = Math.max(e.mhp || 0, e.hp || 0, def?.hp || 0);
+  // max hp of the building's current level comes from the server (mh); the def covers records without it
+  e.mhp = e.mh > 0 ? e.mh : Math.max(e.mhp || 0, e.hp || 0, def?.hp || 0);
   if (e.bp === undefined) e.bp = 100;
+  if (!(e.lv >= 1)) e.lv = 1;
+  if (e.up === undefined || e.up === null) e.up = -1;
 }
 
 function mergeUnit(store, existing, p) {
@@ -312,6 +315,12 @@ function applyEvent(store, ev) {
     case 'built':
       notify(store, 'Elkészült egy épület.', 'good');
       break;
+    case 'upgraded': {
+      const b = store.buildings.get(ev.i);
+      if (b) { b.lv = ev.lv; b.up = -1; }
+      notify(store, `Fejlesztés kész: ${ev.lv}. szint.`, 'good');
+      break;
+    }
     case 'epoch': {
       const p = playerOf(store, ev.o);
       if (p) p.epoch = ev.n;
@@ -523,6 +532,18 @@ export function isBlockedTile(store, x, y) {
 }
 
 // Client-side placement hint only; the server stays authoritative.
+// Dragging a building onto one of our own finished buildings of the same kind upgrades it instead.
+// Returns that building when the ghost footprint overlaps it, else null.
+export function upgradeTargetAt(store, kind, ax, ay) {
+  if (!store.content?.buildings?.[kind]?.upgrades?.length) return null;
+  const size = buildingSize(store.content, kind);
+  for (const b of store.buildings.values()) {
+    if (b.k !== kind || !isMine(store, b.o) || b.bp < 100) continue;
+    if (ax < b.x + b.size && ax + size > b.x && ay < b.y + b.size && ay + size > b.y) return b;
+  }
+  return null;
+}
+
 export function canPlace(store, kind, ax, ay) {
   const size = buildingSize(store.content, kind);
   const { w, h } = store.map;

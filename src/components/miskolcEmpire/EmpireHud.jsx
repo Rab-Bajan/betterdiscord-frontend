@@ -4,7 +4,8 @@ import { selectionInfo, isMine, playerOf, playerColor, spyReportFor, notify } fr
 import { renderMinimap, miniToWorld } from './empireMinimap';
 import { centerOnWorld } from './empireMath';
 import {
-  RES_KEYS, RES_META, canAfford, costEntries, reqEpoch, epochName, buildingLabel, unitLabel, isBuilderKind
+  RES_KEYS, RES_META, canAfford, costEntries, reqEpoch, epochName, buildingLabel, unitLabel, isBuilderKind,
+  buildingLevelCount, nextUpgradeDef, levelPopCap
 } from './empireContent';
 import { saveMuted } from './empireAudio';
 import EmpireHeader from './EmpireHeader';
@@ -37,7 +38,13 @@ export function demolishRefundPreview(def, b, cfg = DEFAULT_DEMOLISH) {
     r = f >= 0.5 ? cfg.minRefund + (cfg.maxRefund - cfg.minRefund) * ((f - 0.5) / 0.5) : cfg.minRefund * (f / 0.5);
   }
   const out = {};
-  for (const k of Object.keys(cost)) out[k] = Math.floor(cost[k] * r + 1e-9);
+  const add = (c, f) => { for (const k of Object.keys(c || {})) out[k] = (out[k] || 0) + c[k] * f; };
+  add(cost, r);
+  // paid upgrades come back at the same rate, a running one in full
+  const ups = def?.upgrades || [];
+  for (let lv = 2; lv <= (b.lv || 1); lv++) add(ups[lv - 2]?.cost, r);
+  if (b.up >= 0) add(ups[(b.lv || 1) - 1]?.cost, 1);
+  for (const k of Object.keys(out)) out[k] = Math.floor(out[k] + 1e-9);
   return out;
 }
 
@@ -250,6 +257,21 @@ function InfoPanel({ store, content, sel }) {
         <div className="text-[11px] mt-0.5" style={{ color: '#c9cdea' }}>
           {b.bp < 100 ? `Épül: ${Math.floor(b.bp)}%` : `${Math.ceil(b.hp)}/${Math.ceil(b.mhp)} élet`}
         </div>
+        {buildingLevelCount(content, b.k) > 1 && b.bp >= 100 && (
+          <div className="text-[11px] mt-0.5" style={{ color: '#c9cdea' }}>
+            {b.lv || 1}/{buildingLevelCount(content, b.k)}. szint
+            {levelPopCap(content, b.k, b.lv || 1) > 0 && <> · <b style={{ color: '#F4F3FF' }}>{levelPopCap(content, b.k, b.lv || 1)}</b> lakóhely</>}
+          </div>
+        )}
+        {b.up >= 0 && (
+          <div className="mt-1">
+            <div className="flex items-center gap-1.5 text-[11px]" style={{ color: '#ffc94a' }}>
+              Fejlesztés a(z) {(b.lv || 1) + 1}. szintre: {Math.floor(b.up)}%
+              {isMine(store, b.o) && <button title="Fejlesztés megszakítása (teljes visszatérítés)" onClick={() => store.onCancelUpgrade?.(b.i)} className="p-0.5 rounded hover:bg-white/10"><X className="w-3 h-3" /></button>}
+            </div>
+            <Bar frac={b.up / 100} color="#ffc94a" h={4} />
+          </div>
+        )}
         {b.q?.length > 0 && isMine(store, b.o) && (
           <div className="mt-1.5 flex flex-wrap gap-1.5">
             {b.q.map((it, i) => (
@@ -482,6 +504,30 @@ function ActionPanel({ store, content, sel, onCommand, onDemolish }) {
         </div>
       );
     }
+    const up = nextUpgradeDef(content, b);
+    if (up) {
+      const lv = b.lv || 1;
+      const locked = reqEpoch(up) > epoch;
+      const poor = !canAfford(res, up.cost);
+      const busy = b.up >= 0;
+      const gain = up.popCap - levelPopCap(content, b.k, lv);
+      sections.push(
+        <div key="upgrade">
+          <div className="text-[10px] font-bold uppercase tracking-widest mb-1" style={{ color: '#999BBE' }}>Épület fejlesztése</div>
+          <ActionButton
+            label={`${lv + 1}. szintre`}
+            sub={`${gain > 0 ? `+${gain} lakóhely · ` : ''}${up.buildTime} mp`}
+            cost={up.cost}
+            res={res}
+            disabled={busy || locked || poor}
+            reason={busy ? 'Folyamatban' : locked ? `${reqEpoch(up)}. korszaktól` : poor ? 'Kevés nyersanyag' : ''}
+            onClick={() => onCommand('upgrade', { buildingId: b.i })}
+          />
+        </div>
+      );
+    } else if (buildingLevelCount(content, b.k) > 1) {
+      sections.push(<div key="upgrade" className="text-[10px]" style={{ color: '#999BBE' }}>Legmagasabb szint elérve.</div>);
+    }
     if (b.k === 'townCenter') {
       const next = content.epochs.find((e) => e.n === epoch + 1);
       if (next) {
@@ -586,6 +632,7 @@ export default function EmpireHud({ store, content, connected, results, phase, m
       store.moveMarks.push({ x, y, t0: store.time, color: '#28C997' });
     };
     store.onCancelTrain = (buildingId, index) => onCommand('cancel-train', { buildingId, index });
+    store.onCancelUpgrade = (buildingId) => onCommand('cancel-upgrade', { buildingId });
     return () => { store.onMiniOrder = null; store.onCancelTrain = null; };
   }, [store, onCommand]);
 
@@ -646,7 +693,7 @@ export default function EmpireHud({ store, content, connected, results, phase, m
 
       {store.ui.placing && !spectator && (
         <div className="absolute bottom-64 left-1/2 -translate-x-1/2 px-3 py-1.5 rounded-xl text-xs font-semibold pointer-events-none" style={{ ...GLASS, color: '#c7bfff' }}>
-          Kattints a lerakáshoz (Shift: többet is) · Jobb gomb / Esc: mégse
+          Kattints a lerakáshoz (Shift: többet is){nextUpgradeDef(content, { k: store.ui.placing, lv: 1 }) ? ' · Egy meglévőre húzva fejleszti' : ''} · Jobb gomb / Esc: mégse
         </div>
       )}
 

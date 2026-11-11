@@ -1,10 +1,10 @@
 import React, { useEffect, useRef } from 'react';
 import { clampCamera, centerOnWorld, stepCameraGoal, panDelta, MIN_PITCH, MAX_PITCH } from './empireMath';
 import {
-  advance, updateFog, pickAt, boxSelect, visibleOfKind, selectionInfo, canPlace, isMine, isAllied, isNeutral, notify,
+  advance, updateFog, pickAt, boxSelect, visibleOfKind, selectionInfo, canPlace, upgradeTargetAt, isMine, isAllied, isNeutral, notify,
   saveGroup, selectGroup, groupCenter, cueAsszonyVoice
 } from './empireStore';
-import { buildingSize, isBuilderKind } from './empireContent';
+import { buildingSize, isBuilderKind, nextUpgradeDef, reqEpoch, canAfford } from './empireContent';
 import { createEmpireScene } from './empire3d/scene';
 import { playEmpireSfx } from './empireAudio';
 
@@ -86,6 +86,15 @@ export default function EmpireCanvas3D({ store, onCommand }) {
       return { size: s, x: Math.round(g.x - s / 2), y: Math.round(g.y - s / 2) };
     };
     const ownUnits = () => selectionInfo(store).units.filter((u) => isMine(store, u.o));
+    // why the building cannot be upgraded right now (null when it can)
+    const upgradeBlocker = (b) => {
+      const next = nextUpgradeDef(store.content, b);
+      if (!next) return 'Ez az épület már a legmagasabb szinten van.';
+      if (b.up >= 0) return 'Ez az épület már fejlesztés alatt áll.';
+      if (reqEpoch(next) > (store.res.epoch || 1)) return `A fejlesztéshez ${reqEpoch(next)}. korszak kell.`;
+      if (!canAfford(store.res, next.cost)) return 'Nincs elég nyersanyag a fejlesztéshez.';
+      return null;
+    };
     const ids = (list) => list.slice(0, MAX_IDS).map((u) => u.i);
 
     const sendOrder = (sx, sy) => {
@@ -169,6 +178,16 @@ export default function EmpireCanvas3D({ store, onCommand }) {
       if (e.button !== 0) return;
       if (store.ui.placing && !store.spectator) {
         const a = placeAnchor();
+        // dropped onto an own building of the same kind: upgrade it, the selected builders help
+        const up = a && upgradeTargetAt(store, store.ui.placing, a.x, a.y);
+        if (up) {
+          const why = upgradeBlocker(up);
+          if (why) { notify(store, why, 'alert'); return; }
+          const helpers = ownUnits().filter((u) => isBuilderKind(u.k));
+          cmdRef.current('upgrade', { buildingId: up.i, ...(helpers.length ? { unitIds: ids(helpers) } : {}) });
+          if (!e.shiftKey) store.ui.placing = null;
+          return;
+        }
         if (!a || !canPlace(store, store.ui.placing, a.x, a.y)) { notify(store, 'Ide nem építhetsz.', 'alert'); return; }
         const builders = ownUnits().filter((u) => isBuilderKind(u.k));
         if (!builders.length) { notify(store, 'Válassz ki egy Építő Mestert az építéshez.', 'alert'); return; }
@@ -354,8 +373,11 @@ export default function EmpireCanvas3D({ store, onCommand }) {
         if (store.ui.placing && !store.spectator) {
           const a = placeAnchor();
           if (a) {
-            ghost.kind = store.ui.placing; ghost.x = a.x; ghost.y = a.y; ghost.size = a.size;
-            ghost.ok = canPlace(store, store.ui.placing, a.x, a.y);
+            const up = upgradeTargetAt(store, store.ui.placing, a.x, a.y);
+            ghost.kind = store.ui.placing; ghost.size = a.size;
+            // over an own building of the same kind the ghost snaps onto it as an upgrade
+            if (up) { ghost.x = up.x; ghost.y = up.y; ghost.ok = !upgradeBlocker(up); ghost.upgrade = true; }
+            else { ghost.x = a.x; ghost.y = a.y; ghost.ok = canPlace(store, store.ui.placing, a.x, a.y); ghost.upgrade = false; }
             info.ghost = ghost;
           }
           canvas.style.cursor = 'copy';

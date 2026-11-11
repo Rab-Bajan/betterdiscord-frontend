@@ -2,10 +2,10 @@
 import assert from 'node:assert';
 import {
   createStore, applySnapshot, applyTick, advance, saveGroup, selectGroup, groupSummary, groupCenter, purgeGroups,
-  pickAt, boxSelect, isTileVisible, playerColor, NEUTRAL_COLOR, addChat, spyReportFor, cueAsszonyVoice
+  pickAt, boxSelect, isTileVisible, playerColor, NEUTRAL_COLOR, addChat, spyReportFor, cueAsszonyVoice, upgradeTargetAt
 } from './src/components/miskolcEmpire/empireStore.js';
-import { normalizeContent } from './src/components/miskolcEmpire/empireContent.js';
-import { clampCamera, centerOnWorld, stepCameraGoal, panDelta, createCamera, MAX_DIST } from './src/components/miskolcEmpire/empireMath.js';
+import { normalizeContent, nextUpgradeDef, levelPopCap } from './src/components/miskolcEmpire/empireContent.js';
+import { clampCamera, centerOnWorld, stepCameraGoal, panDelta, createCamera, MAX_DIST, EDGE_INSET } from './src/components/miskolcEmpire/empireMath.js';
 
 let passed = 0;
 const test = (name, fn) => { fn(); passed++; console.log(`  ok  ${name}`); };
@@ -13,7 +13,7 @@ const test = (name, fn) => { fn(); passed++; console.log(`  ok  ${name}`); };
 const content = normalizeContent({
   epochs: [{ id: 1, name: 'Telepi Kezdet' }, { id: 2, name: 'Vasgyári Virágkor' }],
   units: { scavenger: { hp: 40, sight: 7 }, infiltrator: { hp: 60, sight: 9 }, knife: { hp: 70, sight: 7 } },
-  buildings: { townCenter: { size: 3, hp: 1500, sight: 10 }, scrapYard: { size: 2, hp: 600, sight: 6 } },
+  buildings: { townCenter: { size: 3, hp: 1500, sight: 10 }, scrapYard: { size: 2, hp: 600, sight: 6 }, house: { size: 2, hp: 300, sight: 5, popCap: 8, upgrades: [{ cost: { wood: 70 }, buildTime: 15, popCap: 12, hp: 400 }] } },
   demolish: { maxRefund: 0.5, minRefund: 0.35, holdMs: 1500 }
 });
 
@@ -200,16 +200,40 @@ test('camera: clamp, smooth centring and yaw-relative pan', () => {
   const cam = createCamera();
   cam.dist = 999; cam.x = -50;
   clampCamera(cam, 88, 88, false);
-  assert.equal(cam.dist, MAX_DIST); assert.equal(cam.x, 0);
+  assert.equal(cam.dist, MAX_DIST); assert.equal(cam.x, MAX_DIST * EDGE_INSET, 'target is pulled in from the edge by the zoom');
+  cam.dist = 20; cam.x = 500; cam.y = -500;
+  clampCamera(cam, 88, 88, false);
+  assert.equal(cam.x, 88 - 20 * EDGE_INSET); assert.equal(cam.y, 20 * EDGE_INSET);
   cam.dist = 999; cam.x = -50;
   clampCamera(cam, 88, 88, true);
-  assert.ok(cam.dist > MAX_DIST && cam.x < 0, 'spectator camera is looser');
+  assert.ok(cam.dist > MAX_DIST, 'spectator zooms further out');
+  assert.equal(cam.x, 44, 'never scrolls past the map: a zoom wider than the map pins it to the centre');
   centerOnWorld(cam, 40, 40, true);
   for (let i = 0; i < 200; i++) stepCameraGoal(cam, 1 / 60);
   assert.equal(cam.goal, null); assert.equal(cam.x, 40); assert.equal(cam.y, 40);
   cam.yaw = 0; // eye at +z looking towards -z: screen up = world -y
   const d = panDelta(cam, 0, -1, 1, { x: 0, y: 0 });
   assert.ok(Math.abs(d.x) < 1e-9 && d.y === -1);
+});
+
+test('upgrade: dropping a house onto an own finished house targets it; level, max hp and progress merge', () => {
+  const s = fresh();
+  applyTick(s, { t: 11, b: [
+    { i: 20, o: 0, k: 'house', x: 8, y: 2, hp: 300, mh: 300, bp: 100, lv: 1, up: -1 },
+    { i: 21, o: 1, k: 'house', x: 12, y: 2, hp: 300, mh: 300, bp: 100, lv: 1, up: -1 },
+    { i: 22, o: 0, k: 'house', x: 8, y: 6, hp: 30, mh: 300, bp: 10, lv: 1, up: -1 }
+  ] });
+  assert.equal(upgradeTargetAt(s, 'house', 9, 3)?.i, 20, 'overlapping own house');
+  assert.equal(upgradeTargetAt(s, 'house', 12, 2), null, 'enemy house is not a target');
+  assert.equal(upgradeTargetAt(s, 'house', 8, 6), null, 'unfinished house is not a target');
+  assert.equal(upgradeTargetAt(s, 'scrapYard', 8, 2), null, 'other kind / not upgradeable');
+  assert.equal(nextUpgradeDef(s.content, s.buildings.get(20)).popCap, 12);
+  applyTick(s, { t: 12, b: [{ i: 20, up: 40 }] });
+  assert.equal(s.buildings.get(20).up, 40);
+  applyTick(s, { t: 13, b: [{ i: 20, lv: 2, mh: 400, hp: 400, up: -1 }] });
+  const b = s.buildings.get(20);
+  assert.equal(b.lv, 2); assert.equal(b.mhp, 400); assert.equal(levelPopCap(s.content, 'house', 2), 12);
+  assert.equal(nextUpgradeDef(s.content, b), null, 'top level');
 });
 
 console.log(`--- ${passed} passed ---`);
