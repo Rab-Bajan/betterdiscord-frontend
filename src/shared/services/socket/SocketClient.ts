@@ -1,6 +1,6 @@
 import type { Socket } from 'socket.io-client';
 
-type Listener = (...args: any[]) => void;
+type Listener = (...args: unknown[]) => void;
 
 /** Vékony OOP burok egy socket.io-client Sockethez; minden hívás a mögöttes sockethez delegál. */
 export class SocketClient {
