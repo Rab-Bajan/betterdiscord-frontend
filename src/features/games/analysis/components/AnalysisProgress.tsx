@@ -1,8 +1,15 @@
 import React from 'react';
 import { Loader2, X } from 'lucide-react';
+import type { AnalysisProgressInfo, ImportedGameInfo } from '../types';
 
-export default function AnalysisProgress({ progress, game, onCancel }) {
-  const queued = progress?.queuePosition > 0;
+interface AnalysisProgressProps {
+  progress: AnalysisProgressInfo | null;
+  game: ImportedGameInfo | undefined;
+  onCancel: () => void;
+}
+
+export default function AnalysisProgress({ progress, game, onCancel }: AnalysisProgressProps) {
+  const queued = (progress?.queuePosition ?? 0) > 0;
   const percent = progress?.percent ?? 0;
 
   return (
@@ -28,7 +35,7 @@ export default function AnalysisProgress({ progress, game, onCancel }) {
       <div className="flex items-center justify-between text-xs" style={{ color: '#999BBE' }}>
         <span>
           {queued
-            ? `${progress.queuePosition}. a sorban`
+            ? `${progress?.queuePosition}. a sorban`
             : `${progress?.done ?? 0} / ${progress?.total ?? '?'} állás (${percent}%)`}
         </span>
         {progress?.etaSeconds != null && !queued && <span>kb. {progress.etaSeconds} mp van hátra</span>}

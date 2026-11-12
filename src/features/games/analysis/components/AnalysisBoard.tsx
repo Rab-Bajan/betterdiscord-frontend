@@ -2,15 +2,25 @@ import React, { useMemo } from 'react';
 import { classInfo } from '../lib/classifications';
 
 // Mindkét színhez a tömör bábuk, a szín a kitöltésből jön. A ︎ szöveges megjelenítést kényszerít (nem emoji).
-const GLYPH = { k: '♚︎', q: '♛︎', r: '♜︎', b: '♝︎', n: '♞︎', p: '♟︎' };
+interface BoardPiece {
+  type: string;
+  color: 'w' | 'b';
+}
+
+export interface SquareMove {
+  from: string;
+  to: string;
+}
+
+const GLYPH: Readonly<Record<string, string>> = { k: '♚︎', q: '♛︎', r: '♜︎', b: '♝︎', n: '♞︎', p: '♟︎' };
 const SQUARE = 100;
 const LIGHT = '#C8CBEE';
 const DARK = '#7C80C2';
 
 // FEN első mezője -> { 'e4': { type, color } }
-function parsePlacement(fen) {
-  const pieces = {};
-  const rows = fen.split(' ')[0].split('/');
+function parsePlacement(fen: string): Record<string, BoardPiece> {
+  const pieces: Record<string, BoardPiece> = {};
+  const rows = (fen.split(' ')[0] ?? '').split('/');
   rows.forEach((row, rowIndex) => {
     let file = 0;
     for (const ch of row) {
@@ -26,15 +36,20 @@ function parsePlacement(fen) {
 }
 
 // Mező közepe az SVG-ben (a tábla forgatását is figyelembe véve)
-function center(square, flipped) {
-  const file = 'abcdefgh'.indexOf(square[0]);
+function center(square: string, flipped: boolean): { x: number; y: number; col: number; row: number } {
+  const file = 'abcdefgh'.indexOf(square[0] ?? '');
   const rank = Number(square[1]) - 1;
   const x = flipped ? 7 - file : file;
   const y = flipped ? rank : 7 - rank;
   return { x: x * SQUARE + SQUARE / 2, y: y * SQUARE + SQUARE / 2, col: x, row: y };
 }
 
-function Arrow({ from, to, flipped, color }) {
+interface ArrowProps extends SquareMove {
+  flipped: boolean;
+  color: string;
+}
+
+function Arrow({ from, to, flipped, color }: ArrowProps) {
   const a = center(from, flipped);
   const b = center(to, flipped);
   const dx = b.x - a.x;
@@ -62,13 +77,18 @@ function Arrow({ from, to, flipped, color }) {
   );
 }
 
-/**
- * @param {string} fen
- * @param {{from:string,to:string}|null} lastMove     a legutóbbi lépés (kiemelés)
- * @param {string|null} classification                a lépés besorolása (kiemelés színe + jelvény)
- * @param {{from:string,to:string}|null} bestMove     a Stockfish javaslata (nyíl)
- */
-export default function AnalysisBoard({ fen, lastMove = null, classification = null, bestMove = null, flipped = false }) {
+interface AnalysisBoardProps {
+  fen: string;
+  /** a legutóbbi lépés (kiemelés) */
+  lastMove?: SquareMove | null;
+  /** a lépés besorolása (kiemelés színe + jelvény) */
+  classification?: string | null;
+  /** a Stockfish javaslata (nyíl) */
+  bestMove?: SquareMove | null;
+  flipped?: boolean;
+}
+
+export default function AnalysisBoard({ fen, lastMove = null, classification = null, bestMove = null, flipped = false }: AnalysisBoardProps) {
   const pieces = useMemo(() => parsePlacement(fen), [fen]);
   const info = classification ? classInfo(classification) : null;
 

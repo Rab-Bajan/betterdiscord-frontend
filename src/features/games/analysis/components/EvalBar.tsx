@@ -1,8 +1,14 @@
 import React from 'react';
-import { whiteShare, formatScore } from '../lib/analysisFormat';
+import { whiteShare, formatScore, type Score } from '../lib/analysisFormat';
+
+interface EvalBarProps {
+  score: Score | null | undefined;
+  terminal?: string | null;
+  flipped?: boolean;
+}
 
 // Függőleges értékelősáv: a fehér rész alulról nő (ha a tábla meg van fordítva, felülről)
-export default function EvalBar({ score, terminal = null, flipped = false }) {
+export default function EvalBar({ score, terminal = null, flipped = false }: EvalBarProps) {
   const share = terminal === 'checkmate' ? null : whiteShare(score); // matt végállásnál a nyertes dönt
   const white = share === null ? (score && (score.mate !== undefined ? score.mate > 0 : score.cp > 0) ? 1 : 0.5) : share;
   const label = formatScore(score, { terminal });

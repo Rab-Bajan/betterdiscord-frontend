@@ -1,6 +1,32 @@
 import React, { useState } from 'react';
 import { Link2, FileText, Loader2, Play, AlertTriangle, Sparkles } from 'lucide-react';
+import type { FormEvent } from 'react';
+import type { LucideIcon } from 'lucide-react';
 import { resultLabel } from '../lib/analysisFormat';
+import type { AnalysisError, AnalysisPhase, ImportRequest } from '../hooks/useGameAnalysis';
+import type { ImportedGame } from '../types';
+
+/** The engine settings form; number fields may be empty strings while editing. */
+export interface SettingsForm {
+  depth: number | string;
+  movetimeMs: number | string;
+  multipv: number | string;
+  engine: string;
+}
+
+type ImportMode = 'url' | 'pgn';
+
+const MODES: ReadonlyArray<readonly [ImportMode, LucideIcon, string]> = [['url', Link2, 'Chess.com link'], ['pgn', FileText, 'PGN beillesztése']];
+
+interface ImportPanelProps {
+  phase: AnalysisPhase;
+  imported: ImportedGame | null;
+  error: AnalysisError | null;
+  onImport: (request: ImportRequest) => void;
+  onStart: () => void;
+  settings: SettingsForm;
+  onSettingsChange: (settings: SettingsForm) => void;
+}
 
 const EXAMPLE_URL = 'https://www.chess.com/analysis/game/live/186506919580/review?flip=true';
 
@@ -13,13 +39,13 @@ const PRESETS = [
 const inputStyle = { background: '#101329', border: '1px solid rgba(125, 105, 255, 0.25)', color: '#F4F3FF' };
 const cardStyle = { background: '#151832', border: '1px solid rgba(125, 105, 255, 0.15)' };
 
-export default function ImportPanel({ phase, imported, error, onImport, onStart, settings, onSettingsChange }) {
-  const [mode, setMode] = useState('url'); // 'url' | 'pgn'
+export default function ImportPanel({ phase, imported, error, onImport, onStart, settings, onSettingsChange }: ImportPanelProps) {
+  const [mode, setMode] = useState<ImportMode>('url');
   const [url, setUrl] = useState('');
   const [pgn, setPgn] = useState('');
   const busy = phase === 'importing';
 
-  const submit = (event) => {
+  const submit = (event: FormEvent) => {
     event.preventDefault();
     if (busy) return;
     onImport(mode === 'url' ? { url: url.trim() } : { pgn: pgn.trim() });
@@ -27,13 +53,13 @@ export default function ImportPanel({ phase, imported, error, onImport, onStart,
 
   const canSubmit = mode === 'url' ? url.trim().length > 0 : pgn.trim().length > 0;
   const game = imported?.game;
-  const set = (patch) => onSettingsChange({ ...settings, ...patch });
+  const set = (patch: Partial<SettingsForm>) => onSettingsChange({ ...settings, ...patch });
 
   return (
     <div className="space-y-4 max-w-2xl w-full mx-auto">
       <form onSubmit={submit} className="rounded-2xl p-4 sm:p-5 space-y-3" style={cardStyle}>
         <div className="flex items-center gap-1 p-1 rounded-xl w-fit" style={{ background: '#101329' }} role="tablist">
-          {[['url', Link2, 'Chess.com link'], ['pgn', FileText, 'PGN beillesztése']].map(([id, Icon, label]) => (
+          {MODES.map(([id, Icon, label]) => (
             <button
               key={id}
               type="button"

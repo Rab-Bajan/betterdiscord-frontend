@@ -1,8 +1,21 @@
 import React, { useRef, useEffect } from 'react';
 import { classInfo } from '../lib/classifications';
 import { formatClock } from '../lib/analysisFormat';
+import type { AnalyzedMove } from '../types';
 
-function Badge({ id }) {
+interface MoveCellProps {
+  move: AnalyzedMove | undefined;
+  active: boolean;
+  onSelect: (ply: number) => void;
+}
+
+interface MoveListProps {
+  moves: AnalyzedMove[];
+  currentPly: number;
+  onSelect: (ply: number) => void;
+}
+
+function Badge({ id }: { id: string }) {
   const info = classInfo(id);
   return (
     <span
@@ -16,7 +29,7 @@ function Badge({ id }) {
   );
 }
 
-function MoveCell({ move, active, onSelect }) {
+function MoveCell({ move, active, onSelect }: MoveCellProps) {
   if (!move) return <div />;
   const info = classInfo(move.classification);
   const clock = formatClock(move.clock);
@@ -40,13 +53,13 @@ function MoveCell({ move, active, onSelect }) {
 }
 
 // Lépéslista (egyben az értékelés táblázatos nézete)
-export default function MoveList({ moves, currentPly, onSelect }) {
-  const containerRef = useRef(null);
+export default function MoveList({ moves, currentPly, onSelect }: MoveListProps) {
+  const containerRef = useRef<HTMLDivElement>(null);
 
   // A kijelölt lépés a listán belül maradjon látható (az oldal görgetése nélkül)
   useEffect(() => {
     const container = containerRef.current;
-    const active = container?.querySelector('[data-active="true"]');
+    const active = container?.querySelector<HTMLElement>('[data-active="true"]');
     if (!container || !active) return;
     const top = active.offsetTop - container.offsetTop;
     if (top < container.scrollTop || top + active.offsetHeight > container.scrollTop + container.clientHeight) {

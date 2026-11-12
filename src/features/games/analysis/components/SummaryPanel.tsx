@@ -1,8 +1,16 @@
 import React from 'react';
 import { CLASSIFICATION_ORDER, classInfo } from '../lib/classifications';
 import { resultLabel } from '../lib/analysisFormat';
+import type { AnalysisResult, PlayerColor, PlayerInfo, SideSummary } from '../types';
 
-function PlayerCard({ side, player, summary, isWinner }) {
+interface PlayerCardProps {
+  side: PlayerColor;
+  player: PlayerInfo;
+  summary: SideSummary;
+  isWinner: boolean;
+}
+
+function PlayerCard({ side, player, summary, isWinner }: PlayerCardProps) {
   const dot = side === 'white' ? '#F1F1FA' : '#14142B';
   return (
     <div className="flex-1 min-w-0 rounded-xl p-3 text-center" style={{ background: '#151832', border: `1px solid ${isWinner ? 'rgba(40, 201, 151, 0.5)' : 'rgba(125, 105, 255, 0.15)'}` }}>
@@ -22,9 +30,9 @@ function PlayerCard({ side, player, summary, isWinner }) {
   );
 }
 
-export default function SummaryPanel({ result }) {
+export default function SummaryPanel({ result }: { result: AnalysisResult }) {
   const { players, summary } = result;
-  const rows = CLASSIFICATION_ORDER.filter((id) => summary.white.counts[id] > 0 || summary.black.counts[id] > 0);
+  const rows = CLASSIFICATION_ORDER.filter((id) => (summary.white.counts[id] ?? 0) > 0 || (summary.black.counts[id] ?? 0) > 0);
   const winner = result.result === '1-0' ? 'white' : result.result === '0-1' ? 'black' : null;
 
   return (

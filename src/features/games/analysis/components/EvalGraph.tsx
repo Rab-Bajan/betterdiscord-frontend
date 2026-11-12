@@ -1,6 +1,14 @@
-import React, { useRef, useState, useEffect, useMemo } from 'react';
+import React, { useRef, useState, useEffect, useMemo, type MouseEvent } from 'react';
 import { classInfo } from '../lib/classifications';
 import { whiteShare, formatScore, moveLabel } from '../lib/analysisFormat';
+import type { AnalysisPosition, AnalyzedMove } from '../types';
+
+interface EvalGraphProps {
+  positions: AnalysisPosition[];
+  moves: AnalyzedMove[];
+  currentPly: number;
+  onSelect: (ply: number) => void;
+}
 
 const HEIGHT = 110;
 const PAD_X = 6;
@@ -8,34 +16,35 @@ const PAD_X = 6;
 const KEY_CLASSES = new Set(['brilliant', 'great', 'mistake', 'blunder', 'missed-win', 'missed-mate']);
 
 // Értékelés-grafikon: a világos terület a fehér előnye, a sötét háttér a feketéé. Egy sorozat, egy tengely.
-export default function EvalGraph({ positions, moves, currentPly, onSelect }) {
-  const wrapRef = useRef(null);
+export default function EvalGraph({ positions, moves, currentPly, onSelect }: EvalGraphProps) {
+  const wrapRef = useRef<HTMLDivElement>(null);
   const [width, setWidth] = useState(600);
-  const [hover, setHover] = useState(null); // ply
+  const [hover, setHover] = useState<number | null>(null); // ply
 
   useEffect(() => {
     const el = wrapRef.current;
     if (!el) return undefined;
-    const observer = new ResizeObserver(([entry]) => setWidth(Math.max(200, Math.round(entry.contentRect.width))));
+    const observer = new ResizeObserver(([entry]) => { if (entry) setWidth(Math.max(200, Math.round(entry.contentRect.width))); });
     observer.observe(el);
     return () => observer.disconnect();
   }, []);
 
   const count = positions.length;
   const plotW = width - PAD_X * 2;
-  const x = (ply) => PAD_X + (count <= 1 ? 0 : (ply / (count - 1)) * plotW);
-  const y = (position) => HEIGHT - whiteShare(position.eval) * HEIGHT;
+  const x = (ply: number): number => PAD_X + (count <= 1 ? 0 : (ply / (count - 1)) * plotW);
+  const y = (position: AnalysisPosition | undefined): number => HEIGHT - whiteShare(position?.eval) * HEIGHT;
 
   const { linePath, areaPath } = useMemo(() => {
-    const pts = positions.map((p, i) => [x(i), y(p)]);
+    const pts = positions.map((p, i): [number, number] => [x(i), y(p)]);
     const line = pts.map(([px, py], i) => `${i === 0 ? 'M' : 'L'}${px.toFixed(1)},${py.toFixed(1)}`).join(' ');
     const area = `${line} L${x(count - 1).toFixed(1)},${HEIGHT} L${x(0).toFixed(1)},${HEIGHT} Z`;
     return { linePath: line, areaPath: area };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [positions, width]);
 
-  const plyFromEvent = (event) => {
-    const rect = wrapRef.current.getBoundingClientRect();
+  const plyFromEvent = (event: MouseEvent<SVGSVGElement>): number => {
+    const rect = wrapRef.current?.getBoundingClientRect();
+    if (!rect) return currentPly;
     const ratio = (event.clientX - rect.left - PAD_X) / plotW;
     return Math.max(0, Math.min(count - 1, Math.round(ratio * (count - 1))));
   };
@@ -94,7 +103,7 @@ export default function EvalGraph({ positions, moves, currentPly, onSelect }) {
         >
           <div className="font-semibold">{shownMove ? moveLabel(shownMove) : 'Kiinduló állás'}</div>
           <div style={{ color: '#999BBE' }}>
-            Értékelés: <strong style={{ color: '#F4F3FF' }}>{formatScore(shownPosition.eval, { terminal: shownPosition.terminal })}</strong>
+            Értékelés: <strong style={{ color: '#F4F3FF' }}>{formatScore(shownPosition?.eval, { terminal: shownPosition?.terminal })}</strong>
             {shownMove && <> · {classInfo(shownMove.classification).label}</>}
           </div>
         </div>

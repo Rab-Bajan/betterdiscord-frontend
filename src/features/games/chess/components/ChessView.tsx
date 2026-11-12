@@ -1,24 +1,47 @@
 import React, { useState, useMemo } from 'react';
-import { Chess } from 'chess.js';
-import Avatar from '../../../../shared/ui/Avatar';
-import { 
-  Trophy, 
-  RotateCcw, 
-  Flag, 
-  Eye, 
-  Users, 
-  X, 
-  Crown, 
-  Swords, 
-  Play, 
-  Volume2, 
-  Sparkles,
-  ChevronRight,
-  ShieldAlert
+import { Chess, type Color, type PieceSymbol, type Square } from 'chess.js';
+import {
+  Trophy,
+  RotateCcw,
+  Flag,
+  Eye,
+  Users,
+  X,
+  Crown,
+  Swords,
+  Sparkles
 } from 'lucide-react';
+import type { CurrentUser } from '../../../../shared/types';
+import type { ChessMove } from '../../../voice-room/hooks/useRoomActivities';
+import type { RoomSession } from '../../../voice-room/types';
+import { isChessSession } from '../types';
+import { formatHistory } from '../lib/chessHistory';
+import ChessPlayerCard from './ChessPlayerCard';
+
+type File = 'a' | 'b' | 'c' | 'd' | 'e' | 'f' | 'g' | 'h';
+type Rank = 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8;
+
+interface BoardPiece {
+  type: PieceSymbol;
+  color: Color;
+}
+
+interface ChessViewProps {
+  session: RoomSession | undefined;
+  currentUser: CurrentUser | null;
+  channelId: string | undefined;
+  channelName: string | undefined;
+  onStart: (colorPreference?: string) => void;
+  onJoin: () => void;
+  onMove: (move: ChessMove) => void;
+  onResign: () => void;
+  onRematch: () => void;
+  onStop: () => void;
+  onClose: () => void;
+}
 
 // Elegáns SVG sakkfigurák a prémium megjelenésért
-const PIECES = {
+const PIECES: Record<Color, Record<PieceSymbol, string>> = {
   w: {
     k: '♔',
     q: '♕',
@@ -38,7 +61,7 @@ const PIECES = {
 };
 
 export default function ChessView({
-  session,
+  session: roomSession,
   currentUser,
   channelId,
   channelName,
@@ -49,9 +72,9 @@ export default function ChessView({
   onRematch,
   onStop,
   onClose
-}) {
-  const [selectedSquare, setSelectedSquare] = useState(null);
-  const [promotionSquare, setPromotionSquare] = useState(null);
+}: ChessViewProps) {
+  const session = isChessSession(roomSession) ? roomSession : null;
+  const [selectedSquare, setSelectedSquare] = useState<Square | null>(null);
 
   // Chess.js kliensoldali példány a legális lépések lekéréséhez
   const chessInstance = useMemo(() => {
@@ -88,7 +111,7 @@ export default function ChessView({
   }, [selectedSquare, chessInstance, isMyTurn, session?.status]);
 
   // Mezőre kattintás kezelése
-  const handleSquareClick = (square, piece) => {
+  const handleSquareClick = (square: Square, piece: BoardPiece | null | undefined) => {
     if (!isMyTurn || session?.status !== 'playing') {
       setSelectedSquare(null);
       return;
@@ -138,8 +161,8 @@ export default function ChessView({
 
   // 8x8 tábla mátrix felépítése
   const board = chessInstance.board(); // 8 sor, mindegyik 8 elem
-  const ranks = boardFlipped ? [1, 2, 3, 4, 5, 6, 7, 8] : [8, 7, 6, 5, 4, 3, 2, 1];
-  const files = boardFlipped ? ['h', 'g', 'f', 'e', 'd', 'c', 'b', 'a'] : ['a', 'b', 'c', 'd', 'e', 'f', 'g', 'h'];
+  const ranks: Rank[] = boardFlipped ? [1, 2, 3, 4, 5, 6, 7, 8] : [8, 7, 6, 5, 4, 3, 2, 1];
+  const files: File[] = boardFlipped ? ['h', 'g', 'f', 'e', 'd', 'c', 'b', 'a'] : ['a', 'b', 'c', 'd', 'e', 'f', 'g', 'h'];
 
   // Ha nincs még aktív parti ebben a csatornában
   if (!session || !session.active) {
@@ -255,7 +278,7 @@ export default function ChessView({
           <div className="w-full max-w-[min(80vw,480px)] md:max-w-[min(520px,70vh)] lg:max-w-[min(560px,75vh)] flex items-center justify-between px-3 py-2 bg-[#151832] border border-[#7655F5]/20 rounded-t-xl mb-1 shadow-sm">
             {boardFlipped ? (
               // Ha meg van fordítva a tábla, felül a Fehér van
-              <PlayerCard
+              <ChessPlayerCard
                 player={session.white}
                 colorName="Fehér"
                 isTurn={session.turn === 'w' && session.status === 'playing'}
@@ -266,7 +289,7 @@ export default function ChessView({
               />
             ) : (
               // Standard nézetben felül a Fekete van
-              <PlayerCard
+              <ChessPlayerCard
                 player={session.black}
                 colorName="Fekete"
                 isTurn={session.turn === 'b' && session.status === 'playing'}
@@ -286,7 +309,7 @@ export default function ChessView({
             {ranks.map((rank) => (
               <div key={rank} className="flex-1 flex">
                 {files.map((file) => {
-                  const square = `${file}${rank}`;
+                  const square: Square = `${file}${rank}`;
                   const piece = chessInstance.get(square);
                   const isLight = (file.charCodeAt(0) - 97 + rank) % 2 !== 0;
                   const isSelected = selectedSquare === square;
@@ -354,7 +377,7 @@ export default function ChessView({
           <div className="w-full max-w-[min(80vw,480px)] md:max-w-[min(520px,70vh)] lg:max-w-[min(560px,75vh)] flex items-center justify-between px-3 py-2 bg-[#151832] border border-[#7655F5]/20 rounded-b-xl mt-1 shadow-sm">
             {boardFlipped ? (
               // Ha meg van fordítva, lent a Fekete van
-              <PlayerCard
+              <ChessPlayerCard
                 player={session.black}
                 colorName="Fekete"
                 isTurn={session.turn === 'b' && session.status === 'playing'}
@@ -365,7 +388,7 @@ export default function ChessView({
               />
             ) : (
               // Standard nézetben lent a Fehér van
-              <PlayerCard
+              <ChessPlayerCard
                 player={session.white}
                 colorName="Fehér"
                 isTurn={session.turn === 'w' && session.status === 'playing'}
@@ -530,69 +553,4 @@ export default function ChessView({
       </div>
     </div>
   );
-}
-
-// Segédkomponens: Játékos Kártya
-function PlayerCard({ player, colorName, isTurn, pieceIcon, isMe, canJoin, onJoin }) {
-  if (!player) {
-    return (
-      <div className="flex items-center justify-between w-full">
-        <div className="flex items-center gap-2">
-          <span className="text-lg opacity-40">{pieceIcon}</span>
-          <span className="text-xs text-[#999BBE] italic">{colorName} játékos nincs</span>
-        </div>
-        {canJoin && (
-          <button
-            onClick={onJoin}
-            className="px-2.5 py-1 rounded-lg text-xs font-bold bg-[#7655F5] hover:brightness-110 text-white transition-all shadow cursor-pointer"
-          >
-            Beszállás
-          </button>
-        )}
-      </div>
-    );
-  }
-
-  return (
-    <div className="flex items-center justify-between w-full">
-      <div className="flex items-center gap-2.5 min-w-0">
-        <div className="relative flex-shrink-0">
-          <Avatar user={player} size="sm" speaking={isTurn} />
-          {isTurn && (
-            <span className="absolute -top-1 -right-1 w-2.5 h-2.5 bg-[#28C997] rounded-full border-2 border-[#151832] animate-ping" />
-          )}
-        </div>
-        <div className="min-w-0">
-          <div className="flex items-center gap-1.5">
-            <span className="text-xs font-bold text-[#F4F3FF] truncate max-w-[120px] sm:max-w-[160px]">
-              {player.username}
-            </span>
-            {isMe && (
-              <span className="text-[9px] px-1 py-0.2 rounded bg-[#7655F5]/30 text-[#7655F5] font-bold">
-                Te
-              </span>
-            )}
-          </div>
-          <span className="text-[10px] text-[#999BBE]">
-            {colorName} {isTurn && '• Lépésre vár'}
-          </span>
-        </div>
-      </div>
-      <div className="flex items-center gap-1.5">
-        <span className="text-xl">{pieceIcon}</span>
-      </div>
-    </div>
-  );
-}
-
-// Lépéstörténet párokba rendezése (Fehér és Fekete lépések egymás mellett)
-function formatHistory(history) {
-  const rows = [];
-  for (let i = 0; i < history.length; i += 2) {
-    rows.push({
-      white: history[i]?.san || history[i],
-      black: history[i + 1]?.san || history[i + 1] || null
-    });
-  }
-  return rows;
 }

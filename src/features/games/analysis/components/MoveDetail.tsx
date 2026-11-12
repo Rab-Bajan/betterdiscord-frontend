@@ -1,9 +1,15 @@
 import React from 'react';
 import { classInfo } from '../lib/classifications';
 import { formatScore, formatClock, moveLabel } from '../lib/analysisFormat';
+import type { AnalysisPosition, AnalyzedMove } from '../types';
+
+interface MoveDetailProps {
+  move: AnalyzedMove | null;
+  positions: AnalysisPosition[];
+}
 
 // A kijelölt lépés magyarázata. Minden állítás az engine számaiból következik, semmi nincs "kitalálva".
-export default function MoveDetail({ move, positions }) {
+export default function MoveDetail({ move, positions }: MoveDetailProps) {
   if (!move) {
     return (
       <div className="rounded-xl p-3 text-sm" style={{ background: '#151832', color: '#999BBE' }}>
@@ -34,7 +40,7 @@ export default function MoveDetail({ move, positions }) {
 
       <div className="grid grid-cols-2 gap-x-4 gap-y-1 text-xs" style={{ color: '#999BBE' }}>
         <div>Értékelés (fehér): <strong style={{ color: '#F4F3FF' }}>{formatScore(move.evalBefore)} → {formatScore(move.evalAfter, { terminal: afterPosition?.terminal })}</strong></div>
-        <div>{mover[0].toUpperCase() + mover.slice(1)} nyerési esélye: <strong style={{ color: '#F4F3FF' }}>{before}% → {after}%</strong></div>
+        <div>{(mover[0] ?? '').toUpperCase() + mover.slice(1)} nyerési esélye: <strong style={{ color: '#F4F3FF' }}>{before}% → {after}%</strong></div>
         <div>CPL: <strong style={{ color: '#F4F3FF' }}>{move.cpl}</strong></div>
         <div>Lépés pontossága: <strong style={{ color: '#F4F3FF' }}>{move.accuracy.toFixed(0)}%</strong></div>
       </div>

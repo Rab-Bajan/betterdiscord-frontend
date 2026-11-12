@@ -10,6 +10,18 @@ import {
   Users,
   Gamepad2
 } from 'lucide-react';
+import type { CurrentUser } from '../../../../shared/types';
+import type { RoomSession } from '../../../voice-room/types';
+
+interface CasinoViewProps {
+  channelId: string | undefined;
+  channelName: string | undefined;
+  currentUser: CurrentUser | null;
+  session: RoomSession | undefined;
+  onStartSession: () => void;
+  onStopSession: () => void;
+  onClose: () => void;
+}
 
 export default function CasinoView({
   channelId,
@@ -19,9 +31,9 @@ export default function CasinoView({
   onStartSession,
   onStopSession,
   onClose
-}) {
-  const containerRef = useRef(null);
-  const iframeRef = useRef(null);
+}: CasinoViewProps) {
+  const containerRef = useRef<HTMLDivElement>(null);
+  const iframeRef = useRef<HTMLIFrameElement>(null);
   const [isFullScreen, setIsFullScreen] = useState(false);
   const [iframeKey, setIframeKey] = useState(0);
 

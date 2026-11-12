@@ -4,17 +4,19 @@ import { useGameAnalysis } from '../hooks/useGameAnalysis';
 import ImportPanel from './ImportPanel';
 import AnalysisProgress from './AnalysisProgress';
 import ReviewScreen from './ReviewScreen';
+import type { AnalysisSettings } from '../types';
+import type { SettingsForm } from './ImportPanel';
 
-const DEFAULT_SETTINGS = { depth: 14, movetimeMs: '', multipv: 3, engine: 'full' };
+const DEFAULT_SETTINGS: SettingsForm = { depth: 14, movetimeMs: '', multipv: 3, engine: 'full' };
 
 // A beviteli mezők szövegeit számokká alakítjuk (üres = nincs megadva)
-function toRequest(settings) {
-  const num = (value) => (value === '' || value == null || Number(value) <= 0 ? undefined : Number(value));
+function toRequest(settings: SettingsForm): AnalysisSettings {
+  const num = (value: string | number | null | undefined): number | undefined => (value === '' || value == null || Number(value) <= 0 ? undefined : Number(value));
   return { depth: num(settings.depth), movetimeMs: num(settings.movetimeMs), multipv: num(settings.multipv), engine: settings.engine };
 }
 
 // Játszma-elemzés: Chess.com import vagy PGN -> Stockfish elemzés -> lépésenkénti értékelés
-export default function GameAnalysisView({ onClose }) {
+export default function GameAnalysisView({ onClose }: { onClose: () => void }) {
   const analysis = useGameAnalysis();
   const [settings, setSettings] = useState(DEFAULT_SETTINGS);
   const { phase, imported, progress, result, error } = analysis;

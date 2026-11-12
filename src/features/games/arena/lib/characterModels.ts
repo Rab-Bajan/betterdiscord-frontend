@@ -1,9 +1,19 @@
 import * as THREE from 'three';
 
 // Eredeti, kódból épített karaktermodellek: külső modellfájl vagy licenc nem kell hozzájuk.
+import type { Cosmetics } from '../types';
 
-const mat = (color, extra = {}) => new THREE.MeshStandardMaterial({ color, roughness: 0.55, ...extra });
-const add = (parent, geometry, material, x = 0, y = 0, z = 0) => {
+/** A built model: the scene group plus its per-frame animation. */
+export interface CharacterModel {
+  group: THREE.Group;
+  animate(time: number, moving?: boolean, sprinting?: boolean, onGround?: boolean): void;
+}
+
+type Builder = (g: THREE.Group) => THREE.Group[];
+type HatBuilder = (g: THREE.Group, color: string, top: number) => void;
+
+const mat = (color: THREE.ColorRepresentation, extra: THREE.MeshStandardMaterialParameters = {}): THREE.MeshStandardMaterial => new THREE.MeshStandardMaterial({ color, roughness: 0.55, ...extra });
+const add = (parent: THREE.Object3D, geometry: THREE.BufferGeometry, material: THREE.Material, x = 0, y = 0, z = 0): THREE.Mesh => {
   const mesh = new THREE.Mesh(geometry, material);
   mesh.position.set(x, y, z);
   mesh.castShadow = true;
@@ -11,22 +21,22 @@ const add = (parent, geometry, material, x = 0, y = 0, z = 0) => {
   return mesh;
 };
 
-const sphere = (r, d = 14) => new THREE.SphereGeometry(r, d, Math.round(d * 0.7));
-const keep = (material) => {
+const sphere = (r: number, d = 14): THREE.SphereGeometry => new THREE.SphereGeometry(r, d, Math.round(d * 0.7));
+const keep = (material: THREE.MeshStandardMaterial): THREE.MeshStandardMaterial => {
   material.userData.keepColor = true;
   return material;
 };
 const white = () => keep(mat('#ffffff', { roughness: 0.2 }));
 const dark = () => keep(mat('#111111', { roughness: 0.2 }));
 
-function addEyes(group, y, z, spread, size) {
+function addEyes(group: THREE.Group, y: number, z: number, spread: number, size: number): void {
   for (const side of [-1, 1]) {
     add(group, sphere(size, 10), white(), side * spread, y, z);
     add(group, sphere(size * 0.5, 8), dark(), side * spread, y, z - size * 0.75);
   }
 }
 
-function addLegs(group, material, spread, length) {
+function addLegs(group: THREE.Group, material: THREE.Material, spread: number, length: number): THREE.Group[] {
   return [-1, 1].map((side) => {
     const pivot = new THREE.Group();
     pivot.position.set(side * spread, length, 0);
@@ -36,7 +46,7 @@ function addLegs(group, material, spread, length) {
   });
 }
 
-const addGun = (group, color, x, y, z) => {
+const addGun = (group: THREE.Group, color: string, x: number, y: number, z: number): void => {
   const gun = add(group, new THREE.CylinderGeometry(0.09, 0.13, 0.7, 10), mat(color, { metalness: 0.5 }), x, y, z);
   gun.rotation.x = Math.PI / 2;
 };
@@ -52,7 +62,7 @@ const BUILDERS = {
   },
   loofah_bruiser(g) {
     const fibre = mat('#e8c98a', { roughness: 0.95 });
-    for (const [x, y, z, r] of [[0, 1.15, 0, 0.72], [0.5, 1.5, 0.1, 0.38], [-0.5, 1.5, 0.1, 0.38], [0.45, 0.8, -0.1, 0.36], [-0.45, 0.8, -0.1, 0.36], [0, 1.68, -0.1, 0.32]]) {
+    for (const [x, y, z, r] of [[0, 1.15, 0, 0.72], [0.5, 1.5, 0.1, 0.38], [-0.5, 1.5, 0.1, 0.38], [0.45, 0.8, -0.1, 0.36], [-0.45, 0.8, -0.1, 0.36], [0, 1.68, -0.1, 0.32]] as const) {
       add(g, sphere(r), fibre, x, y, z);
     }
     addEyes(g, 1.4, -0.62, 0.24, 0.13);
@@ -70,7 +80,7 @@ const BUILDERS = {
   mold_creeper(g) {
     const mold = mat('#7fb13c', { roughness: 0.9 });
     add(g, sphere(0.68), mold, 0, 1.15, 0);
-    for (const [x, y, z, r] of [[0.42, 1.55, -0.3, 0.18], [-0.5, 1.2, -0.42, 0.14], [0.1, 0.72, -0.56, 0.16], [-0.25, 1.68, -0.1, 0.2]]) {
+    for (const [x, y, z, r] of [[0.42, 1.55, -0.3, 0.18], [-0.5, 1.2, -0.42, 0.14], [0.1, 0.72, -0.56, 0.16], [-0.25, 1.68, -0.1, 0.2]] as const) {
       add(g, sphere(r, 10), mat('#3d5a1b', { roughness: 1 }), x, y, z);
     }
     addEyes(g, 1.3, -0.56, 0.24, 0.14);
@@ -106,9 +116,11 @@ const BUILDERS = {
     addGun(g, '#cfd6dd', 0.62, 1.15, -0.35);
     return addLegs(g, metal, 0.32, 0.72);
   }
-};
+} satisfies Record<string, Builder>;
 
-const HATS = {
+const BUILDER_BY_ID: ReadonlyMap<string, Builder> = new Map(Object.entries(BUILDERS));
+
+const HATS: Record<string, HatBuilder> = {
   cap: (g, color, top) => {
     add(g, new THREE.SphereGeometry(0.42, 14, 8, 0, Math.PI * 2, 0, Math.PI / 2), mat(color), 0, top - 0.05, 0);
   },
@@ -129,32 +141,37 @@ const HATS = {
   }
 };
 
-function applyCosmetics(body, cosmetics = {}) {
-  if (cosmetics.tint) {
-    const tint = new THREE.Color(cosmetics.tint);
+const stringOf = (value: unknown): string | undefined => (typeof value === 'string' ? value : undefined);
+
+function applyCosmetics(body: THREE.Group, cosmetics: Cosmetics = {}): void {
+  const tintValue = stringOf(cosmetics.tint);
+  if (tintValue) {
+    const tint = new THREE.Color(tintValue);
     body.traverse((o) => {
-      if (o.isMesh && !o.material.userData.keepColor) o.material.color.lerp(tint, 0.65);
+      if (o instanceof THREE.Mesh && o.material instanceof THREE.MeshStandardMaterial && !o.material.userData.keepColor) o.material.color.lerp(tint, 0.65);
     });
   }
-  if (cosmetics.hat && HATS[cosmetics.hat]) {
+  const hat = cosmetics.hat ? HATS[cosmetics.hat] : undefined;
+  if (hat) {
     const top = new THREE.Box3().setFromObject(body).max.y;
-    HATS[cosmetics.hat](body, cosmetics.color || '#ffffff', top);
+    hat(body, cosmetics.color || '#ffffff', top);
   }
 }
 
-export function buildCharacter(characterId, cosmetics) {
+export function buildCharacter(characterId: string, cosmetics?: Cosmetics): CharacterModel {
   const group = new THREE.Group();
   const body = new THREE.Group();
   group.add(body);
-  const legs = (BUILDERS[characterId] || BUILDERS.bar_trooper)(body);
+  const legs = (BUILDER_BY_ID.get(characterId) ?? BUILDERS.bar_trooper)(body);
+  const [left, right] = legs;
   applyCosmetics(body, cosmetics);
 
   return {
     group,
     animate(time, moving, sprinting, onGround) {
       const stride = moving ? Math.sin(time * (sprinting ? 16 : 11)) * 0.75 : 0;
-      legs[0].rotation.x = onGround ? stride : -0.5;
-      legs[1].rotation.x = onGround ? -stride : 0.5;
+      if (left) left.rotation.x = onGround ? stride : -0.5;
+      if (right) right.rotation.x = onGround ? -stride : 0.5;
       body.position.y = moving ? Math.abs(Math.sin(time * 11)) * 0.06 : Math.sin(time * 2.2) * 0.02;
       body.rotation.z = moving ? Math.sin(time * 11) * 0.05 : 0;
     }
@@ -162,16 +179,16 @@ export function buildCharacter(characterId, cosmetics) {
 }
 
 // Versenyjármű: kerekes fürdőkád, benne a játékos karakterével
-export function buildVehicle(characterId, cosmetics = {}) {
+export function buildVehicle(characterId: string, cosmetics: Cosmetics = {}): CharacterModel {
   const group = new THREE.Group();
   const tub = new THREE.Group();
   group.add(tub);
-  const shell = mat(cosmetics.car || '#e6edf5', { roughness: 0.25, metalness: 0.2 });
+  const shell = mat(stringOf(cosmetics.car) || '#e6edf5', { roughness: 0.25, metalness: 0.2 });
   add(tub, new THREE.BoxGeometry(1.7, 0.7, 3), shell, 0, 0.75, 0);
   add(tub, new THREE.BoxGeometry(1.25, 0.2, 2.4), mat('#2563eb', { roughness: 0.1 }), 0, 1.06, 0);
   add(tub, new THREE.CylinderGeometry(0.08, 0.08, 0.6, 8), mat('#94a3b8', { metalness: 0.8 }), 0, 1.3, 1.2);
   const wheelGeometry = new THREE.CylinderGeometry(0.36, 0.36, 0.3, 14);
-  const wheels = [[-0.95, -1.05], [0.95, -1.05], [-0.95, 1.05], [0.95, 1.05]].map(([x, z]) => {
+  const wheels = ([[-0.95, -1.05], [0.95, -1.05], [-0.95, 1.05], [0.95, 1.05]] as const).map(([x, z]) => {
     const wheel = add(tub, wheelGeometry, keep(mat('#111827')), x, 0.36, z);
     wheel.rotation.z = Math.PI / 2;
     return wheel;
@@ -190,9 +207,9 @@ export function buildVehicle(characterId, cosmetics = {}) {
   };
 }
 
-const NPC_COLORS = { slime: '#65a30d', spitter: '#a3e635', brute: '#57534e', clog_giant: '#44403c', mold_queen: '#4d7c0f', hair_titan: '#292524', void_plunger: '#581c87' };
+const NPC_COLORS: Record<string, string> = { slime: '#65a30d', spitter: '#a3e635', brute: '#57534e', clog_giant: '#44403c', mold_queen: '#4d7c0f', hair_titan: '#292524', void_plunger: '#581c87' };
 
-export function buildNpc(type, size) {
+export function buildNpc(type: string, size: number): CharacterModel {
   const group = new THREE.Group();
   const body = new THREE.Group();
   group.add(body);
