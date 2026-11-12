@@ -7,9 +7,9 @@
  */
 
 import * as THREE from 'three';
-import { PhobiaController, CONTROLLER_CONSTANTS } from '../../src/features/games/phobia/lib/engine/PhobiaController.js';
-import { PhobiaAvatars, PhobiaAvatarInstance } from '../../src/features/games/phobia/lib/engine/PhobiaAvatars.js';
-import { MapColliders, BoxCollider, SURFACE_TYPES, HidingSpot } from '../../src/features/games/phobia/lib/map/MapColliders.js';
+import { PhobiaController, CONTROLLER_CONSTANTS } from '../../src/features/games/phobia/lib/engine/PhobiaController.ts';
+import { PhobiaAvatars, PhobiaAvatarInstance } from '../../src/features/games/phobia/lib/engine/PhobiaAvatars.ts';
+import { MapColliders, BoxCollider, SURFACE_TYPES, HidingSpot } from '../../src/features/games/phobia/lib/map/MapColliders.ts';
 
 let passedTests = 0;
 let totalTests = 0;
@@ -252,7 +252,7 @@ assert(controller.getActiveSlot() === 2, 'Mouse wheel up cycled back to slot 2')
 console.log('\n[TEST GROUP 7: 2.4m Interaction Raycasting & Hungarian Prompts]');
 
 // Add a test hinged door into mapColliders
-import { HingedDoor } from '../../src/features/games/phobia/lib/map/MapColliders.js';
+import { HingedDoor } from '../../src/features/games/phobia/lib/map/MapColliders.ts';
 const testDoor = new HingedDoor({
   id: 'door_mazsahaz_test',
   name: 'Mázsaház Ajtó',

@@ -3,10 +3,9 @@ import {
   PhobiaAudio,
   SURFACE_PROFILES,
   SPIRIT_BOX_PHRASES,
-  EMF_PULSE_RATES,
-  createOverdriveCurve,
-  createMockAudioContext
-} from '../../src/features/games/phobia/lib/audio/PhobiaAudio.js';
+  EMF_PULSE_RATES
+} from '../../src/features/games/phobia/lib/audio/PhobiaAudio.ts';
+import { createOverdriveCurve, createMockAudioContext } from '../../src/features/games/phobia/lib/audio/webAudio.ts';
 
 console.log('Testing PhobiaAudio Horror Sound & Voice Engine...');
 

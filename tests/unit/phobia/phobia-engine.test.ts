@@ -1,4 +1,3 @@
-// @ts-nocheck -- game libs are untyped JS; remove once they are converted to TS.
 /**
  * Port of tests/legacy/phobia-engine.legacy.mjs (6 sections, all throw-on-mismatch checks).
  *
@@ -12,14 +11,12 @@
  */
 import { describe, it, expect } from 'vitest';
 import * as THREE from 'three';
-import {
-  GhostDissolveMaterial,
-  DotsLaserMatrix,
-  RainParticles,
-  FreezingBreathParticles,
-  VhsHuntGlitchShader
-} from '../../../src/features/games/phobia/lib/shaders/index.js';
-import { PhobiaEngine } from '../../../src/features/games/phobia/lib/engine/PhobiaEngine.js';
+import { VhsHuntGlitchShader } from '../../../src/features/games/phobia/lib/shaders/VhsHuntGlitchShader.ts';
+import { GhostDissolveMaterial } from '../../../src/features/games/phobia/lib/shaders/GhostDissolveMaterial.ts';
+import { DotsLaserMatrix } from '../../../src/features/games/phobia/lib/shaders/DotsLaserMatrix.ts';
+import { RainParticles } from '../../../src/features/games/phobia/lib/shaders/RainParticles.ts';
+import { FreezingBreathParticles } from '../../../src/features/games/phobia/lib/shaders/FreezingBreathParticles.ts';
+import { PhobiaEngine } from '../../../src/features/games/phobia/lib/engine/PhobiaEngine.ts';
 
 describe('Phobia shaders, particles and engine interface', () => {
   it('GhostDissolveMaterial', () => {
@@ -74,8 +71,9 @@ describe('Phobia shaders, particles and engine interface', () => {
       'createRoomLight', 'setRoomLightState', 'setBreakerState', 'addUpdateHook', 'removeUpdateHook', 'dispose'
     ];
     expect(prototypeMethods).toHaveLength(24);
+    const proto: object = PhobiaEngine.prototype;
     for (const method of prototypeMethods) {
-      expect(typeof PhobiaEngine.prototype[method], `missing required prototype method: ${method}`).toBe('function');
+      expect(typeof Reflect.get(proto, method), `missing required prototype method: ${method}`).toBe('function');
     }
   });
 });

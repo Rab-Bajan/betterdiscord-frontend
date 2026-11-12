@@ -3,9 +3,9 @@ import assert from 'node:assert';
 import {
   createStore, applySnapshot, applyTick, advance, saveGroup, selectGroup, groupSummary, groupCenter, purgeGroups,
   pickAt, boxSelect, isTileVisible, playerColor, NEUTRAL_COLOR, addChat, spyReportFor, cueAsszonyVoice, upgradeTargetAt
-} from '../../src/features/games/empire/lib/empireStore.js';
-import { normalizeContent, nextUpgradeDef, levelPopCap } from '../../src/features/games/empire/lib/empireContent.js';
-import { clampCamera, centerOnWorld, stepCameraGoal, panDelta, createCamera, MAX_DIST, EDGE_INSET } from '../../src/features/games/empire/lib/empireMath.js';
+} from '../../src/features/games/empire/lib/empireStore.ts';
+import { normalizeContent, nextUpgradeDef, levelPopCap } from '../../src/features/games/empire/lib/empireContent.ts';
+import { clampCamera, centerOnWorld, stepCameraGoal, panDelta, createCamera, MAX_DIST, EDGE_INSET } from '../../src/features/games/empire/lib/empireMath.ts';
 
 let passed = 0;
 const test = (name, fn) => { fn(); passed++; console.log(`  ok  ${name}`); };

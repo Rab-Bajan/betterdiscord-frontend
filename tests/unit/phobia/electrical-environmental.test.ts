@@ -1,4 +1,3 @@
-// @ts-nocheck -- game libs are untyped JS; remove once they are converted to TS.
 /**
  * Port of tests/legacy/electrical-environmental.legacy.mjs (108 legacy checks, all preserved).
  * Each legacy check keeps its message as the expect() message. The legacy scripts were one
@@ -33,7 +32,7 @@ import {
   BREAKER_POSITION,
   SFX_KEYS as ELECTRICAL_SFX,
   KNIFE_SWITCH_ANGLES
-} from '../../../src/features/games/phobia/lib/systems/ElectricalSystem.js';
+} from '../../../src/features/games/phobia/lib/systems/ElectricalSystem.ts';
 import {
   EnvironmentalPhysics,
   PROP_TYPES,
@@ -42,20 +41,35 @@ import {
   DEFAULT_RESTITUTION,
   DEFAULT_PLAYER_THROW_SPEED,
   CAR_ALARM_DURATION
-} from '../../../src/features/games/phobia/lib/systems/EnvironmentalPhysics.js';
+} from '../../../src/features/games/phobia/lib/systems/EnvironmentalPhysics.ts';
+import { isRecord } from '../../../src/shared/lib/guards.ts';
+import type { PositionLike } from '../../../src/features/games/phobia/lib/systems/ElectricalSystem.ts';
+import type { PropEntity } from '../../../src/features/games/phobia/lib/systems/EnvironmentalPhysics.ts';
+
+/** `value`, or a thrown error naming what was missing (narrows lookups shared across tests). */
+/** A field of an emitted socket payload (undefined when the event or field is missing). */
+function payloadField(sent: { payload: unknown } | undefined, key: string): unknown {
+  const payload = sent?.payload;
+  return isRecord(payload) ? payload[key] : undefined;
+}
+
+function must<T>(value: T | null | undefined, what: string): T {
+  if (value === null || value === undefined) throw new Error(`missing ${what}`);
+  return value;
+}
 
 describe('M7 ElectricalSystem and EnvironmentalPhysics', () => {
-  let playedSounds: any;
-  let elec: any;
-  let fixtures: any;
-  let physicsSounds: any;
-  let noiseSpikes: any;
-  let env: any;
-  let pipeProp: any;
+  let playedSounds: Array<{ sfx: string; pos: PositionLike }> = [];
+  let elec: ElectricalSystem;
+  let fixtures: Array<{ id: string; zone: string; name: string }> = [];
+  let physicsSounds: Array<{ sfx: string; pos: THREE.Vector3 }> = [];
+  let noiseSpikes: Array<{ level: number; src: string }> = [];
+  let env: EnvironmentalPhysics;
+  let pipeProp: PropEntity;
 
   it('Testing ElectricalSystem initialization and state', () => {
     playedSounds = [];
-    const soundCallback = (sfx, pos) => {
+    const soundCallback = (sfx: string, pos: PositionLike) => {
       playedSounds.push({ sfx, pos });
     };
 
@@ -73,7 +87,7 @@ describe('M7 ElectricalSystem and EnvironmentalPhysics', () => {
     const breakerMesh = elec.buildBreakerBoxMesh();
     expect(breakerMesh, 'buildBreakerBoxMesh returns THREE.Group').toBeInstanceOf(THREE.Group);
     expect(elec.knifeSwitchPivot, 'knifeSwitchPivot successfully instantiated').not.toBe(null);
-    expect(Math.abs(elec.knifeSwitchPivot.rotation.x - KNIFE_SWITCH_ANGLES.ON), 'Knife switch initial angle is UP (+45°)').toBeLessThan(0.001);
+    expect(Math.abs(must(elec.knifeSwitchPivot, 'knifeSwitchPivot').rotation.x - KNIFE_SWITCH_ANGLES.ON), 'Knife switch initial angle is UP (+45°)').toBeLessThan(0.001);
 
     // Register 8 light fixtures across 5 zones
   });
@@ -108,7 +122,7 @@ describe('M7 ElectricalSystem and EnvironmentalPhysics', () => {
 
   it('Turning ON lights 1 through 6 (within capacity)', () => {
     for (let i = 0; i < 6; i++) {
-      const fixId = fixtures[i].id;
+      const fixId = must(fixtures[i], `fixture ${i}`).id;
       const res = elec.toggleLight(fixId);
       expect(res.success, `Successfully toggled light ${i + 1} (${fixId})`).toBe(true);
       expect(res.lightOn, `Light ${i + 1} is ON`).toBe(true);
@@ -125,7 +139,7 @@ describe('M7 ElectricalSystem and EnvironmentalPhysics', () => {
   it('Overload Test: Turning on 7th light MUST trip breaker to OFF', () => {
     playedSounds.length = 0; // Clear sound tracker
 
-    const overloadResult = elec.toggleLight(fixtures[6].id);
+    const overloadResult = elec.toggleLight(must(fixtures[6], 'fixture 6').id);
     expect(overloadResult.success, 'Toggle call handled cleanly').toBe(true);
     expect(overloadResult.tripped, 'Breaker tripped flag set to TRUE').toBe(true);
     expect(overloadResult.lightOn, '7th light denied power (remains OFF)').toBe(false);
@@ -133,7 +147,7 @@ describe('M7 ElectricalSystem and EnvironmentalPhysics', () => {
     expect(elec.isOn, 'Master breaker state immediately flipped to OFF').toBe(false);
     expect(elec.tripped, 'Breaker marked as tripped').toBe(true);
     expect(elec.activeLights.size, 'All room lights shut down (activeLights cleared to 0)').toBe(0);
-    expect(Math.abs(elec.knifeSwitchPivot.rotation.x - KNIFE_SWITCH_ANGLES.OFF), 'Knife switch lever flipped DOWN (-45°)').toBeLessThan(0.001);
+    expect(Math.abs(must(elec.knifeSwitchPivot, 'knifeSwitchPivot').rotation.x - KNIFE_SWITCH_ANGLES.OFF), 'Knife switch lever flipped DOWN (-45°)').toBeLessThan(0.001);
 
     // Verify SFX played on overload
     const hasBuzz = playedSounds.some((s) => s.sfx === ELECTRICAL_SFX.BREAKER_BUZZ);
@@ -145,7 +159,7 @@ describe('M7 ElectricalSystem and EnvironmentalPhysics', () => {
   });
 
   it('Testing switch action while breaker is OFF', () => {
-    const offClickResult = elec.toggleLight(fixtures[0].id);
+    const offClickResult = elec.toggleLight(must(fixtures[0], 'fixture 0').id);
     expect(offClickResult.breakerOff, 'Switch toggles mechanically but reports breakerOff: true').toBe(true);
     expect(offClickResult.lightOn, 'Light remains dark when breaker is OFF').toBe(false);
 
@@ -156,7 +170,7 @@ describe('M7 ElectricalSystem and EnvironmentalPhysics', () => {
     const resetResult = elec.setBreakerState(true, 'USER');
     expect(elec.isOn, 'Breaker turned back ON').toBe(true);
     expect(elec.tripped, 'Breaker tripped flag cleared').toBe(false);
-    expect(Math.abs(elec.knifeSwitchPivot.rotation.x - KNIFE_SWITCH_ANGLES.ON), 'Knife switch lever returned to UP (+45°)').toBeLessThan(0.001);
+    expect(Math.abs(must(elec.knifeSwitchPivot, 'knifeSwitchPivot').rotation.x - KNIFE_SWITCH_ANGLES.ON), 'Knife switch lever returned to UP (+45°)').toBeLessThan(0.001);
 
     // Test Ghost Sabotage Probabilities
   });
@@ -179,13 +193,13 @@ describe('M7 ElectricalSystem and EnvironmentalPhysics', () => {
   it('Testing Lightbulb Shatter Events (Point 53)', () => {
     playedSounds.length = 0;
 
-    const shatterTargetId = fixtures[0].id;
+    const shatterTargetId = must(fixtures[0], 'fixture 0').id;
     const shatterRes = elec.shatterLight(shatterTargetId);
 
     expect(shatterRes.success, 'shatterLight returned success').toBe(true);
     expect(shatterRes.shatteredId, 'Correct light shattered').toBe(shatterTargetId);
 
-    const shatteredFixture = elec.fixtures.get(shatterTargetId);
+    const shatteredFixture = must(elec.fixtures.get(shatterTargetId), 'shattered fixture');
     expect(shatteredFixture.shattered, 'Fixture marked shattered: true').toBe(true);
     expect(shatteredFixture.isOn, 'Shattered fixture is OFF').toBe(false);
     expect(elec.shatteredLights.has(shatterTargetId), 'shatteredLights set contains fixture').toBeTruthy();
@@ -211,13 +225,13 @@ describe('M7 ElectricalSystem and EnvironmentalPhysics', () => {
   });
 
   it('Testing Socket.io Event Synchronization', () => {
-    const emittedEvents = [];
+    const emittedEvents: Array<{ event: string; payload: unknown }> = [];
     const mockSocket = {
-      emit: (event, payload) => {
+      emit: (event: string, payload: unknown) => {
         emittedEvents.push({ event, payload });
       },
-      on: (_event, _handler) => {},
-      off: (_event, _handler) => {}
+      on: (_event: string, _handler: unknown) => {},
+      off: (_event: string, _handler?: unknown) => {}
     };
 
     elec.attachSocket(mockSocket, 'test_room_123');
@@ -225,15 +239,15 @@ describe('M7 ElectricalSystem and EnvironmentalPhysics', () => {
 
     const breakerEmitted = emittedEvents.find((e) => e.event === 'phobia:breaker-toggle');
     expect(breakerEmitted, 'Emitted phobia:breaker-toggle event').not.toBe(undefined);
-    expect(breakerEmitted.payload.roomId, 'Socket packet contains correct roomId').toBe('test_room_123');
+    expect(payloadField(breakerEmitted, 'roomId'), 'Socket packet contains correct roomId').toBe('test_room_123');
 
     elec.setBreakerState(true);
     emittedEvents.length = 0;
 
-    elec.toggleLight(fixtures[2].id, true);
+    elec.toggleLight(must(fixtures[2], 'fixture 2').id, true);
     const lightEmitted = emittedEvents.find((e) => e.event === 'phobia:light-toggle');
     expect(lightEmitted, 'Emitted phobia:light-toggle event').not.toBe(undefined);
-    expect(lightEmitted.payload.lightId, 'Socket packet contains correct lightId').toBe(fixtures[2].id);
+    expect(payloadField(lightEmitted, 'lightId'), 'Socket packet contains correct lightId').toBe(must(fixtures[2], 'fixture 2').id);
 
     elec.detachSocket();
   });
@@ -259,7 +273,7 @@ describe('M7 ElectricalSystem and EnvironmentalPhysics', () => {
     const throwRes = env.throwScrap('scrap_pipe_zone5_1', throwOrigin, throwDir, DEFAULT_PLAYER_THROW_SPEED);
     expect(throwRes.success, 'throwScrap returned success').toBe(true);
 
-    pipeProp = env.props.get('scrap_pipe_zone5_1');
+    pipeProp = must(env.props.get('scrap_pipe_zone5_1'), 'scrap_pipe_zone5_1');
     expect(pipeProp.isResting, 'Prop is in flight (isResting: false)').toBe(false);
     expect(Math.abs(pipeProp.velocity.z - (-5.0)), 'Forward velocity is -5.0 m/s along forward vector').toBeLessThan(0.001);
     expect(Math.abs(pipeProp.velocity.y - 1.8), 'Upward kick is +1.8 m/s').toBeLessThan(0.001);
@@ -309,7 +323,7 @@ describe('M7 ElectricalSystem and EnvironmentalPhysics', () => {
 
     poltergeistRes.props.forEach((tp) => {
       expect(tp.impulseForce >= 9.0 && tp.impulseForce <= 15.0, `Impulse force ${tp.impulseForce.toFixed(2)} m/s is within [9.0, 15.0] m/s`).toBeTruthy();
-      const propEntity = env.props.get(tp.id);
+      const propEntity = must(env.props.get(tp.id), tp.id);
       expect(propEntity.emfSignature, 'Poltergeist thrown item registers EMF 5 signature').toBe(5);
     });
 
@@ -359,7 +373,7 @@ describe('M7 ElectricalSystem and EnvironmentalPhysics', () => {
 
   it('Testing Puddles and Surface Dampness (Point 56)', () => {
     expect(env.puddles.length, 'At least 4 outdoor rain puddles initialized').toBeGreaterThanOrEqual(4);
-    const samplePuddle = env.puddles[0];
+    const samplePuddle = must(env.puddles[0], 'puddle');
     expect(samplePuddle.material.roughness, 'Puddle has specular low roughness (<= 0.05)').toBeLessThanOrEqual(0.051);
 
     const dampnessRes = env.setSurfaceDampness(0.9);

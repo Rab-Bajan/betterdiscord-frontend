@@ -58,10 +58,10 @@ import {
   SurfaceZone,
   SURFACE_TYPES,
   ZONE_KEYS
-} from '../../src/features/games/phobia/lib/map/MapColliders.js';
+} from '../../src/features/games/phobia/lib/map/MapColliders.ts';
 
-import { TruckEnvironment } from '../../src/features/games/phobia/lib/map/TruckEnvironment.js';
-import { ScrapYardMap } from '../../src/features/games/phobia/lib/map/ScrapYardMap.js';
+import { TruckEnvironment } from '../../src/features/games/phobia/lib/map/TruckEnvironment.ts';
+import { ScrapYardMap } from '../../src/features/games/phobia/lib/map/ScrapYardMap.ts';
 
 console.log('--- STARTING M6 MAP & TRUCK VERIFICATION ---');
 

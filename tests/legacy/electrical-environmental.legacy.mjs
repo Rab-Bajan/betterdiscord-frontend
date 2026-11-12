@@ -15,7 +15,7 @@ import {
   BREAKER_POSITION,
   SFX_KEYS as ELECTRICAL_SFX,
   KNIFE_SWITCH_ANGLES
-} from '../../src/features/games/phobia/lib/systems/ElectricalSystem.js';
+} from '../../src/features/games/phobia/lib/systems/ElectricalSystem.ts';
 
 import {
   EnvironmentalPhysics,
@@ -25,7 +25,7 @@ import {
   DEFAULT_RESTITUTION,
   DEFAULT_PLAYER_THROW_SPEED,
   CAR_ALARM_DURATION
-} from '../../src/features/games/phobia/lib/systems/EnvironmentalPhysics.js';
+} from '../../src/features/games/phobia/lib/systems/EnvironmentalPhysics.ts';
 
 console.log('--- STARTING M7 ELECTRICAL & ENVIRONMENTAL PHYSICS VERIFICATION ---');
 

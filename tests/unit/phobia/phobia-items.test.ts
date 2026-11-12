@@ -1,4 +1,3 @@
-// @ts-nocheck -- game libs are untyped JS; remove once they are converted to TS.
 /**
  * Port of tests/legacy/phobia-items.legacy.mjs (196 legacy checks, all preserved).
  * (legacy used node:assert; strictEqual/ok map to toBe/toBeTruthy.)
@@ -30,7 +29,9 @@ import {
   PHOTO_BOUNTIES,
   SPIRIT_BOX_VOICE_LINES,
   GHOST_WRITING_SCRIBBLES,
-  normalizeToolType,
+  normalizeToolType
+} from '../../../src/features/games/phobia/lib/items/toolCatalog.ts';
+import {
   createToolViewmodel,
   createToolWorldMesh,
   createEmfReaderModel,
@@ -47,8 +48,9 @@ import {
   createFlashlightModel,
   createSaltShakerModel,
   createSaltPileModel
-} from '../../../src/features/games/phobia/lib/items/ToolDefinitions.js';
-import { ItemSystem } from '../../../src/features/games/phobia/lib/items/ItemSystem.js';
+} from '../../../src/features/games/phobia/lib/items/ToolDefinitions.ts';
+import { ItemSystem } from '../../../src/features/games/phobia/lib/items/ItemSystem.ts';
+import { isRecord } from '../../../src/shared/lib/guards.ts';
 
 describe('Phobia investigation tools and survival items', () => {
 
@@ -381,7 +383,7 @@ describe('Phobia investigation tools and survival items', () => {
 
     let inventoryEvents = [];
     let promptEvents = [];
-    let sanityEvents = [];
+    let sanityEvents: number[] = [];
 
     const itemSystem = new ItemSystem({
       scene,
@@ -410,9 +412,9 @@ describe('Phobia investigation tools and survival items', () => {
       charges: 2
     }, 0);
 
-    expect(itemSystem.inventory[0].type).toBe(TOOL_TYPES.MOBILE_JESUS);
+    expect(itemSystem.inventory[0]?.type).toBe(TOOL_TYPES.MOBILE_JESUS);
     expect(itemSystem.currentViewmodelMesh, 'Active viewmodel must be created').toBeTruthy();
-    expect(itemSystem.currentViewmodelMesh.userData.type).toBe(TOOL_TYPES.MOBILE_JESUS);
+    expect(itemSystem.currentViewmodelMesh?.userData.type).toBe(TOOL_TYPES.MOBILE_JESUS);
 
     // Equip EMF Reader into Slot 1
     itemSystem.addItemToInventory({
@@ -424,7 +426,7 @@ describe('Phobia investigation tools and survival items', () => {
     // Select Slot 1 (EMF Reader)
     itemSystem.selectSlot(1);
     expect(itemSystem.activeSlot).toBe(1);
-    expect(itemSystem.currentViewmodelMesh.userData.type).toBe(TOOL_TYPES.EMF_READER);
+    expect(itemSystem.currentViewmodelMesh?.userData.type).toBe(TOOL_TYPES.EMF_READER);
 
     // Test Primary Action on EMF Reader
     itemSystem.triggerPrimaryAction();
@@ -438,7 +440,7 @@ describe('Phobia investigation tools and survival items', () => {
 
     // Select Slot 2 and Drink Pálinka
     itemSystem.selectSlot(2);
-    expect(itemSystem.currentViewmodelMesh.userData.type).toBe(TOOL_TYPES.SANITY_PALINKA);
+    expect(itemSystem.currentViewmodelMesh?.userData.type).toBe(TOOL_TYPES.SANITY_PALINKA);
     itemSystem.triggerPrimaryAction();
     expect(sanityEvents.length).toBe(1);
     expect(sanityEvents[0], 'Drinking pálinka must restore +35% sanity').toBe(35.0);
@@ -467,7 +469,7 @@ describe('Phobia investigation tools and survival items', () => {
     ]);
     expect(itemSystem.placedItems.has('srv_emf_1'), 'Server dropped item must be spawned').toBeTruthy();
     expect(itemSystem.placedItems.has('bad'), 'Item with invalid coordinates must be skipped').toBeFalsy();
-    expect(itemSystem.placedItems.get('srv_emf_1').userData.itemId).toBe('srv_emf_1');
+    expect(itemSystem.placedItems.get('srv_emf_1')?.userData.itemId).toBe('srv_emf_1');
     itemSystem.syncServerItems([]);
     expect(itemSystem.placedItems.has('srv_emf_1'), 'Resync must remove stale server items').toBe(false);
 
@@ -477,20 +479,20 @@ describe('Phobia investigation tools and survival items', () => {
     itemSystem.applyWorldItem('spawned', { id: 'w1', type: 'emf_reader', x: 1, y: 0, z: 2 }, false);
     expect([...itemSystem.placedItems.keys()].filter((k) => k === 'w1').length, 'Repeated spawn must not duplicate').toBe(1);
     itemSystem.applyWorldItem('moved', { id: 'w1', type: 'emf_reader', x: 4, y: 0.1, z: 5 }, false);
-    expect(itemSystem.placedItems.get('w1').position.x, 'Remote move must reposition the item').toBe(4);
+    expect(itemSystem.placedItems.get('w1')?.position.x, 'Remote move must reposition the item').toBe(4);
     itemSystem.applyWorldItem('removed', { id: 'w1', type: 'emf_reader' }, false);
     expect(itemSystem.placedItems.has('w1'), 'Remote removal must delete the item').toBeFalsy();
 
     // Own drop: the server echo re-keys the local mesh instead of spawning a second one
-    const emitted = [];
-    itemSystem.socket = { emit: (ev, payload) => emitted.push([ev, payload]) };
+    const emitted: Array<[string, unknown]> = [];
+    itemSystem.socket = { emit: (ev: string, payload: unknown) => emitted.push([ev, payload]), on: () => undefined, off: () => undefined };
     const localMesh = itemSystem.spawnPlacedWorldItem('emf_reader', new THREE.Vector3(2, 0, 2));
     itemSystem.trackLocalDrop();
     const before = itemSystem.placedItems.size;
     itemSystem.applyWorldItem('spawned', { id: 'srv_own_1', type: 'emf_reader', x: 9, y: 0, z: 9 }, true);
     expect(itemSystem.placedItems.size, 'Own spawn echo must not double spawn').toBe(before);
     expect(itemSystem.placedItems.get('srv_own_1'), 'Local mesh must be re-keyed to the server id').toBe(localMesh);
-    expect(emitted.some(([ev, p]) => ev === 'phobia:item-moved' && p.itemId === 'srv_own_1'), 'Settled drop must be reported with phobia:item-moved').toBeTruthy();
+    expect(emitted.some(([ev, p]) => ev === 'phobia:item-moved' && isRecord(p) && p.itemId === 'srv_own_1'), 'Settled drop must be reported with phobia:item-moved').toBeTruthy();
     itemSystem.socket = null;
 
     // Clean disposal

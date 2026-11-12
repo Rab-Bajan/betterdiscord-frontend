@@ -1,4 +1,3 @@
-// @ts-nocheck -- game libs are untyped JS; remove once they are converted to TS.
 /**
  * Port of tests/legacy/phobia-audio.legacy.mjs (headless PhobiaAudio with the built-in mock AudioContext).
  *
@@ -16,13 +15,12 @@ import {
   PhobiaAudio,
   SURFACE_PROFILES,
   SPIRIT_BOX_PHRASES,
-  EMF_PULSE_RATES,
-  createOverdriveCurve,
-  createMockAudioContext
-} from '../../../src/features/games/phobia/lib/audio/PhobiaAudio.js';
+  EMF_PULSE_RATES
+} from '../../../src/features/games/phobia/lib/audio/PhobiaAudio.ts';
+import { createOverdriveCurve, createMockAudioContext } from '../../../src/features/games/phobia/lib/audio/webAudio.ts';
 
 describe('PhobiaAudio horror sound and voice engine', () => {
-  let audio: any;
+  let audio: PhobiaAudio;
 
   it('constants and utility functions', () => {
     expect(
@@ -60,8 +58,8 @@ describe('PhobiaAudio horror sound and voice engine', () => {
 
     const proxNode = audio.createProximityVoiceNode({ refDistance: 1.0, maxDistance: 10.0 });
     expect(proxNode, 'proximity node').toBeTruthy();
-    expect(proxNode.maxDistance, '10m falloff').toBe(10.0);
-    expect(proxNode.distanceModel, 'linear falloff').toBe('linear');
+    expect(proxNode?.maxDistance, '10m falloff').toBe(10.0);
+    expect(proxNode?.distanceModel, 'linear falloff').toBe('linear');
   });
 
   it('SFX catalog', () => {

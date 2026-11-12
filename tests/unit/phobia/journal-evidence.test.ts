@@ -1,6 +1,6 @@
 // Port of tests/legacy/ui-integration.legacy.mjs.
 // NOTE: like the legacy script, this exercises a self-contained copy of the journal data and
-// exclusion logic (mirroring JournalModal.jsx), not an import from src/. It guards the game-design
+// exclusion logic (mirroring lib/ghostCatalog.ts + JournalModal.tsx), not an import from src/. It guards the game-design
 // contract (7 evidence types, 7 archetypes, 70% demon threshold, Mimic exclusion rules, payouts).
 //
 // legacy test                                  -> it()
@@ -11,7 +11,7 @@
 // Test 5 payouts (2 checks)                     -> payout and insurance calculations
 import { describe, it, expect } from 'vitest';
 
-// Evidence types definition matching JournalModal.jsx
+// Evidence types definition matching lib/ghostCatalog.ts
 const EVIDENCE_TYPES = [
   { id: 'emf5', name: 'EMF 5', fullName: 'EMF 5 (Kábelkereső / Feszültségmérő)', icon: '⚡' },
   { id: 'spirit_box', name: 'Spirit Box', fullName: 'Spirit Box (Bömbölő CB Rádió)', icon: '📻' },

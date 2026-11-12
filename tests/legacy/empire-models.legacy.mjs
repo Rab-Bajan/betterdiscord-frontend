@@ -6,8 +6,8 @@ import assert from 'node:assert';
 const ctx = new Proxy({}, { get: (t, k) => (k === 'createLinearGradient' ? () => ({ addColorStop() {} }) : () => {}), set: () => true });
 globalThis.document = { createElement: () => ({ width: 0, height: 0, getContext: () => ctx }) };
 
-const { createTextureLib } = await import('../../src/features/games/empire/lib/empire3d/textures.js');
-const { createModelKit } = await import('../../src/features/games/empire/lib/empire3d/models.js');
+const { createTextureLib } = await import('../../src/features/games/empire/lib/empire3d/textures.ts');
+const { createModelKit } = await import('../../src/features/games/empire/lib/empire3d/models.ts');
 
 let passed = 0;
 const test = (name, fn) => { fn(); passed++; console.log(`  ok  ${name}`); };

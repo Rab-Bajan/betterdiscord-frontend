@@ -1,23 +1,32 @@
-// @ts-nocheck -- game libs are untyped JS; remove once they are converted to TS.
 /**
  * Port of tests/legacy/empire-models.legacy.mjs (9 test() cases).
  * Same 9 test names; assertions mapped 1:1. document.createElement is stubbed via vi.stubGlobal in beforeAll and restored in afterAll.
  */
 import { describe, it, expect, beforeAll, afterAll, vi } from 'vitest';
+import type * as THREE from 'three';
+import type { Lod, ModelKit } from '../../../src/features/games/empire/lib/empire3d/models';
+import type { Model } from '../../../src/features/games/empire/lib/empire3d/modelKit';
+import type { TextureLib } from '../../../src/features/games/empire/lib/empire3d/textures';
+
+/** The value, or a thrown error naming what was missing. */
+function must<T>(value: T | null | undefined, what = 'value'): T {
+  if (value === null || value === undefined) throw new Error(`missing ${what}`);
+  return value;
+}
 
 // Building every model/LOD is CPU heavy; the default 5s per-test limit is too tight on a loaded machine.
 vi.setConfig({ testTimeout: 60000, hookTimeout: 60000 });
 
 describe('MiskolcEmpire 3D model kit', () => {
-  let lib: any;
-  let kit: any;
+  let lib: TextureLib;
+  let kit: ModelKit;
 
   // the texture library paints two small atlases on a canvas; a no-op 2D context is enough here
   beforeAll(async () => {
     const ctx = new Proxy({}, { get: (_t, k) => (k === 'createLinearGradient' ? () => ({ addColorStop() {} }) : () => {}), set: () => true });
     vi.stubGlobal('document', { createElement: () => ({ width: 0, height: 0, getContext: () => ctx }) });
-    const { createTextureLib } = await import('../../../src/features/games/empire/lib/empire3d/textures.js');
-    const { createModelKit } = await import('../../../src/features/games/empire/lib/empire3d/models.js');
+    const { createTextureLib } = await import('../../../src/features/games/empire/lib/empire3d/textures');
+    const { createModelKit } = await import('../../../src/features/games/empire/lib/empire3d/models');
     lib = createTextureLib();
     kit = createModelKit(lib);
   });
@@ -30,16 +39,16 @@ describe('MiskolcEmpire 3D model kit', () => {
   const NODES = ['iron', 'copper', 'food', 'wood'];
   const SRC = new Set(['legL', 'legR', 'kneeL', 'kneeR', 'armL', 'armR', 'elbowL', 'elbowR', 'wheel', 'disk', 'piston', 'crane', 'search']);
 
-  const tris = (m, scaffold = false) => m.parts.filter((p) => p.scaffold === scaffold).reduce((n, p) => n + p.geo.index.count / 3, 0);
-  function check(name, m, budget) {
+  const tris = (m: Model, scaffold = false): number => m.parts.filter((p) => p.scaffold === scaffold).reduce((n, p) => n + (p.geo.index?.count ?? NaN) / 3, 0);
+  function check(name: string, m: Model, budget: number): number {
     expect(m.parts.length, `${name}: no parts`).toBeGreaterThan(0);
     for (const p of m.parts) {
       expect(p.geo.index, `${name}: part without index`).toBeTruthy();
       for (const a of ['position', 'normal', 'uv', 'color']) expect(p.geo.attributes[a], `${name}: part without ${a}`).toBeTruthy();
       expect(p.mat && p.mat.isMaterial, `${name}: part without material`).toBeTruthy();
       expect(p.ji >= -1 && p.ji < m.joints.length, `${name}: joint index out of range`).toBeTruthy();
-      const pos = p.geo.attributes.position.array;
-      expect(pos.every(Number.isFinite), `${name}: non-finite vertex`).toBe(true);
+      const pos = p.geo.getAttribute('position').array;
+      expect(Array.from(pos).every(Number.isFinite), `${name}: non-finite vertex`).toBe(true);
     }
     m.joints.forEach((j, i) => {
       expect(j.parent, `${name}: joint ${i} listed before its parent`).toBeLessThan(i);
@@ -91,11 +100,11 @@ describe('MiskolcEmpire 3D model kit', () => {
   });
   it('wheels of one vehicle share a single geometry per material', () => {
     const lada = kit.unit('lada');
-    const wheelParts = lada.parts.filter((p) => p.ji >= 0 && lada.joints[p.ji].src === 'wheel');
+    const wheelParts = lada.parts.filter((p) => p.ji >= 0 && lada.joints[p.ji]?.src === 'wheel');
     expect(new Set(wheelParts.map((p) => p.geo.uuid)).size * 4).toBe(wheelParts.length);
   });
   it('the thrown clog is a small rigid model with a distant version; other projectiles have none', () => {
-    const near = kit.projectile('ciganyAsszony'), far = kit.projectile('ciganyAsszony', 1);
+    const near = must(kit.projectile('ciganyAsszony'), 'clog'), far = must(kit.projectile('ciganyAsszony', 1), 'far clog');
     check('clog', near, 1500);
     check('clog (far)', far, 1500);
     expect(tris(far)).toBeLessThan(tris(near));
@@ -107,7 +116,7 @@ describe('MiskolcEmpire 3D model kit', () => {
     expect(kit.projectile('slingshot')).toBe(null);
   });
   it('the distant level of detail keeps skeleton, materials and bounds with far fewer triangles', () => {
-    const pairs = [...UNITS.map((k) => [k, kit.unit(k), kit.unit(k, 1)]), ...BUILDINGS.map((k) => [k, kit.building(k, 1, 2), kit.building(k, 1, 2, 1)]), ...NODES.map((k) => [k, kit.node(k), kit.node(k, 1)])];
+    const pairs: Array<readonly [string, Model, Model]> = [...UNITS.map((k) => [k, kit.unit(k), kit.unit(k, 1)] as const), ...BUILDINGS.map((k) => [k, kit.building(k, 1, 2), kit.building(k, 1, 2, 1)] as const), ...NODES.map((k) => [k, kit.node(k), kit.node(k, 1)] as const)];
     for (const [k, hi, lo] of pairs) {
       const n = check(`${k} (far)`, lo, 40000);
       // rounded figures simplify a lot; buildings are mostly flat boards that were cheap to begin with
@@ -119,11 +128,12 @@ describe('MiskolcEmpire 3D model kit', () => {
     }
   });
   it('dispose releases every geometry of every built model exactly once', () => {
-    const geos = new Set();
-    for (const k of UNITS) for (const l of [0, 1]) kit.unit(k, l).parts.forEach((p) => geos.add(p.geo));
-    for (const k of BUILDINGS) for (const l of [0, 1]) kit.building(k, 1, 2, l).parts.forEach((p) => geos.add(p.geo));
-    for (const l of [0, 1]) kit.projectile('ciganyAsszony', l).parts.forEach((p) => geos.add(p.geo));
-    const count = new Map();
+    const LODS: readonly Lod[] = [0, 1];
+    const geos = new Set<THREE.BufferGeometry>();
+    for (const k of UNITS) for (const l of LODS) kit.unit(k, l).parts.forEach((p) => geos.add(p.geo));
+    for (const k of BUILDINGS) for (const l of LODS) kit.building(k, 1, 2, l).parts.forEach((p) => geos.add(p.geo));
+    for (const l of LODS) must(kit.projectile('ciganyAsszony', l), 'clog').parts.forEach((p) => geos.add(p.geo));
+    const count = new Map<THREE.BufferGeometry, number>();
     for (const g of geos) g.addEventListener('dispose', () => count.set(g, (count.get(g) || 0) + 1));
     kit.dispose();
     lib.dispose();

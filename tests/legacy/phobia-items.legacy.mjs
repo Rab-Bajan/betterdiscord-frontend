@@ -20,7 +20,9 @@ import {
   PHOTO_BOUNTIES,
   SPIRIT_BOX_VOICE_LINES,
   GHOST_WRITING_SCRIBBLES,
-  normalizeToolType,
+  normalizeToolType
+} from '../../src/features/games/phobia/lib/items/toolCatalog.ts';
+import {
   createToolViewmodel,
   createToolWorldMesh,
   createEmfReaderModel,
@@ -37,8 +39,8 @@ import {
   createFlashlightModel,
   createSaltShakerModel,
   createSaltPileModel
-} from '../../src/features/games/phobia/lib/items/ToolDefinitions.js';
-import { ItemSystem } from '../../src/features/games/phobia/lib/items/ItemSystem.js';
+} from '../../src/features/games/phobia/lib/items/ToolDefinitions.ts';
+import { ItemSystem } from '../../src/features/games/phobia/lib/items/ItemSystem.ts';
 
 console.log('======================================================================');
 console.log('   MISKOLC PHOBIA 3D - INVESTIGATION TOOLS & SURVIVAL ITEMS TESTS');

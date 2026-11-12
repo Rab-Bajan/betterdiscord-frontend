@@ -1,4 +1,3 @@
-// @ts-nocheck -- game libs are untyped JS; remove once they are converted to TS.
 /**
  * Port of tests/legacy/phobia-controller-avatars.legacy.mjs (83 legacy checks, all preserved).
  * Each legacy check keeps its message as the expect() message. The legacy scripts were one
@@ -20,19 +19,26 @@
  */
 import { describe, it, expect } from 'vitest';
 import * as THREE from 'three';
-import { PhobiaController, CONTROLLER_CONSTANTS } from '../../../src/features/games/phobia/lib/engine/PhobiaController.js';
-import { PhobiaAvatars, PhobiaAvatarInstance } from '../../../src/features/games/phobia/lib/engine/PhobiaAvatars.js';
-import { MapColliders, BoxCollider, SURFACE_TYPES, HidingSpot } from '../../../src/features/games/phobia/lib/map/MapColliders.js';
-import { HingedDoor } from '../../../src/features/games/phobia/lib/map/MapColliders.js';
+import { PhobiaController, CONTROLLER_CONSTANTS } from '../../../src/features/games/phobia/lib/engine/PhobiaController.ts';
+import { PhobiaAvatars, PhobiaAvatarInstance } from '../../../src/features/games/phobia/lib/engine/PhobiaAvatars.ts';
+import { MapColliders, BoxCollider, SURFACE_TYPES, HidingSpot } from '../../../src/features/games/phobia/lib/map/MapColliders.ts';
+import { HingedDoor } from '../../../src/features/games/phobia/lib/map/MapColliders.ts';
+import { isRecord } from '../../../src/shared/lib/guards.ts';
+import type { UnknownRecord } from '../../../src/shared/lib/guards.ts';
+
+// Vitest runs in node (no DOM event classes): the controller handlers only read these fields.
+const mouseMove = (movementX: number, movementY: number): MouseEvent => ({ movementX, movementY }) as MouseEvent;
+const keyEvent = (code: string): KeyboardEvent => ({ code, repeat: false }) as KeyboardEvent;
+const wheelEvent = (deltaY: number): WheelEvent => ({ deltaY }) as WheelEvent;
 
 describe('PhobiaController and PhobiaAvatars', () => {
-  let camera: any;
-  let scene: any;
-  let mapColliders: any;
-  let controller: any;
-  let dt: any;
-  let avatars: any;
-  let peer1: any;
+  let camera: THREE.PerspectiveCamera;
+  let scene: THREE.Scene;
+  let mapColliders: MapColliders;
+  let controller: PhobiaController;
+  let dt: number;
+  let avatars: PhobiaAvatars;
+  let peer1: PhobiaAvatarInstance;
 
   // TEST GROUP 1: PhobiaController Initialization & PointerLock Clamping
 
@@ -59,11 +65,11 @@ describe('PhobiaController and PhobiaAvatars', () => {
     expect(Math.abs(maxRad - (81 * Math.PI / 180)), 'Pitch limit corresponds to exactly 81 degrees').toBeLessThan(0.001);
 
     // Test mouse move down beyond limit
-    controller._onMouseMove({ movementX: 0, movementY: 5000 });
+    controller._onMouseMove(mouseMove(0, 5000));
     expect(controller.pitch, `Downward pitch clamped to -81° (got: ${controller.pitch})`).toBe(-maxRad);
 
     // Test mouse move up beyond limit
-    controller._onMouseMove({ movementX: 0, movementY: -10000 });
+    controller._onMouseMove(mouseMove(0, -10000));
     expect(controller.pitch, `Upward pitch clamped to +81° (got: ${controller.pitch})`).toBe(maxRad);
 
     // Reset pitch & yaw
@@ -226,25 +232,25 @@ describe('PhobiaController and PhobiaAvatars', () => {
 
     const slot1 = controller.addItem(item1);
     expect(slot1, 'First item added to slot 0').toBe(0);
-    expect(controller.getActiveItem().id, 'Active item in slot 0 is Mobil Jézus').toBe('jesus_1');
+    expect(controller.getActiveItem()?.id, 'Active item in slot 0 is Mobil Jézus').toBe('jesus_1');
 
     // Select slot 1 with Key 2
-    controller._onKeyDown({ code: 'Digit2' });
+    controller._onKeyDown(keyEvent('Digit2'));
     expect(controller.getActiveSlot(), 'Digit2 selected slot 1').toBe(1);
 
     const slot2 = controller.addItem(item2);
     expect(slot2, 'Second item added to slot 1').toBe(1);
 
     // Select slot 2 with Key 3
-    controller._onKeyDown({ code: 'Digit3' });
+    controller._onKeyDown(keyEvent('Digit3'));
     expect(controller.getActiveSlot(), 'Digit3 selected slot 2').toBe(2);
     controller.addItem(item3);
 
     // Scroll wheel test
-    controller._onWheel({ deltaY: 100 }); // scroll down -> wrap to slot 0
+    controller._onWheel(wheelEvent(100)); // scroll down -> wrap to slot 0
     expect(controller.getActiveSlot(), 'Mouse wheel down cycled back to slot 0').toBe(0);
 
-    controller._onWheel({ deltaY: -100 }); // scroll up -> wrap to slot 2
+    controller._onWheel(wheelEvent(-100)); // scroll up -> wrap to slot 2
     expect(controller.getActiveSlot(), 'Mouse wheel up cycled back to slot 2').toBe(2);
 
     // TEST GROUP 7: 2.4m Crosshair Interaction Raycasting with Hungarian Prompts
@@ -289,6 +295,7 @@ describe('PhobiaController and PhobiaAvatars', () => {
     // Throw item
     const thrown = controller.throwCurrentItem();
     expect(thrown, 'Item thrown successfully').not.toBe(null);
+    if (!thrown) throw new Error('missing thrown item');
     expect(controller.getActiveItem(), 'Active slot emptied after throwing').toBe(null);
     expect(controller.thrownItems.length, 'Item registered in thrownItems array').toBe(1);
 
@@ -329,7 +336,7 @@ describe('PhobiaController and PhobiaAvatars', () => {
     // Verify reflective hazard vest components
     let hasVest = false;
     peer1.torsoGroup.traverse((child) => {
-      if (child.isMesh && child.material && child.material.metalness > 0.8) {
+      if (child instanceof THREE.Mesh && child.material instanceof THREE.MeshStandardMaterial && child.material.metalness > 0.8) {
         hasVest = true; // Silver reflective stripe found
       }
     });
@@ -404,7 +411,7 @@ describe('PhobiaController and PhobiaAvatars', () => {
 
   it('Hiding spots', () => {
     {
-      const sent = [];
+      const sent: Array<[string, UnknownRecord]> = [];
       const hideColliders = new MapColliders();
       const door = new HingedDoor({ id: 'door_t', pivot: new THREE.Vector3(9.65, 0, 5.3), closedAngle: 0, openAngle: 1.4, isOpen: true });
       door.currentAngle = door.openAngle;
@@ -419,17 +426,17 @@ describe('PhobiaController and PhobiaAvatars', () => {
         camera: new THREE.PerspectiveCamera(),
         scene: new THREE.Scene(),
         mapColliders: hideColliders,
-        socket: { id: 'me', emit: (ev, p) => sent.push([ev, p]) },
+        socket: { id: 'me', emit: (ev: string, p: unknown) => sent.push([ev, isRecord(p) ? p : {}]) },
         roomId: 'r1',
         initialPosition: [10.0, 0, 6.2]
       });
-      const changes = [];
+      const changes: boolean[] = [];
       hc.onHideChange = (c) => changes.push(c.hidden);
       hc.setLookAngles(0, 0); // looking towards -z, at the locker
 
       hc.update(0.016);
       expect(hc.currentInteractable && hc.currentInteractable.type === 'hiding_spot', 'Looking at a locker offers the hiding prompt').toBeTruthy();
-      expect(hideColliders.doors.has('door_t') && hc.currentInteractable.type !== 'door', 'Cabinet door is not a plain door target').toBeTruthy();
+      expect(hideColliders.doors.has('door_t') && hc.currentInteractable?.type !== 'door', 'Cabinet door is not a plain door target').toBeTruthy();
 
       hc.interact();
       expect(hc.isHiding, 'E inside range enters the hiding spot').toBe(true);
@@ -441,8 +448,8 @@ describe('PhobiaController and PhobiaAvatars', () => {
       const pz = hc.position.z;
       for (let i = 0; i < 20; i++) hc.update(0.05);
       expect(Math.abs(hc.position.z - pz), 'Movement is locked while hidden').toBeLessThan(1e-6);
-      hc._onMouseMove({ movementX: -100000, movementY: 0 });
-      expect(Math.abs(hc.yaw - hc.hiding.outYaw), 'Look range limited to the slit').toBeLessThanOrEqual(CONTROLLER_CONSTANTS.HIDE_YAW_LIMIT + 1e-6);
+      hc._onMouseMove(mouseMove(-100000, 0));
+      expect(Math.abs(hc.yaw - (hc.hiding?.outYaw ?? Number.NaN)), 'Look range limited to the slit').toBeLessThanOrEqual(CONTROLLER_CONSTANTS.HIDE_YAW_LIMIT + 1e-6);
       for (let i = 0; i < 60; i++) { hideColliders.update(0.05); }
       expect(hideColliders.isPlayerStealthHidden(hc.position).isHidden, 'Closed door + inside volume breaks line of sight').toBe(true);
       expect(sent.filter(([ev]) => ev === 'phobia:player-move').some(([, p]) => p.hidden === true && p.hidingSpotId === 'test_locker'), 'Move packets carry the hidden state').toBeTruthy();

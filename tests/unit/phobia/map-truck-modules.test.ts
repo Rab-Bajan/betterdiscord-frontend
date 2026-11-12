@@ -1,4 +1,3 @@
-// @ts-nocheck -- game libs are untyped JS; remove once they are converted to TS.
 /**
  * Port of tests/legacy/map-truck-modules.legacy.mjs (45 legacy checks, all preserved).
  * The canvas used for CanvasTextures is stubbed with vi.stubGlobal('document') in beforeAll and restored in afterAll.
@@ -23,12 +22,12 @@ import {
   SurfaceZone,
   SURFACE_TYPES,
   ZONE_KEYS
-} from '../../../src/features/games/phobia/lib/map/MapColliders.js';
-import { TruckEnvironment } from '../../../src/features/games/phobia/lib/map/TruckEnvironment.js';
-import { ScrapYardMap } from '../../../src/features/games/phobia/lib/map/ScrapYardMap.js';
+} from '../../../src/features/games/phobia/lib/map/MapColliders.ts';
+import { TruckEnvironment } from '../../../src/features/games/phobia/lib/map/TruckEnvironment.ts';
+import { ScrapYardMap } from '../../../src/features/games/phobia/lib/map/ScrapYardMap.ts';
 
 describe('M6 MapColliders, TruckEnvironment and ScrapYardMap', () => {
-  let colliders: any;
+  let colliders: MapColliders;
 
   // Minimal canvas mock: TruckEnvironment / ScrapYardMap paint CanvasTextures at construction.
   beforeAll(() => {
@@ -237,7 +236,7 @@ describe('M6 MapColliders, TruckEnvironment and ScrapYardMap', () => {
     // Test Equipment Shelving Tools
     expect(truck.rackItemMeshes.size, `Equipment rack contains 12+ items (got: ${truck.rackItemMeshes.size})`).toBeGreaterThanOrEqual(12);
     truck.setItemPickedUp('flashlight_1', true);
-    expect(truck.rackItemMeshes.get('flashlight_1').visible, 'Picked up item hidden on rack').toBe(false);
+    expect(truck.rackItemMeshes.get('flashlight_1')?.visible, 'Picked up item hidden on rack').toBe(false);
 
     // TEST 6: ScrapYardMap Verification
   });

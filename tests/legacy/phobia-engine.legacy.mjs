@@ -1,11 +1,9 @@
 import * as THREE from 'three';
-import {
-  GhostDissolveMaterial,
-  DotsLaserMatrix,
-  RainParticles,
-  FreezingBreathParticles,
-  VhsHuntGlitchShader
-} from '../../src/features/games/phobia/lib/shaders/index.js';
+import { VhsHuntGlitchShader } from '../../src/features/games/phobia/lib/shaders/VhsHuntGlitchShader.ts';
+import { GhostDissolveMaterial } from '../../src/features/games/phobia/lib/shaders/GhostDissolveMaterial.ts';
+import { DotsLaserMatrix } from '../../src/features/games/phobia/lib/shaders/DotsLaserMatrix.ts';
+import { RainParticles } from '../../src/features/games/phobia/lib/shaders/RainParticles.ts';
+import { FreezingBreathParticles } from '../../src/features/games/phobia/lib/shaders/FreezingBreathParticles.ts';
 
 console.log('Testing Phobia Shaders & Particles...');
 
@@ -78,7 +76,7 @@ if (!VhsHuntGlitchShader.uniforms.uHuntIntensity) {
 console.log('✓ VhsHuntGlitchShader passed');
 
 // 6. PhobiaEngine Class exports and prototype verification
-import { PhobiaEngine } from '../../src/features/games/phobia/lib/engine/PhobiaEngine.js';
+import { PhobiaEngine } from '../../src/features/games/phobia/lib/engine/PhobiaEngine.ts';
 if (typeof PhobiaEngine !== 'function') {
   throw new Error('PhobiaEngine must be a class/function');
 }
