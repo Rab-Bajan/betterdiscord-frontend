@@ -11,6 +11,7 @@ import BrowserView from '../../activities/browser/components/BrowserView';
 const GameView = lazy(() => import('../../games/arena/components/GameView'));
 const MiskolcEmpireView = lazy(() => import('../../games/empire/components/MiskolcEmpireView'));
 const MiskolcPhobiaView = lazy(() => import('../../games/phobia/components/MiskolcPhobiaView'));
+const MiskolcSweepersView = lazy(() => import('../../games/sweepers/components/MiskolcSweepersView'));
 import RoomTopBar from './RoomTopBar';
 import RoomControlBar from './RoomControlBar';
 import ActivityBanners from './ActivityBanners';
@@ -61,16 +62,17 @@ export default function VoiceRoomView({
   const chessSession = activities.chessSessions[roomId];
   const empireSession = activities.empireSessions[roomId];
   const phobiaSession = activities.phobiaSessions[roomId];
+  const sweepersSession = activities.sweepersSessions[roomId];
   const gameSession = activities.gameSessions[roomId];
   const browserSession = activities.browserSessions[roomId];
 
   const [subView, setSubView] = useState<RoomSubView>('stage');
   const backToStage = () => setSubView('stage');
 
-  // Teljes képernyő a játékokhoz / aktivitásokhoz (a böngészőnek saját gombja van)
+  // Teljes képernyő a játékokhoz / aktivitásokhoz (a böngészőnek és a MiskolcSweepersnek saját gombja van)
   const mainRef = useRef<HTMLDivElement>(null);
   const [isMainFullscreen, setIsMainFullscreen] = useState(false);
-  const canFullscreen = subView !== 'stage' && subView !== 'browser';
+  const canFullscreen = subView !== 'stage' && subView !== 'browser' && subView !== 'sweepers';
 
   useEffect(() => {
     const onChange = () => setIsMainFullscreen(document.fullscreenElement === mainRef.current);
@@ -157,6 +159,23 @@ export default function VoiceRoomView({
               currentUser={currentUser}
               session={phobiaSession}
               setPeerSpatial={setPeerSpatial}
+              onClose={backToStage}
+            />
+          </Suspense>
+        );
+      case 'sweepers':
+        return (
+          <Suspense fallback={<div className="flex-1 flex items-center justify-center text-sm" style={{ color: '#999BBE' }}>MVK Zrt. Járatbetöltés...</div>}>
+            <MiskolcSweepersView
+              socket={socket}
+              channelId={channelId}
+              voice={{
+                isMuted,
+                isDeafened,
+                onToggleMute: voice.toggleMute,
+                onToggleDeafen: voice.toggleDeafen,
+                onDisconnect: voice.leaveChannel
+              }}
               onClose={backToStage}
             />
           </Suspense>
@@ -267,6 +286,7 @@ export default function VoiceRoomView({
         chessActive={!!chessSession?.active}
         empireActive={!!empireSession?.active}
         phobiaActive={!!phobiaSession?.active}
+        sweepersActive={!!sweepersSession?.active}
         browserActive={!!browserSession?.active}
         gameActive={!!gameSession}
         onClose={onClose}
@@ -276,6 +296,7 @@ export default function VoiceRoomView({
       <ActivityBanners
         subView={subView}
         phobiaSession={phobiaSession}
+        sweepersSession={sweepersSession}
         watchState={watchState}
         casinoSession={casinoSession}
         chessSession={chessSession}

@@ -45,6 +45,7 @@ interface RoomTopBarProps {
   chessActive: boolean;
   empireActive: boolean;
   phobiaActive: boolean;
+  sweepersActive: boolean;
   browserActive: boolean;
   gameActive: boolean;
   onClose: () => void;
@@ -63,6 +64,7 @@ export default function RoomTopBar({
   chessActive,
   empireActive,
   phobiaActive,
+  sweepersActive,
   browserActive,
   gameActive,
   onClose,
@@ -236,6 +238,20 @@ export default function RoomTopBar({
           <span className="text-xs">🔦</span>
           <span>MiskolcPhobia</span>
           {phobiaActive && <span className="w-2 h-2 rounded-full animate-pulse" style={{ background: '#28C997' }}></span>}
+        </ModeTab>
+
+        <ModeTab
+          active={subView === 'sweepers'}
+          live={sweepersActive}
+          activeBg="linear-gradient(135deg, #7655F5, #536CFF)"
+          liveBg="rgba(40, 201, 151, 0.15)"
+          liveColor="#28C997"
+          liveBorder="rgba(40, 201, 151, 0.3)"
+          onClick={() => onChangeView('sweepers')}
+        >
+          <span className="text-xs">🧹</span>
+          <span>MiskolcSweepers</span>
+          {sweepersActive && <span className="w-2 h-2 rounded-full animate-pulse" style={{ background: '#28C997' }}></span>}
         </ModeTab>
       </div>
 

@@ -40,7 +40,7 @@ export function parseJoinedPeers(value: unknown): string[] {
 }
 
 /** What the main area of the voice room shows. */
-export type RoomSubView = 'stage' | 'whiteboard' | 'code' | 'casino' | 'watch' | 'chess' | 'empire' | 'phobia' | 'browser' | 'game';
+export type RoomSubView = 'stage' | 'whiteboard' | 'code' | 'casino' | 'watch' | 'chess' | 'empire' | 'phobia' | 'sweepers' | 'browser' | 'game';
 
 /**
  * A per-room activity or game session as broadcast by the server. The room only reads the
