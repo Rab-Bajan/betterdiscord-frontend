@@ -100,6 +100,33 @@ export class SweepersAudio {
     };
   }
 
+  /** Spec 24 chime when a hex reaches 90 %: a bright two-note bell (E6 then B6) with partials. */
+  chime(): void {
+    const ctx = this.#ctx;
+    const master = this.#master;
+    if (!ctx || !master || ctx.state !== 'running') return;
+    const t0 = ctx.currentTime;
+    for (const [freq, delay] of [[1318.5, 0], [1975.5, 0.14]] as const) {
+      for (const [ratio, level] of [[1, 0.22], [2.76, 0.07], [5.4, 0.03]] as const) {
+        const t = t0 + delay;
+        const osc = ctx.createOscillator();
+        osc.type = 'sine';
+        osc.frequency.setValueAtTime(freq * ratio, t);
+        const gain = ctx.createGain();
+        gain.gain.setValueAtTime(0.0001, t);
+        gain.gain.exponentialRampToValueAtTime(level, t + 0.008);
+        gain.gain.exponentialRampToValueAtTime(0.0001, t + 1.1 / ratio + 0.25);
+        osc.connect(gain).connect(master);
+        osc.start(t);
+        osc.stop(t + 1.5);
+        osc.onended = () => {
+          osc.disconnect();
+          gain.disconnect();
+        };
+      }
+    }
+  }
+
   dispose(): void {
     this.#master?.disconnect();
     this.#ctx?.close().catch(() => {});

@@ -1,12 +1,20 @@
 import React from 'react';
 import { SWEEPERS_THEME as T } from '../theme';
+import { DRAW_CALL_LIMIT } from '../lib/world/drawPlan';
 import type { SweepersDebugStats } from '../lib/engine/SweepersGame';
 
-/** F3 overlay (spec 14). */
+/** F3 overlay (spec 14), with renderer.info and the LOD tiers (spec 11). */
 export default function DebugOverlay({ stats }: { stats: SweepersDebugStats }) {
   const rows: ReadonlyArray<readonly [string, string]> = [
     ['FPS', String(stats.fps)],
-    ['Draw calls', String(stats.drawCalls)],
+    ['Rajzolási hívások', `${stats.drawCalls} / ${DRAW_CALL_LIMIT}`],
+    ['Tervezett max.', stats.plannedDrawCalls === null ? '–' : String(stats.plannedDrawCalls)],
+    ['Háromszögek', stats.triangles.toLocaleString('hu-HU')],
+    ['Geometriák', String(stats.geometries)],
+    ['Textúrák', String(stats.textures)],
+    ['Shaderek', String(stats.programs)],
+    ['LOD közel / közép / távol', stats.lod ? `${stats.lod.near} / ${stats.lod.mid} / ${stats.lod.far}` : '–'],
+    ['Kivágva', stats.lod ? String(stats.lod.culled) : '–'],
     ['Törmelék', String(stats.debris)],
     ['Szalagszakaszok', String(stats.conveyors)],
     ['Ping (RTT)', stats.rttMs === null ? '–' : `${Math.round(stats.rttMs)} ms`],
@@ -20,7 +28,7 @@ export default function DebugOverlay({ stats }: { stats: SweepersDebugStats }) {
       {rows.map(([label, value]) => (
         <div key={label} className="flex justify-between gap-4">
           <span style={{ color: T.muted }}>{label}</span>
-          <span className="tabular-nums">{value}</span>
+          <span className="tabular-nums" style={label === 'Rajzolási hívások' && stats.drawCalls > DRAW_CALL_LIMIT ? { color: T.red } : undefined}>{value}</span>
         </div>
       ))}
     </div>

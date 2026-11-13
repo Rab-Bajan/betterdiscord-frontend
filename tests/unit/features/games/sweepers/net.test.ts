@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, afterEach } from 'vitest';
-import { SweepersNet, RTT_PROBE_INTERVAL_MS, type SweepersNetHandlers } from '../../../../../src/features/games/sweepers/lib/net/SweepersNet';
+import { SweepersNet, JOIN_RETRY_DELAYS_MS, RTT_PROBE_INTERVAL_MS, type SweepersNetHandlers } from '../../../../../src/features/games/sweepers/lib/net/SweepersNet';
 import type { SocketLike, SocketListener } from '../../../../../src/shared/services/socket/SocketLike';
 
 class FakeSocket implements SocketLike {
@@ -35,7 +35,10 @@ const recorder = () => {
     onPlayerLeft: (id) => calls.push(`left:${id}`),
     onJoinError: (e) => calls.push(`error:${e}`),
     onRtt: (ms) => calls.push(`rtt:${ms}`),
-    onKicked: (reason) => calls.push(`kicked:${reason}`)
+    onKicked: (reason) => calls.push(`kicked:${reason}`),
+    onDistrictUnlocked: (e) => calls.push(`unlocked:${e.district}:${e.unlockedDistricts.join(',')}`),
+    onClock: (c) => calls.push(`clock:${c.timeMs}:${c.day}:${c.dayMs}`),
+    onWeather: (w) => calls.push(`weather:${w.kind}:${w.untilServerTime ?? 'null'}`)
   };
   return { calls, handlers };
 };
@@ -70,6 +73,167 @@ describe('SweepersNet', () => {
     socket.fire('miskolc:player_left', { id: 2 });
     socket.fire('miskolc:player_left', {});
     expect(calls).toEqual(['init:1', 'tick:42', 'joined:2', 'left:2']);
+  });
+
+  it('routes Phase B world events and drops malformed ones', () => {
+    const socket = new FakeSocket();
+    const { calls, handlers } = recorder();
+    new SweepersNet(socket, 'ch-1', handlers).start();
+    socket.fire('miskolc:init_state', { ...init, clock: { dayMs: 1000, daylightMs: 600, timeMs: 10, day: 1, serverTime: 0 } });
+    socket.fire('miskolc:district_unlocked', { district: 2, unlockedDistricts: [0, 1] });
+    socket.fire('miskolc:district_unlocked', { district: 9, unlockedDistricts: [0] });
+    socket.fire('miskolc:clock', { timeMs: 500, day: 3, serverTime: 100 });
+    socket.fire('miskolc:clock', { timeMs: 'x', day: 3, serverTime: 100 });
+    socket.fire('miskolc:weather', { kind: 'smog', untilServerTime: 5000 });
+    socket.fire('miskolc:weather', { kind: 'hail' });
+    // the clock event keeps the day lengths from init_state
+    expect(calls).toEqual(['init:1', 'unlocked:2:0,1,2', 'clock:500:3:1000', 'weather:smog:5000']);
+  });
+
+  it('drops world events until init_state arrives (init_state carries unlocks, clock and weather)', () => {
+    const socket = new FakeSocket();
+    const { calls, handlers } = recorder();
+    new SweepersNet(socket, 'ch-1', handlers).start();
+    const world = (): void => {
+      socket.fire('miskolc:district_unlocked', { district: 1, unlockedDistricts: [0, 1] });
+      socket.fire('miskolc:clock', { timeMs: 500, day: 3, serverTime: 100 });
+      socket.fire('miskolc:weather', { kind: 'drizzle', untilServerTime: 9000 });
+    };
+    world();
+    expect(calls).toEqual([]);
+    socket.fire('miskolc:init_state', init);
+    world();
+    expect(calls).toEqual(['init:1', 'unlocked:1:0,1', 'clock:500:3:2160000', 'weather:drizzle:9000']);
+    // a reconnect waits for the new init_state again
+    socket.fire('connect');
+    world();
+    expect(calls).toHaveLength(4);
+  });
+
+  describe('join retry (rate-limited join)', () => {
+    const limited = { ok: false, error: 'Túl gyorsan próbálkozol, várj egy kicsit.', code: 'SWEEPERS_RATE_LIMITED' };
+    const joinAcks = (socket: FakeSocket): Array<(res: unknown) => void> =>
+      socket.emitted.filter((e) => e.event === 'miskolc:join_room').map((e) => {
+        const ack = e.args[1];
+        if (typeof ack !== 'function') throw new Error('no ack');
+        return (res: unknown) => ack(res);
+      });
+    const lastAck = (socket: FakeSocket): ((res: unknown) => void) => {
+      const ack = joinAcks(socket).at(-1);
+      if (!ack) throw new Error('no join');
+      return ack;
+    };
+
+    it('retries a rate-limited join after the backoff and succeeds', () => {
+      vi.useFakeTimers();
+      const socket = new FakeSocket();
+      const { calls, handlers } = recorder();
+      new SweepersNet(socket, 'ch-1', handlers).start();
+      lastAck(socket)(limited);
+      expect(joinAcks(socket)).toHaveLength(1);
+      vi.advanceTimersByTime(JOIN_RETRY_DELAYS_MS[0] ?? 0);
+      expect(joinAcks(socket)).toHaveLength(2);
+      lastAck(socket)({ ok: true });
+      socket.fire('miskolc:init_state', init);
+      vi.advanceTimersByTime(10_000);
+      expect(joinAcks(socket)).toHaveLength(2);
+      expect(calls).toEqual(['init:1']);
+    });
+
+    it('shows the Hungarian error once the retries are used up', () => {
+      vi.useFakeTimers();
+      const socket = new FakeSocket();
+      const { calls, handlers } = recorder();
+      new SweepersNet(socket, 'ch-1', handlers).start();
+      for (const delay of JOIN_RETRY_DELAYS_MS) {
+        lastAck(socket)(limited);
+        expect(calls).toEqual([]);
+        vi.advanceTimersByTime(delay - 1);
+        const before = joinAcks(socket).length;
+        vi.advanceTimersByTime(1);
+        expect(joinAcks(socket)).toHaveLength(before + 1); // backoff: not a moment earlier
+      }
+      expect(joinAcks(socket)).toHaveLength(JOIN_RETRY_DELAYS_MS.length + 1);
+      lastAck(socket)(limited);
+      vi.advanceTimersByTime(10_000);
+      expect(joinAcks(socket)).toHaveLength(JOIN_RETRY_DELAYS_MS.length + 1);
+      expect(calls).toEqual([`error:${limited.error}`]);
+    });
+
+    it('a refusal with another code (or none) stays fatal and does not retry', () => {
+      vi.useFakeTimers();
+      for (const res of [{ ok: false, error: 'Nem vagy a hívásban.', code: 'SWEEPERS_REFUSED' }, { ok: false, error: 'room_full' }]) {
+        const socket = new FakeSocket();
+        const { calls, handlers } = recorder();
+        new SweepersNet(socket, 'ch-1', handlers).start();
+        lastAck(socket)(res);
+        vi.advanceTimersByTime(10_000);
+        expect(joinAcks(socket)).toHaveLength(1);
+        expect(calls).toEqual([`error:${res.error}`]);
+      }
+    });
+
+    it('does not retry after stop (leave) or a kick, nor for the ack of an older join', () => {
+      vi.useFakeTimers();
+      const stopped = new FakeSocket();
+      const a = recorder();
+      const net = new SweepersNet(stopped, 'ch-1', a.handlers);
+      net.start();
+      lastAck(stopped)(limited);
+      net.stop();
+      vi.advanceTimersByTime(10_000);
+      expect(joinAcks(stopped)).toHaveLength(1);
+      expect(stopped.emitted.some((e) => e.event === 'miskolc:leave_room')).toBe(true);
+      expect(a.calls).toEqual([]);
+
+      const kicked = new FakeSocket();
+      const b = recorder();
+      new SweepersNet(kicked, 'ch-1', b.handlers).start();
+      lastAck(kicked)(limited);
+      kicked.fire('miskolc:kicked', { reason: 'displaced' });
+      vi.advanceTimersByTime(10_000);
+      expect(joinAcks(kicked)).toHaveLength(1);
+      expect(b.calls).toEqual(['kicked:displaced']);
+
+      // a reconnect starts a new join: the old one's late ack neither retries nor reports
+      const stale = new FakeSocket();
+      const c = recorder();
+      new SweepersNet(stale, 'ch-1', c.handlers).start();
+      const first = lastAck(stale);
+      stale.fire('connect');
+      first(limited);
+      vi.advanceTimersByTime(10_000);
+      expect(joinAcks(stale)).toHaveLength(2);
+      expect(c.calls).toEqual([]);
+    });
+
+    it('ignores a fatal refusal of an older join after a reconnect', () => {
+      const socket = new FakeSocket();
+      const { calls, handlers } = recorder();
+      new SweepersNet(socket, 'ch-1', handlers).start();
+      const first = lastAck(socket);
+      socket.fire('connect');
+      first({ ok: false, error: 'Nem vagy a hívásban.', code: 'SWEEPERS_REFUSED' });
+      expect(calls).toEqual([]);
+      lastAck(socket)({ ok: true });
+      expect(calls).toEqual([]);
+    });
+
+    it('a disconnect cancels a pending retry (the reconnect joins afresh, no extra token)', () => {
+      vi.useFakeTimers();
+      const socket = new FakeSocket();
+      const { calls, handlers } = recorder();
+      new SweepersNet(socket, 'ch-1', handlers).start();
+      lastAck(socket)(limited);
+      socket.fire('disconnect');
+      vi.advanceTimersByTime(10_000);
+      expect(joinAcks(socket)).toHaveLength(1);
+      socket.fire('connect');
+      expect(joinAcks(socket)).toHaveLength(2);
+      vi.advanceTimersByTime(10_000);
+      expect(joinAcks(socket)).toHaveLength(2);
+      expect(calls).toEqual([]);
+    });
   });
 
   it('reports a refused join', () => {
@@ -131,7 +295,7 @@ describe('SweepersNet', () => {
     const socket = new FakeSocket();
     const net = new SweepersNet(socket, 'ch-1', recorder().handlers);
     net.start();
-    expect(socket.count()).toBe(7);
+    expect(socket.count()).toBe(10); // 7 Phase A + district_unlocked, clock, weather
     net.stop();
     net.stop();
     expect(socket.count()).toBe(0);

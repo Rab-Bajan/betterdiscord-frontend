@@ -21,6 +21,9 @@ export class SweepersRenderer {
     this.renderer.toneMappingExposure = TONE_MAPPING_EXPOSURE;
     this.renderer.shadowMap.enabled = true;
     this.renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+    // three resets info after its shadow passes; beginFrame() resets it instead, so the F3 counter
+    // covers the mask flush, every shadow pass and the main pass
+    this.renderer.info.autoReset = false;
     this.renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, MAX_PIXEL_RATIO));
     const canvas = this.renderer.domElement;
     canvas.style.display = 'block';
@@ -42,6 +45,12 @@ export class SweepersRenderer {
     this.renderer.setSize(width, height, false);
   }
 
+  /** Starts the frame's draw counters (before any render-target work such as the mask flush). */
+  beginFrame(): void {
+    this.renderer.info.reset();
+  }
+
+  /** The frame: three renders every shadow map (each with every visible caster), then the scene. */
   render(scene: THREE.Scene, camera: THREE.Camera): void {
     this.renderer.render(scene, camera);
   }

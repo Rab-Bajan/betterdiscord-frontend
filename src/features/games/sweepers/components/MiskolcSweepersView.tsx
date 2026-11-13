@@ -1,7 +1,8 @@
 // MiskolcSweepers: kooperatív, belső nézetes takarítós játék a hangszobán belül (lazy chunk).
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { X } from 'lucide-react';
-import { SweepersGame, type SweepersDebugStats, type SweepersHud } from '../lib/engine/SweepersGame';
+import { EMPTY_HUD, SweepersGame, type SweepersDebugStats, type SweepersHud, type SweepersRadar } from '../lib/engine/SweepersGame';
+import { DISTRICT_HUD_NAMES } from '../types';
 import { SweepersNet } from '../lib/net/SweepersNet';
 import { useCallSettings } from '../../../call/lib/callSettings';
 import type { SocketLike } from '../../../../shared/services/socket/SocketLike';
@@ -18,7 +19,8 @@ interface MiskolcSweepersViewProps {
   onClose: () => void;
 }
 
-const EMPTY_HUD: SweepersHud = { district: null, cleanliness: null, teamFunds: 0, cash: 0 };
+/** How long the district-unlock toast stays up. */
+const UNLOCK_TOAST_MS = 6000;
 
 const NO_ROOM_MESSAGE = 'Nem vagy hangszobában.';
 const kickedMessage = (reason: string): string =>
@@ -37,6 +39,9 @@ export default function MiskolcSweepersView({ socket, channelId, voice, onClose 
   const [kickedReason, setKickedReason] = useState<string | null>(null);
   const [locked, setLocked] = useState(false);
   const [hud, setHud] = useState<SweepersHud>(EMPTY_HUD);
+  const [radar, setRadar] = useState<SweepersRadar | null>(null);
+  // every unlock while the toast is up joins it (d4 and d5 open together); a new array restarts the timer
+  const [unlockToast, setUnlockToast] = useState<readonly string[] | null>(null);
   const [debugVisible, setDebugVisible] = useState(false);
   const [debugStats, setDebugStats] = useState<SweepersDebugStats | null>(null);
   const [isFullscreen, setIsFullscreen] = useState(false);
@@ -65,6 +70,7 @@ export default function MiskolcSweepersView({ socket, channelId, voice, onClose 
     const mount = mountRef.current;
     setReady(false);
     setHud(EMPTY_HUD);
+    setRadar(null);
     if (!channelId) {
       setError(NO_ROOM_MESSAGE);
       return undefined;
@@ -85,6 +91,7 @@ export default function MiskolcSweepersView({ socket, channelId, voice, onClose 
         onDebug: (stats) => {
           if (debugVisibleRef.current) setDebugStats(stats);
         },
+        onRadar: setRadar,
         onLockChange: setLocked,
         onAction: (action, edge) => {
           if (edge !== 'down') return;
@@ -115,6 +122,13 @@ export default function MiskolcSweepersView({ socket, channelId, voice, onClose 
       onPlayerLeft: (id) => game.removePlayer(id),
       onJoinError: (message) => setError(message), // the server sends Hungarian refusal text
       onRtt: (ms) => game.setRtt(ms),
+      onDistrictUnlocked: (event) => {
+        game.applyDistrictUnlocked(event);
+        const name = DISTRICT_HUD_NAMES[event.district];
+        if (name) setUnlockToast((prev) => (prev ? [...prev.filter((n) => n !== name), name] : [name]));
+      },
+      onClock: (clock) => game.applyClock(clock),
+      onWeather: (weather) => game.applyWeather(weather),
       onKicked: (reason) => {
         game.unlock();
         setKickedReason(reason); // re-runs this effect: the cleanup stops the net (no leave_room) and disposes the game
@@ -135,6 +149,12 @@ export default function MiskolcSweepersView({ socket, channelId, voice, onClose 
   }, [outputDeviceId]);
 
   useEffect(() => {
+    if (unlockToast === null) return undefined;
+    const timer = setTimeout(() => setUnlockToast(null), UNLOCK_TOAST_MS);
+    return () => clearTimeout(timer);
+  }, [unlockToast]);
+
+  useEffect(() => {
     gameRef.current?.audio.setMuted(voice.isDeafened);
   }, [voice.isDeafened, ready]);
 
@@ -142,7 +162,7 @@ export default function MiskolcSweepersView({ socket, channelId, voice, onClose 
     <div ref={containerRef} className="flex-1 relative min-h-0 min-w-0 overflow-hidden select-none" style={{ background: T.bg0, fontFamily: T.font }}>
       <div ref={mountRef} className="absolute inset-0" />
 
-      {ready && <HUDOverlay hud={hud} isFullscreen={isFullscreen} onToggleFullscreen={toggleFullscreen} />}
+      {ready && <HUDOverlay hud={hud} radar={radar} unlockToast={unlockToast ? unlockToast.join(', ') : null} isFullscreen={isFullscreen} onToggleFullscreen={toggleFullscreen} />}
       {ready && debugVisible && debugStats && <DebugOverlay stats={debugStats} />}
 
       {ready && !locked && !error && (

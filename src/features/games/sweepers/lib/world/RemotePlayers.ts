@@ -1,38 +1,51 @@
 // Távoli játékosok: narancs láthatósági mellényes kapszulafigurák névtáblával, interpolált pózzal.
 import * as THREE from 'three';
 import { AssetCache } from '../engine/AssetCache';
+import { PartsBuilder } from './geometryKit';
+import { litMaterial } from './materials';
 import { InterpolationBuffer, type PoseSample } from '../net/interpolation';
 import type { PlayerAnimState, PlayerSnapshot } from '../../types';
+
+/** Draw calls of one figure: one merged vertex-coloured mesh + the name tag sprite (one shadow caster). */
+export const FIGURE_DRAW_CALLS = 2;
+export const FIGURE_SHADOW_CASTERS = 1;
+
+export interface RadarPin {
+  readonly id: number;
+  readonly x: number;
+  readonly z: number;
+  readonly rotY: number;
+  readonly color: string;
+}
 
 const BODY_RADIUS = 0.32;
 const BODY_LENGTH = 1.05;
 
-function figureParts(): { body: THREE.BufferGeometry; vest: THREE.BufferGeometry; stripe: THREE.BufferGeometry; head: THREE.BufferGeometry; cap: THREE.BufferGeometry } {
-  const cache = AssetCache.get();
-  return {
-    body: cache.geometry('fig.body', () => new THREE.CapsuleGeometry(BODY_RADIUS, BODY_LENGTH, 6, 14).translate(0, BODY_RADIUS + BODY_LENGTH / 2, 0)),
-    vest: cache.geometry('fig.vest', () => new THREE.CylinderGeometry(BODY_RADIUS + 0.03, BODY_RADIUS + 0.03, 0.62, 16, 1, true).translate(0, 1.12, 0)),
-    stripe: cache.geometry('fig.stripe', () => new THREE.CylinderGeometry(BODY_RADIUS + 0.035, BODY_RADIUS + 0.035, 0.06, 16, 1, true)),
-    head: cache.geometry('fig.head', () => new THREE.SphereGeometry(0.17, 16, 12).translate(0, 1.66, 0)),
-    cap: cache.geometry('fig.cap', () => new THREE.SphereGeometry(0.18, 16, 8, 0, Math.PI * 2, 0, Math.PI / 2).translate(0, 1.7, 0))
-  };
-}
-
-function figureMaterials(avatarColor: string): { body: THREE.Material; vest: THREE.Material; stripe: THREE.Material; skin: THREE.Material; cap: THREE.Material } {
-  const cache = AssetCache.get();
-  const color = new THREE.Color();
+function avatarHex(avatarColor: string): number {
+  const color = new THREE.Color(0xff7a1a);
   try {
     color.setStyle(avatarColor);
   } catch {
     color.setHex(0xff7a1a);
   }
-  return {
-    body: cache.material('fig.body', () => new THREE.MeshStandardMaterial({ color: 0x22305a, roughness: 0.85 })),
-    vest: cache.material('fig.vest', () => new THREE.MeshStandardMaterial({ color: 0xff7a1a, roughness: 0.6, side: THREE.DoubleSide, emissive: 0x401800 })),
-    stripe: cache.material('fig.stripe', () => new THREE.MeshStandardMaterial({ color: 0xdfe6ee, roughness: 0.25, metalness: 0.6, side: THREE.DoubleSide })),
-    skin: cache.material('fig.skin', () => new THREE.MeshStandardMaterial({ color: 0xe0b48f, roughness: 0.8 })),
-    cap: cache.material(`fig.cap.${color.getHexString()}`, () => new THREE.MeshStandardMaterial({ color, roughness: 0.6 }))
-  };
+  return color.getHex();
+}
+
+/**
+ * Body, vest, reflective stripes, head and the avatar-coloured cap merged into one vertex-coloured
+ * geometry (one draw call and one shadow caster per figure), cached per cap colour.
+ */
+function figureGeometry(capHex: number): THREE.BufferGeometry {
+  return AssetCache.get().geometry(`fig.merged.${capHex.toString(16)}`, () => {
+    const b = new PartsBuilder()
+      .add(new THREE.CapsuleGeometry(BODY_RADIUS, BODY_LENGTH, 6, 14), 0x22305a, { y: BODY_RADIUS + BODY_LENGTH / 2 })
+      .add(new THREE.CylinderGeometry(BODY_RADIUS + 0.03, BODY_RADIUS + 0.03, 0.62, 16, 1), 0xff7a1a, { y: 1.12 });
+    for (const y of [1.0, 1.24]) b.add(new THREE.CylinderGeometry(BODY_RADIUS + 0.035, BODY_RADIUS + 0.035, 0.06, 16, 1, true), 0xdfe6ee, { y });
+    return b
+      .add(new THREE.SphereGeometry(0.17, 16, 12), 0xe0b48f, { y: 1.66 })
+      .add(new THREE.SphereGeometry(0.18, 16, 8, 0, Math.PI * 2, 0, Math.PI / 2), capHex, { y: 1.7 })
+      .build();
+  });
 }
 
 /** Name tag sprite; the canvas texture and sprite material are owned per player. */
@@ -68,24 +81,10 @@ class RemoteFigure {
   #phase = 0;
 
   constructor(readonly snapshot: PlayerSnapshot, serverTime: number) {
-    const parts = figureParts();
-    const mats = figureMaterials(snapshot.avatarColor);
-    const mesh = (g: THREE.BufferGeometry, m: THREE.Material, y = 0): THREE.Mesh => {
-      const o = new THREE.Mesh(g, m);
-      o.position.y = y;
-      o.castShadow = true;
-      return o;
-    };
+    const body = new THREE.Mesh(figureGeometry(avatarHex(snapshot.avatarColor)), litMaterial());
+    body.castShadow = true; // into the sun map and both lamp maps
     this.#tag = createNameTag(snapshot.username);
-    this.group.add(
-      mesh(parts.body, mats.body),
-      mesh(parts.vest, mats.vest),
-      mesh(parts.stripe, mats.stripe, 1.0),
-      mesh(parts.stripe, mats.stripe, 1.24),
-      mesh(parts.head, mats.skin),
-      mesh(parts.cap, mats.cap),
-      this.#tag
-    );
+    this.group.add(body, this.#tag);
     this.group.name = `player-${snapshot.id}`;
     this.state = snapshot.state;
     this.push({ t: serverTime, x: snapshot.x, y: snapshot.y, z: snapshot.z, rotY: snapshot.rotY }, snapshot.state);
@@ -154,6 +153,17 @@ export class RemotePlayers {
 
   get count(): number {
     return this.#figures.size;
+  }
+
+  /** Current interpolated poses for the radar. */
+  pins(): RadarPin[] {
+    return [...this.#figures.values()].map((f) => ({
+      id: f.snapshot.id,
+      x: f.group.position.x,
+      z: f.group.position.z,
+      rotY: f.group.rotation.y,
+      color: f.snapshot.avatarColor
+    }));
   }
 
   clear(): void {

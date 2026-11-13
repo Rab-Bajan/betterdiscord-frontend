@@ -6,24 +6,46 @@ import { InputManager, type InputListener } from '../input/InputManager';
 import { stepBody, type BodyState, type MoveMode } from '../movement/MovementModel';
 import { PredictionBuffer, SendRateLimiter } from '../net/Prediction';
 import { ServerClock } from '../net/interpolation';
-import { SceneEnvironment } from '../world/SceneEnvironment';
+import { SceneEnvironment, nextWeatherBlend } from '../world/SceneEnvironment';
 import { WorldBuilder } from '../world/WorldBuilder';
 import { RemotePlayers } from '../world/RemotePlayers';
 import { SweepersAudio } from '../audio/SweepersAudio';
 import { AssetCache } from './AssetCache';
+import { WeatherFx } from '../world/WeatherFx';
+import { WORLD_UNIFORMS, resetWorldUniforms } from '../world/materials';
+import { clockLabel, extrapolateClock, lightingAt } from '../world/dayNight';
+import { crossesClean } from '../world/lampState';
+import { drawBudget } from '../world/drawPlan';
+import { FIGURE_DRAW_CALLS, FIGURE_SHADOW_CASTERS, type RadarPin } from '../world/RemotePlayers';
+import type { WeatherBlend } from '../world/SceneEnvironment';
 import type { PlayerInputPayload } from '../net/SweepersNet';
-import { ackFor, type InitState, type PlayerSnapshot, type TickSync } from '../../types';
+import { ackFor, type HexSnapshot, type InitState, type PlayerSnapshot, type TickSync } from '../../types';
+import { DEFAULT_CLOCK, type ClockState, type DistrictUnlocked, type WeatherKind, type WeatherState } from '../../worldTypes';
 
 export interface SweepersHud {
   readonly district: number | null;
+  /** One decimal (spec 30 banner: "68.4% TISZTA"). */
   readonly cleanliness: number | null;
   readonly teamFunds: number;
   readonly cash: number;
+  /** In-game wall clock "HH:MM". */
+  readonly clock: string;
+  readonly day: number;
+  readonly night: boolean;
+  readonly weather: WeatherKind;
+  readonly districtLocked: boolean;
 }
 
 export interface SweepersDebugStats {
   readonly fps: number;
   readonly drawCalls: number;
+  readonly triangles: number;
+  readonly geometries: number;
+  readonly textures: number;
+  readonly programs: number;
+  /** Planned worst-case draw calls of the loaded city (all passes) vs. the 400 limit. */
+  readonly plannedDrawCalls: number | null;
+  readonly lod: { readonly near: number; readonly mid: number; readonly far: number; readonly culled: number } | null;
   readonly debris: number;
   readonly conveyors: number;
   readonly rttMs: number | null;
@@ -32,10 +54,23 @@ export interface SweepersDebugStats {
   readonly z: number;
 }
 
+/** Radar snapshot (spec 30), ~10 Hz. */
+export interface SweepersRadar {
+  readonly x: number;
+  readonly z: number;
+  readonly yaw: number;
+  readonly selfColor: string;
+  readonly players: readonly RadarPin[];
+  readonly hexes: readonly HexSnapshot[];
+  readonly unlocked: ReadonlySet<number>;
+  readonly weighbridge: { readonly x: number; readonly z: number } | null;
+}
+
 export interface SweepersGameCallbacks {
   onReady(): void;
   onHud(hud: SweepersHud): void;
   onDebug(stats: SweepersDebugStats): void;
+  onRadar(radar: SweepersRadar): void;
   onLockChange(locked: boolean): void;
   onAction: InputListener;
   /** False while the network cannot take inputs (disconnected / rejoining): nothing is recorded. */
@@ -45,7 +80,24 @@ export interface SweepersGameCallbacks {
 
 const KEEPALIVE_MS = 1000;
 const DEBUG_INTERVAL_MS = 250;
+const RADAR_INTERVAL_MS = 100;
+/** Weather cross-fade, seconds; the road soaks in over WET_IN_S and dries over WET_OUT_S. */
+const WEATHER_FADE_S = 4;
+const WET_IN_S = 20;
+const WET_OUT_S = 45;
 const STEP_LENGTH = { WALK: 1.9, SPRINT: 2.5 } as const;
+
+export const EMPTY_HUD: SweepersHud = {
+  district: null,
+  cleanliness: null,
+  teamFunds: 0,
+  cash: 0,
+  clock: '06:00',
+  day: 1,
+  night: false,
+  weather: 'clear',
+  districtLocked: false
+};
 
 export class SweepersGame {
   readonly input = new InputManager();
@@ -56,6 +108,7 @@ export class SweepersGame {
   readonly #env: SceneEnvironment;
   readonly #world: WorldBuilder;
   readonly #remotes: RemotePlayers;
+  readonly #rain: WeatherFx;
   readonly #prediction = new PredictionBuffer();
   readonly #limiter = new SendRateLimiter(50);
   readonly #clock = new ServerClock();
@@ -73,10 +126,17 @@ export class SweepersGame {
   #lastSent = { x: NaN, y: NaN, z: NaN, rotY: NaN, state: '', at: -Infinity };
   #stepDistance = 0;
   #rttMs: number | null = null;
-  #hud: SweepersHud = { district: null, cleanliness: null, teamFunds: 0, cash: 0 };
+  #hud: SweepersHud = EMPTY_HUD;
   #frames = 0;
   #fps = 0;
   #lastDebug = 0;
+  #lastRadar = 0;
+  #clockState: ClockState = DEFAULT_CLOCK;
+  #weather: WeatherState = { kind: 'clear', untilServerTime: null };
+  #weatherBlend: WeatherBlend = { from: 'clear', to: 'clear', t: 1 };
+  #wetness = 0;
+  #selfColor = '#FF7A1A';
+  #elapsed = 0;
 
   constructor(mount: HTMLElement, callbacks: SweepersGameCallbacks) {
     this.#cb = callbacks;
@@ -96,7 +156,9 @@ export class SweepersGame {
       this.#env = new SceneEnvironment(this.#scene);
       this.#world = new WorldBuilder(this.#scene);
       this.#remotes = new RemotePlayers(this.#scene);
-      this.#scene.add(controls.camera);
+      this.#rain = new WeatherFx();
+      this.#scene.add(controls.camera, this.#rain.root);
+      resetWorldUniforms();
 
       this.input.attach(window, canvas);
       this.#offAction = this.input.onAction(callbacks.onAction);
@@ -123,6 +185,11 @@ export class SweepersGame {
     }
   }
 
+  /** Where the server's path check of the next input starts (null: not checked); F3 / tests. */
+  get pathOrigin(): { readonly x: number; readonly z: number } | null {
+    return this.#world.collision.pathOrigin;
+  }
+
   /** Pointer lock + audio unlock; must run inside a user gesture. */
   lock(): void {
     if (!this.#ready) return;
@@ -139,16 +206,23 @@ export class SweepersGame {
     const now = performance.now();
     this.#selfId = state.selfId;
     this.#clock.observe(state.serverTime, now);
+    this.#world.load(state.layout, state.hexes, state.unlockedDistricts);
     const self = state.players.find((p) => p.id === state.selfId);
     if (self) {
-      Object.assign(this.#body, { x: self.x, y: self.y, z: self.z, vy: 0, grounded: self.y <= 0.001 });
+      const ground = this.#world.collision.support(self.x, self.z);
+      Object.assign(this.#body, { x: self.x, y: Math.max(self.y, ground), z: self.z, vy: 0, vx: 0, vz: 0, grounded: self.y <= ground + 0.05 });
       this.#controls.setYaw(self.rotY);
+      this.#selfColor = self.avatarColor;
     }
     this.#remotes.reset(state.players.filter((p) => p.id !== state.selfId), state.serverTime);
-    this.#world.applyHexes(state.hexes);
     this.#prediction.reset(this.#body);
+    this.#world.collision.setPathOrigin(this.#body.x, this.#body.z);
     this.#lastSent.at = -Infinity;
-    this.#hud = { ...this.#hud, teamFunds: state.teamFunds, cash: state.personal.cash, district: null, cleanliness: null };
+    this.#clockState = state.clock;
+    this.#weather = state.weather;
+    this.#weatherBlend = { from: state.weather.kind, to: state.weather.kind, t: 1 };
+    this.#wetness = state.weather.kind === 'drizzle' ? 1 : 0;
+    this.#hud = { ...this.#hud, teamFunds: state.teamFunds, cash: state.personal.cash, district: null, cleanliness: null, weather: state.weather.kind };
     this.#updateHud(true);
     if (!this.#ready) {
       this.#ready = true;
@@ -167,8 +241,14 @@ export class SweepersGame {
         if (!p.corr) continue; // own pose is predicted locally; only corrections apply
         const fixed = this.#prediction.reconcile(p, ack, this.#body);
         Object.assign(this.#body, fixed);
-        this.#body.grounded = fixed.y <= 0.001;
-        if (this.#body.grounded) this.#body.vy = 0;
+        const origin = this.#prediction.lastSent;
+        if (origin) this.#world.collision.setPathOrigin(origin.x, origin.z);
+        const ground = this.#world.collision.support(fixed.x, fixed.z);
+        this.#body.grounded = fixed.y <= ground + 0.05;
+        if (this.#body.grounded) {
+          this.#body.vy = 0;
+          this.#body.y = Math.max(fixed.y, ground);
+        }
         continue;
       }
       this.#remotes.push(p.id, { t: tick.t, x: p.x, y: p.y, z: p.z, rotY: p.rotY }, p.state);
@@ -185,6 +265,41 @@ export class SweepersGame {
     this.#remotes.remove(id);
   }
 
+  /** `miskolc:clock`: re-anchors the local extrapolation. */
+  applyClock(clock: ClockState): void {
+    this.#clockState = clock;
+    this.#updateHud(true);
+  }
+
+  /** `miskolc:weather`: cross-fades fog / rain / wet roads to the new kind. */
+  applyWeather(weather: WeatherState): void {
+    this.#weatherBlend = nextWeatherBlend(this.#weatherBlend, weather.kind);
+    this.#weather = weather;
+    this.#updateHud(true);
+  }
+
+  /** `miskolc:district_unlocked`: the tape comes down and the hex opens for local prediction. */
+  applyDistrictUnlocked(event: DistrictUnlocked): void {
+    this.#world.setUnlocked(event.unlockedDistricts);
+    this.#updateHud(true);
+  }
+
+  /**
+   * Hex cleanliness changed (Phase C producer): border colour, beacon mode and the HUD follow; the
+   * chime plays when it crosses 90 %.
+   */
+  setHexCleanliness(id: number, value: number): void {
+    const result = this.#world.setHexCleanliness(id, value);
+    if (!result) return;
+    if (crossesClean(result.previous, result.hex.cleanliness)) this.audio.chime();
+    this.#updateHud(true);
+  }
+
+  /** Spec 18 hook for Phase C: cleans the asphalt mask around (x, z). */
+  paintClean(x: number, z: number, radius: number, strength: number): void {
+    this.#world.mask?.paint(x, z, radius, strength);
+  }
+
   setRtt(ms: number): void {
     this.#rttMs = ms;
   }
@@ -198,10 +313,12 @@ export class SweepersGame {
     window.removeEventListener('resize', this.#onWindowResize);
     this.#resizeObserver?.disconnect();
     this.#remotes.dispose();
+    this.#rain.dispose();
     this.#world.dispose();
     this.#env.dispose();
     this.#scene.clear();
     this.audio.dispose();
+    resetWorldUniforms();
     AssetCache.get().releaseGpu(); // before the context goes away; CPU-side assets stay cached
     this.#renderer.dispose();
   }
@@ -217,19 +334,59 @@ export class SweepersGame {
     const wasGrounded = this.#body.grounded;
     const prevX = this.#body.x;
     const prevZ = this.#body.z;
-    this.#mode = stepBody(this.#body, intent, dt);
+    this.#mode = stepBody(this.#body, intent, dt, this.#world.collision);
     if (!wasGrounded && this.#body.grounded) this.audio.land();
     this.#footsteps(Math.hypot(this.#body.x - prevX, this.#body.z - prevZ));
 
     this.#controls.update(this.#body, this.#mode === 'SPRINT', dt);
-    this.#env.follow(this.#body.x, this.#body.z);
-    this.#remotes.update(this.#clock.now(now), dt);
+    const serverNow = this.#clock.now(now);
+    this.#environment(serverNow, dt, now);
+    this.#remotes.update(serverNow, dt);
     if (this.#ready) {
       this.#maybeSend(now, yaw);
       this.#updateHud(false);
+      this.#radarTick(now, yaw);
     }
+    this.#renderer.beginFrame();
+    this.#world.prepare(this.#renderer.renderer);
     this.#renderer.render(this.#scene, this.#controls.camera);
     this.#debugTick(now);
+  }
+
+  /** Day/night from the extrapolated server clock, weather fades, LOD, lamps and rain. */
+  #environment(serverNow: number, dt: number, now: number): void {
+    this.#elapsed += dt;
+    const clockNow = extrapolateClock(this.#clockState, serverNow);
+    const light = lightingAt(this.#clockState, clockNow.timeMs);
+    const blend = this.#weatherBlend;
+    if (blend.t < 1) this.#weatherBlend = { ...blend, t: Math.min(1, blend.t + dt / WEATHER_FADE_S) };
+    const raining = this.#weatherBlend.to === 'drizzle' ? this.#weatherBlend.t : this.#weatherBlend.from === 'drizzle' ? 1 - this.#weatherBlend.t : 0;
+    const wetTarget = this.#weather.kind === 'drizzle' ? 1 : 0;
+    this.#wetness += (wetTarget - this.#wetness) * Math.min(1, dt / (wetTarget > this.#wetness ? WET_IN_S : WET_OUT_S));
+    WORLD_UNIFORMS.uNight.value = 1 - light.daylight;
+    WORLD_UNIFORMS.uWetness.value = this.#wetness;
+    WORLD_UNIFORMS.uTime.value = this.#elapsed;
+    this.#env.follow(this.#body.x, this.#body.y, this.#body.z);
+    this.#env.apply(light, this.#weatherBlend);
+    const camera = this.#controls.camera;
+    this.#world.update({ camera, timeSec: this.#elapsed, now, night: 1 - light.daylight, lampsOn: light.lampsOn });
+    this.#rain.update(this.#elapsed, camera.position, raining);
+  }
+
+  #radarTick(now: number, yaw: number): void {
+    if (now - this.#lastRadar < RADAR_INTERVAL_MS) return;
+    this.#lastRadar = now;
+    const wb = this.#world.layout?.landmarks.weighbridge;
+    this.#cb.onRadar({
+      x: this.#body.x,
+      z: this.#body.z,
+      yaw,
+      selfColor: this.#selfColor,
+      players: this.#remotes.pins(),
+      hexes: this.#world.hexes,
+      unlocked: this.#world.unlocked,
+      weighbridge: wb ? { x: wb.x, z: wb.z } : null
+    });
   }
 
   #footsteps(distance: number): void {
@@ -246,7 +403,12 @@ export class SweepersGame {
   }
 
   #maybeSend(now: number, rotY: number): void {
-    if (!this.#cb.canSend() || !this.#limiter.ready(now)) return;
+    if (!this.#cb.canSend()) {
+      // offline the server keeps its old pose and the next init_state re-anchors: no stale path check
+      this.#world.collision.setPathOrigin(NaN, NaN);
+      return;
+    }
+    if (!this.#limiter.ready(now)) return;
     const { x, y, z } = this.#body;
     const last = this.#lastSent;
     const changed = Math.abs(x - last.x) > 0.005 || Math.abs(y - last.y) > 0.005 || Math.abs(z - last.z) > 0.005
@@ -254,15 +416,22 @@ export class SweepersGame {
     if (!changed && now - last.at < KEEPALIVE_MS) return;
     const seq = this.#prediction.record(this.#body);
     this.#lastSent = { x, y, z, rotY, state: this.#mode, at: now };
+    this.#world.collision.setPathOrigin(x, z);
     this.#cb.sendInput({ seq, x, y, z, rotY, state: this.#mode });
   }
 
   #updateHud(force: boolean): void {
     const hex = this.#world.hexAt(this.#body.x, this.#body.z);
     const district = hex?.district ?? null;
-    const cleanliness = hex ? Math.round(hex.cleanliness) : null;
-    if (!force && district === this.#hud.district && cleanliness === this.#hud.cleanliness) return;
-    this.#hud = { ...this.#hud, district, cleanliness };
+    const cleanliness = hex ? Math.round(hex.cleanliness * 10) / 10 : null;
+    const clockNow = extrapolateClock(this.#clockState, this.#clock.now(performance.now()));
+    const clock = clockLabel(this.#clockState, clockNow);
+    const night = clockNow.timeMs >= this.#clockState.daylightMs;
+    // outside the grid the lock follows the sector of the outskirts hex (as the movement rules)
+    const districtLocked = district === null ? this.#world.collision.isLocked(this.#body.x, this.#body.z) : !this.#world.unlocked.has(district);
+    const h = this.#hud;
+    if (!force && district === h.district && cleanliness === h.cleanliness && clock === h.clock && clockNow.day === h.day && districtLocked === h.districtLocked) return;
+    this.#hud = { ...h, district, cleanliness, clock, day: clockNow.day, night, weather: this.#weather.kind, districtLocked };
     this.#cb.onHud(this.#hud);
   }
 
@@ -273,9 +442,20 @@ export class SweepersGame {
     this.#fps = Math.round((this.#frames * 1000) / elapsed);
     this.#frames = 0;
     this.#lastDebug = now;
+    const info = this.#renderer.renderer.info;
+    const plan = this.#world.plan;
+    const players = this.#remotes.count;
+    const budget = plan ? drawBudget(plan, players * FIGURE_DRAW_CALLS, players * FIGURE_SHADOW_CASTERS) : null;
+    const lod = this.#world.lodStats;
     this.#cb.onDebug({
       fps: this.#fps,
       drawCalls: this.#renderer.drawCalls,
+      triangles: info.render.triangles,
+      geometries: info.memory.geometries,
+      textures: info.memory.textures,
+      programs: info.programs?.length ?? 0,
+      plannedDrawCalls: budget?.total ?? null,
+      lod: lod ? { ...lod } : null,
       debris: 0,
       conveyors: 0,
       rttMs: this.#rttMs,

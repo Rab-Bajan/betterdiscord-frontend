@@ -1,5 +1,15 @@
 // MiskolcSweepers: a szerver socket-üzeneteinek típusai és őrzői (Phase A protokoll).
 import { isRecord, isString } from '../../../shared/lib/guards';
+import {
+  DEFAULT_CLOCK,
+  parseClock,
+  parseLayout,
+  parseUnlockedDistricts,
+  parseWeather,
+  type ClockState,
+  type WeatherState,
+  type WorldLayout
+} from './worldTypes';
 
 /** Index order is protocol: `stateIdx` in tick_sync is an index into this list. */
 export const PLAYER_ANIM_STATES = [
@@ -26,6 +36,16 @@ export const DISTRICT_NAMES = [
   'Vasgyár',
   'Búza tér',
   'Avas Kilátó & Parkerdő'
+] as const;
+
+/** Upper-case HUD banner names (spec 30: "AVAS LAKÓTELEP – 68.4% TISZTA"). */
+export const DISTRICT_HUD_NAMES = [
+  'KÖZPONTI MÉH TELEP',
+  'AVAS LAKÓTELEP',
+  'ÚJGYŐRI PIAC',
+  'VASGYÁR',
+  'BÚZA TÉR',
+  'AVAS KILÁTÓ & PARKERDŐ'
 ] as const;
 
 export interface PlayerSnapshot {
@@ -64,6 +84,12 @@ export interface InitState {
   readonly hexes: readonly HexSnapshot[];
   readonly teamFunds: number;
   readonly personal: PersonalStats;
+  /** Phase B city layout; null keeps the flat Phase A world (old server / malformed layout). */
+  readonly layout: WorldLayout | null;
+  readonly unlockedDistricts: readonly number[];
+  readonly lifetimeEarned: number;
+  readonly clock: ClockState;
+  readonly weather: WeatherState;
 }
 
 /** One decoded `p` entry of tick_sync (metres / radians). */
@@ -87,7 +113,11 @@ export interface TickSync {
   readonly gone: readonly number[];
 }
 
-export type JoinAck = { readonly ok: true } | { readonly ok: false; readonly error: string };
+/** A refused join carries the server's Hungarian text and, when given, its error code. */
+export type JoinAck = { readonly ok: true } | { readonly ok: false; readonly error: string; readonly code?: string };
+
+/** Join refused by the server's join/leave rate limit (backend SweepersError.RATE_LIMITED_CODE): retryable. */
+export const JOIN_RATE_LIMITED_CODE = 'SWEEPERS_RATE_LIMITED';
 
 const isFiniteNumber = (value: unknown): value is number => typeof value === 'number' && Number.isFinite(value);
 const isInt = (value: unknown): value is number => Number.isInteger(value);
@@ -124,7 +154,7 @@ const numberOr = (value: unknown, fallback: number): number => (isFiniteNumber(v
 /** `miskolc:init_state`; null when the core fields are missing. Malformed list entries are dropped. */
 export function parseInitState(value: unknown): InitState | null {
   if (!isRecord(value)) return null;
-  const { roomId, selfId, tickRate, serverTime, players, hexes, teamFunds, personal } = value;
+  const { roomId, selfId, tickRate, serverTime, players, hexes, teamFunds, personal, layout, unlockedDistricts, lifetimeEarned, clock, weather } = value;
   if (!isString(roomId) || !isInt(selfId) || !isFiniteNumber(serverTime)) return null;
   if (!Array.isArray(players) || !Array.isArray(hexes)) return null;
   const p = isRecord(personal) ? personal : {};
@@ -141,7 +171,12 @@ export function parseInitState(value: unknown): InitState | null {
       toolTier: numberOr(p.toolTier, 0),
       backpackTier: numberOr(p.backpackTier, 0),
       totalKg: numberOr(p.totalKg, 0)
-    }
+    },
+    layout: parseLayout(layout),
+    unlockedDistricts: parseUnlockedDistricts(unlockedDistricts),
+    lifetimeEarned: Math.max(0, numberOr(lifetimeEarned, 0)),
+    clock: parseClock(clock) ?? { ...DEFAULT_CLOCK, serverTime },
+    weather: parseWeather(weather) ?? { kind: 'clear', untilServerTime: null }
   };
 }
 
@@ -195,7 +230,8 @@ export function parsePlayerLeft(value: unknown): number | null {
 export function parseJoinAck(value: unknown): JoinAck | null {
   if (!isRecord(value) || typeof value.ok !== 'boolean') return null;
   if (value.ok) return { ok: true };
-  return { ok: false, error: isString(value.error) ? value.error : 'Nem sikerült csatlakozni.' };
+  const error = isString(value.error) ? value.error : 'Nem sikerült csatlakozni.';
+  return isString(value.code) ? { ok: false, error, code: value.code } : { ok: false, error };
 }
 
 /** Last processed seq for `selfId` (the per-socket map wins over the single `ack`). */

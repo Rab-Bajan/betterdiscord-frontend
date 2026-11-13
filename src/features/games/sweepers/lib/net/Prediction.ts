@@ -66,6 +66,11 @@ export class PredictionBuffer {
     this.#lastSent = { x: pose.x, y: pose.y, z: pose.z };
   }
 
+  /** Pose of the last send (after a correction: where it maps to now); null before the first one. */
+  get lastSent(): Vec3 | null {
+    return this.#lastSent;
+  }
+
   get pendingCount(): number {
     return this.#pending.length;
   }

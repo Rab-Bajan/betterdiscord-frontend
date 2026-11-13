@@ -65,8 +65,15 @@ describe('sweepers HexSnapshot guard', () => {
 });
 
 describe('sweepers init_state guard', () => {
-  it('parses a full init_state', () => {
-    expect(parseInitState(init)).toEqual(init);
+  it('parses a Phase A init_state (no world fields) with the Phase B defaults', () => {
+    expect(parseInitState(init)).toEqual({
+      ...init,
+      layout: null,
+      unlockedDistricts: [0],
+      lifetimeEarned: 0,
+      clock: { dayMs: 2_160_000, daylightMs: 1_440_000, timeMs: 0, day: 1, serverTime: init.serverTime },
+      weather: { kind: 'clear', untilServerTime: null }
+    });
   });
   it('drops malformed list entries and defaults optional numbers', () => {
     const parsed = parseInitState({ ...init, tickRate: 0, players: [player, { id: 'x' }], hexes: [hex, null], teamFunds: 'lots', personal: null });
@@ -153,6 +160,8 @@ describe('sweepers small payload guards', () => {
     expect(parseJoinAck({ ok: true })).toEqual({ ok: true });
     expect(parseJoinAck({ ok: false, error: 'room_full' })).toEqual({ ok: false, error: 'room_full' });
     expect(parseJoinAck({ ok: false })).toEqual({ ok: false, error: 'Nem sikerült csatlakozni.' });
+    expect(parseJoinAck({ ok: false, error: 'x', code: 'SWEEPERS_RATE_LIMITED' })).toEqual({ ok: false, error: 'x', code: 'SWEEPERS_RATE_LIMITED' });
+    expect(parseJoinAck({ ok: false, error: 'x', code: 7 })).toStrictEqual({ ok: false, error: 'x' });
     expect(parseJoinAck({ ok: 'yes' })).toBeNull();
     expect(parseJoinAck(undefined)).toBeNull();
   });
