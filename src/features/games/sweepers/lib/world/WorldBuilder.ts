@@ -122,7 +122,7 @@ export class WorldBuilder {
    * Full (re)build from init_state. The city is rebuilt only when the layout or the hex districts
    * changed (a reconnect with the same layout keeps the meshes); hex state and unlocks always apply.
    */
-  load(layout: WorldLayout | null, hexes: readonly HexSnapshot[], unlocked: readonly number[]): void {
+  load(layout: WorldLayout | null, hexes: readonly HexSnapshot[], unlocked: readonly number[]): HexSnapshot[] {
     if (!layout) {
       if (this.#city || this.#layers.length === 0) {
         this.#disposeCity();
@@ -139,20 +139,25 @@ export class WorldBuilder {
     }
     if (this.#layout !== layout) this.#collision = new WorldCollision(layout);
     this.#layout = layout;
-    this.applyHexes(hexes);
+    const repainted = this.applyHexes(hexes);
     this.setUnlocked(unlocked);
+    return repainted;
   }
 
-  /** Hex-driven state (cleanliness colours, beacons, mask initialisation, lock map). */
-  applyHexes(hexes: readonly HexSnapshot[]): void {
+  /**
+   * Hex-driven state (cleanliness colours, beacons, mask fill, lock map). Returns the hexes whose mask
+   * fill changed (their loaded debris cells must be painted again on top).
+   */
+  applyHexes(hexes: readonly HexSnapshot[]): HexSnapshot[] {
     this.#hexes = new Map(hexes.map((h) => [`${h.q},${h.r}`, h]));
     for (const layer of this.#layers) layer.applyHexes?.(hexes);
     const city = this.#city;
     if (city) {
       city.borders.setHexes(hexes);
       for (const h of hexes) city.beacons.setCleanliness(h.q, h.r, h.cleanliness);
-      city.mask.setHexes(hexes);
+      return city.mask.setHexes(hexes);
     }
+    return [];
   }
 
   setUnlocked(ids: readonly number[]): void {
@@ -172,8 +177,11 @@ export class WorldBuilder {
     return this.#unlocked;
   }
 
-  /** Live cleanliness of one hex (Phase C producer). Returns the updated hex and its previous value. */
-  setHexCleanliness(id: number, value: number): { hex: HexSnapshot; previous: number } | null {
+  /**
+   * Live cleanliness of one hex (Phase C `hx`). Returns the updated hex, its previous value, and whether
+   * its mask fill was repainted (the c10 changed).
+   */
+  setHexCleanliness(id: number, value: number): { hex: HexSnapshot; previous: number; repainted: boolean } | null {
     const entry = [...this.#hexes.values()].find((h) => h.id === id);
     if (!entry || !Number.isFinite(value)) return null;
     const cleanliness = Math.min(100, Math.max(0, value));
@@ -183,7 +191,8 @@ export class WorldBuilder {
     for (const layer of this.#layers) layer.applyHexes?.(all);
     this.#city?.borders.setCleanliness(hex.q, hex.r, cleanliness);
     this.#city?.beacons.setCleanliness(hex.q, hex.r, cleanliness);
-    return { hex, previous: entry.cleanliness };
+    const repainted = (this.#city?.mask.setHexes([hex]).length ?? 0) > 0;
+    return { hex, previous: entry.cleanliness, repainted };
   }
 
   get hexes(): readonly HexSnapshot[] {

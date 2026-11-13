@@ -22,12 +22,80 @@ export async function applyOutputDevice(ctx: object, deviceId: string): Promise<
 
 const MASTER_VOLUME = 0.6;
 
+/** Phase C sound ids (43): the spec's file names without `.mp3`, plus three lead additions. */
+export const SFX_IDS = [
+  'sfx_broom_scratch_asphalt',
+  'sfx_broom_gravel',
+  'sfx_vacuum_hum_loop',
+  'sfx_vacuum_slurp',
+  'sfx_leaf_blower_2t',
+  'sfx_can_crunch',
+  'sfx_metal_clink',
+  'sfx_copper_heavy_thud',
+  'sfx_can_rattle',
+  'sfx_acid_sizzle',
+  'sfx_detector_click'
+] as const;
+export type SfxId = (typeof SFX_IDS)[number];
+
+/** One synthesised layer: filtered noise or an oscillator, with an attack/decay envelope. */
+interface SfxLayer {
+  readonly src: 'noise' | OscillatorType;
+  readonly freq?: number;
+  readonly freqEnd?: number;
+  readonly filter?: { readonly type: BiquadFilterType; readonly freq: number; readonly freqEnd?: number; readonly q?: number };
+  readonly gain: number;
+  readonly attack: number;
+  readonly decay: number;
+  readonly delay?: number;
+  /** Tremolo rate (Hz): the 2-stroke putter, scratch strokes. */
+  readonly tremolo?: number;
+}
+
+const SFX: Readonly<Record<SfxId, readonly SfxLayer[]>> = {
+  sfx_broom_scratch_asphalt: [{ src: 'noise', filter: { type: 'bandpass', freq: 2600, freqEnd: 1800, q: 1.2 }, gain: 0.28, attack: 0.03, decay: 0.32, tremolo: 22 }],
+  sfx_broom_gravel: [
+    { src: 'noise', filter: { type: 'lowpass', freq: 1100, q: 0.8 }, gain: 0.3, attack: 0.02, decay: 0.34, tremolo: 31 },
+    { src: 'noise', filter: { type: 'highpass', freq: 3500 }, gain: 0.08, attack: 0.005, decay: 0.08, delay: 0.12 }
+  ],
+  sfx_vacuum_hum_loop: [
+    { src: 'sawtooth', freq: 118, gain: 0.07, attack: 0.04, decay: 0.3 },
+    { src: 'noise', filter: { type: 'lowpass', freq: 700 }, gain: 0.1, attack: 0.04, decay: 0.3 }
+  ],
+  sfx_vacuum_slurp: [{ src: 'noise', filter: { type: 'bandpass', freq: 400, freqEnd: 2400, q: 3 }, gain: 0.3, attack: 0.01, decay: 0.24 }],
+  sfx_leaf_blower_2t: [
+    { src: 'sawtooth', freq: 78, freqEnd: 84, gain: 0.12, attack: 0.02, decay: 0.3, tremolo: 38 },
+    { src: 'noise', filter: { type: 'highpass', freq: 1500 }, gain: 0.12, attack: 0.03, decay: 0.3 }
+  ],
+  sfx_can_crunch: [
+    { src: 'noise', filter: { type: 'highpass', freq: 2800 }, gain: 0.35, attack: 0.002, decay: 0.06 },
+    { src: 'noise', filter: { type: 'bandpass', freq: 1800, q: 2 }, gain: 0.25, attack: 0.002, decay: 0.08, delay: 0.05 }
+  ],
+  sfx_metal_clink: [
+    { src: 'sine', freq: 2350, gain: 0.16, attack: 0.002, decay: 0.3 },
+    { src: 'sine', freq: 3720, gain: 0.07, attack: 0.002, decay: 0.18 }
+  ],
+  sfx_copper_heavy_thud: [
+    { src: 'sine', freq: 95, freqEnd: 48, gain: 0.4, attack: 0.004, decay: 0.32 },
+    { src: 'noise', filter: { type: 'lowpass', freq: 500 }, gain: 0.18, attack: 0.002, decay: 0.12 }
+  ],
+  sfx_can_rattle: [0, 0.11, 0.2, 0.33, 0.47, 0.62].map((delay, i) => ({ src: 'triangle' as const, freq: 2900 - i * 180, gain: 0.12 - i * 0.012, attack: 0.002, decay: 0.07, delay })),
+  sfx_acid_sizzle: [{ src: 'noise', filter: { type: 'highpass', freq: 4200 }, gain: 0.22, attack: 0.05, decay: 0.8, tremolo: 47 }],
+  sfx_detector_click: [{ src: 'square', freq: 1850, gain: 0.08, attack: 0.001, decay: 0.018 }]
+};
+
+/** Beyond this distance a positioned sound is not played (the full mix is Phase H). */
+const SFX_HEARING_M = 40;
+
 export class SweepersAudio {
   #ctx: AudioContext | null = null;
   #master: GainNode | null = null;
   #noise: AudioBuffer | null = null;
   #deviceId = 'default';
   #muted = false;
+  #listener = { x: 0, z: 0 };
+  /** Every sfx id played (debug / tests), most recent last; bounded. */
+  readonly played: SfxId[] = [];
 
   /** Creates / resumes the context; call from a user gesture. */
   unlock(): void {
@@ -75,6 +143,82 @@ export class SweepersAudio {
       src.disconnect();
       filter.disconnect();
       gain.disconnect();
+    };
+  }
+
+  /** Where the player hears from (simple distance falloff for positioned sounds). */
+  setListener(x: number, z: number): void {
+    this.#listener = { x, z };
+  }
+
+  /** Plays a synthesised Phase C sound; `at` attenuates it by distance from the listener. */
+  sfx(id: SfxId, at?: { readonly x: number; readonly z: number }): void {
+    const level = at ? 1 / (1 + Math.hypot(at.x - this.#listener.x, at.z - this.#listener.z) / 6) : 1;
+    if (at && Math.hypot(at.x - this.#listener.x, at.z - this.#listener.z) > SFX_HEARING_M) return;
+    this.played.push(id);
+    if (this.played.length > 64) this.played.shift();
+    const ctx = this.#ctx;
+    const master = this.#master;
+    if (!ctx || !master || ctx.state !== 'running') return;
+    const t0 = ctx.currentTime;
+    for (const layer of SFX[id]) this.#layer(ctx, master, layer, t0 + (layer.delay ?? 0), level);
+  }
+
+  #layer(ctx: AudioContext, master: GainNode, layer: SfxLayer, t: number, level: number): void {
+    const end = t + layer.attack + layer.decay;
+    let src: AudioScheduledSourceNode;
+    if (layer.src === 'noise') {
+      const noise = ctx.createBufferSource();
+      noise.buffer = this.#noiseBuffer(ctx);
+      noise.loop = true;
+      src = noise;
+    } else {
+      const osc = ctx.createOscillator();
+      osc.type = layer.src;
+      osc.frequency.setValueAtTime(layer.freq ?? 440, t);
+      if (layer.freqEnd) osc.frequency.exponentialRampToValueAtTime(layer.freqEnd, end);
+      src = osc;
+    }
+    const nodes: AudioNode[] = [src];
+    if (layer.filter) {
+      const filter = ctx.createBiquadFilter();
+      filter.type = layer.filter.type;
+      filter.frequency.setValueAtTime(layer.filter.freq, t);
+      if (layer.filter.freqEnd) filter.frequency.exponentialRampToValueAtTime(layer.filter.freqEnd, end);
+      filter.Q.value = layer.filter.q ?? 0.9;
+      nodes.push(filter);
+    }
+    const gain = ctx.createGain();
+    gain.gain.setValueAtTime(0.0001, t);
+    gain.gain.exponentialRampToValueAtTime(Math.max(0.0002, layer.gain * level), t + layer.attack);
+    gain.gain.exponentialRampToValueAtTime(0.0001, end);
+    nodes.push(gain);
+    if (layer.tremolo) {
+      const trem = ctx.createGain();
+      const lfo = ctx.createOscillator();
+      const depth = ctx.createGain();
+      lfo.frequency.value = layer.tremolo;
+      depth.gain.value = 0.5;
+      trem.gain.value = 0.5;
+      lfo.connect(depth).connect(trem.gain);
+      lfo.start(t);
+      lfo.stop(end + 0.02);
+      lfo.onended = () => {
+        lfo.disconnect();
+        depth.disconnect();
+      };
+      nodes.push(trem);
+    }
+    for (let i = 0; i < nodes.length - 1; i++) {
+      const a = nodes[i];
+      const b = nodes[i + 1];
+      if (a && b) a.connect(b);
+    }
+    nodes[nodes.length - 1]?.connect(master);
+    src.start(t);
+    src.stop(end + 0.02);
+    src.onended = () => {
+      for (const node of nodes) node.disconnect();
     };
   }
 

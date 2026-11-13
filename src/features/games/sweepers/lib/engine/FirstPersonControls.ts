@@ -51,9 +51,14 @@ export class FirstPersonControls {
     this.camera.quaternion.setFromEuler(this.#euler);
   }
 
-  /** Places the eye above the feet position and eases the FOV. */
-  update(feet: { x: number; y: number; z: number }, sprinting: boolean, dt: number): void {
+  /** Places the eye above the feet position, eases the FOV and sets the camera roll (beer wobble), radians. */
+  update(feet: { x: number; y: number; z: number }, sprinting: boolean, dt: number, roll = 0): void {
     this.camera.position.set(feet.x, feet.y + EYE_HEIGHT, feet.z);
+    this.#euler.setFromQuaternion(this.camera.quaternion, 'YXZ');
+    if (this.#euler.z !== roll) {
+      this.#euler.z = roll;
+      this.camera.quaternion.setFromEuler(this.#euler);
+    }
     const target = sprinting ? SPRINT_FOV : BASE_FOV;
     const next = this.camera.fov + (target - this.camera.fov) * (1 - Math.exp(-FOV_RATE * dt));
     if (Math.abs(next - this.camera.fov) > 0.01) {

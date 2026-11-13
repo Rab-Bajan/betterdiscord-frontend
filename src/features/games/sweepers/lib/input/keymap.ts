@@ -15,6 +15,8 @@ export type InputAction =
   | 'secondaryUse'
   /** Q: tie & drop the garbage bag ("Zsák kötözése"). */
   | 'tieBag'
+  /** G: empty the backpack and tool buffer at the feet ("Kiborítás", Phase C). */
+  | 'dumpPack'
   /** E: enter vehicle, weighbridge panel, clear machine jam. */
   | 'interact'
   /** B: build mode ("Építés"); R rotates the placement 90° clockwise while building. */
@@ -43,6 +45,7 @@ export const KEY_BINDINGS: Readonly<Record<string, InputAction>> = {
   ShiftRight: 'sprint',
   Space: 'jump',
   KeyQ: 'tieBag',
+  KeyG: 'dumpPack',
   KeyE: 'interact',
   KeyB: 'toggleBuild',
   KeyR: 'rotateBuild',

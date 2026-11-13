@@ -95,3 +95,17 @@ export function rng(seed: number): () => number {
     return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
   };
 }
+
+/**
+ * Uploads only the first `count` instances of `mesh` (matrix, and colour when present): without update
+ * ranges three r170 re-sends the whole capacity. Nothing is sent for an empty mesh (it is not drawn).
+ */
+export function uploadInstances(mesh: THREE.InstancedMesh, count: number): void {
+  if (count <= 0) return;
+  for (const [attr, size] of [[mesh.instanceMatrix, 16], [mesh.instanceColor, 3]] as const) {
+    if (!attr) continue;
+    attr.clearUpdateRanges();
+    attr.addUpdateRange(0, count * size);
+    attr.needsUpdate = true;
+  }
+}

@@ -14,6 +14,7 @@ import {
   parsePlayerSnapshot,
   parseTickSync
 } from '../../../../../src/features/games/sweepers/types';
+import { DEFAULT_PERSONAL } from '../../../../../src/features/games/sweepers/debrisTypes';
 
 const player = { id: 3, accountId: 'acc-1', username: 'Béla', avatarColor: '#ff0000', x: 1.5, y: 0, z: -2, rotY: 0.5, state: 'WALK' };
 const hex = { id: 0, q: 0, r: 0, district: 0, cleanliness: 42 };
@@ -30,11 +31,13 @@ const init = {
 
 describe('sweepers PlayerSnapshot guard', () => {
   it('accepts a full snapshot', () => {
-    expect(parsePlayerSnapshot(player)).toEqual(player);
+    expect(parsePlayerSnapshot(player)).toEqual({ ...player, tool: 0 });
+    expect(parsePlayerSnapshot({ ...player, tool: 5 })?.tool).toBe(5);
+    expect(parsePlayerSnapshot({ ...player, tool: 8 })?.tool).toBe(0);
   });
   it('defaults accountId, colour and unknown state', () => {
     expect(parsePlayerSnapshot({ ...player, accountId: null, avatarColor: 7, state: 'DANCING' }))
-      .toEqual({ ...player, accountId: null, avatarColor: '#FF7A1A', state: 'IDLE' });
+      .toEqual({ ...player, accountId: null, avatarColor: '#FF7A1A', state: 'IDLE', tool: 0 });
     expect(parsePlayerSnapshot({ ...player, accountId: undefined })?.accountId).toBeNull();
   });
   it('rejects malformed snapshots', () => {
@@ -65,9 +68,13 @@ describe('sweepers HexSnapshot guard', () => {
 });
 
 describe('sweepers init_state guard', () => {
-  it('parses a Phase A init_state (no world fields) with the Phase B defaults', () => {
+  it('parses a Phase A init_state (no world fields) with the Phase B and C defaults', () => {
     expect(parseInitState(init)).toEqual({
       ...init,
+      players: [{ ...player, tool: 0 }],
+      // the Phase A fields keep their values; tool 1 is not owned there, so it is 0 (C.6)
+      personal: { ...DEFAULT_PERSONAL, cash: 120, toolTier: 0, backpackTier: 0, totalKg: 3.5 },
+      debris: null,
       layout: null,
       unlockedDistricts: [0],
       lifetimeEarned: 0,
@@ -81,7 +88,7 @@ describe('sweepers init_state guard', () => {
     expect(parsed?.players).toHaveLength(1);
     expect(parsed?.hexes).toHaveLength(1);
     expect(parsed?.teamFunds).toBe(0);
-    expect(parsed?.personal).toEqual({ cash: 0, toolTier: 0, backpackTier: 0, totalKg: 0 });
+    expect(parsed?.personal).toEqual(DEFAULT_PERSONAL);
   });
   it('rejects payloads without core fields', () => {
     expect(parseInitState(null)).toBeNull();
@@ -109,15 +116,19 @@ describe('sweepers quantization decode', () => {
     expect(decodeRot16(65536)).toBe(0);
   });
   it('decodes a tick tuple', () => {
-    expect(decodeTickPlayer([4, 150, 0, -275, 16384, 2, 1])).toEqual({ id: 4, x: 1.5, y: 0, z: -2.75, rotY: Math.PI / 2, state: 'SPRINT', corr: true });
-    expect(decodeTickPlayer([4, 150, 0, -275, 0, 99])?.state).toBe('IDLE');
-    expect(decodeTickPlayer([4, 150, 0, -275, 0, 0])?.corr).toBe(false);
+    expect(decodeTickPlayer([4, 150, 0, -275, 16384, 2, 1, 3])).toEqual({ id: 4, x: 1.5, y: 0, z: -2.75, rotY: Math.PI / 2, state: 'SPRINT', corr: true, tool: 3 });
+    expect(decodeTickPlayer([4, 150, 0, -275, 0, 99, 0, 0])?.state).toBe('IDLE');
+    expect(decodeTickPlayer([4, 150, 0, -275, 0, 0, 0, 7])?.corr).toBe(false);
+    // C.5: the row has 8 elements; the 8th is the held tool 0..7
+    expect(decodeTickPlayer([4, 150, 0, -275, 0, 0, 1])).toBeNull();
+    expect(decodeTickPlayer([4, 150, 0, -275, 0, 0, 1, 8])).toBeNull();
+    expect(decodeTickPlayer([4, 150, 0, -275, 0, 0, 1, 1.5])).toBeNull();
   });
   it('rejects malformed tuples', () => {
     expect(decodeTickPlayer([4, 150, 0])).toBeNull();
-    expect(decodeTickPlayer([4, 1.5, 0, 0, 0, 0, 0])).toBeNull();
+    expect(decodeTickPlayer([4, 1.5, 0, 0, 0, 0, 0, 0])).toBeNull();
     expect(decodeTickPlayer({ id: 4 })).toBeNull();
-    expect(decodeTickPlayer(['4', 0, 0, 0, 0, 0, 0])).toBeNull();
+    expect(decodeTickPlayer(['4', 0, 0, 0, 0, 0, 0, 0])).toBeNull();
   });
   it('keeps the protocol state order', () => {
     expect(PLAYER_ANIM_STATES).toEqual(['IDLE', 'WALK', 'SPRINT', 'SWEEPING_ARCS', 'HOLDING_BAG', 'OPERATING_VACUUM', 'DRIVING_VEHICLE', 'PUSHING_CART']);
@@ -126,12 +137,12 @@ describe('sweepers quantization decode', () => {
 
 describe('sweepers tick_sync guard', () => {
   it('parses players, acks and gone', () => {
-    const tick = parseTickSync({ t: 5000, acks: { 3: 17, 4: 'x' }, p: [[3, 0, 0, 0, 0, 0, 1], 'junk'], gone: [9, 'a'] });
+    const tick = parseTickSync({ t: 5000, acks: { 3: 17, 4: 'x' }, p: [[3, 0, 0, 0, 0, 0, 1, 2], 'junk'], gone: [9, 'a'] });
     expect(tick).toEqual({
       t: 5000,
       acks: { 3: 17 },
       ack: null,
-      players: [{ id: 3, x: 0, y: 0, z: 0, rotY: 0, state: 'IDLE', corr: true }],
+      players: [{ id: 3, x: 0, y: 0, z: 0, rotY: 0, state: 'IDLE', corr: true, tool: 2 }],
       gone: [9]
     });
     expect(tick && ackFor(tick, 3)).toBe(17);

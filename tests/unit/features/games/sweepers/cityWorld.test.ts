@@ -12,6 +12,9 @@ import { lampHeads, nearestLamps } from '../../../../../src/features/games/sweep
 import { districtAt, hexCorner, hexDistance, hexToWorld, worldToHex } from '../../../../../src/features/games/sweepers/lib/world/hexGrid';
 import { districtBanner } from '../../../../../src/features/games/sweepers/components/HUDOverlay';
 import { realInit, smallInit } from './fixtures';
+import { DebrisWorld } from '../../../../../src/features/games/sweepers/lib/debris/DebrisWorld';
+import { ToolRig } from '../../../../../src/features/games/sweepers/lib/tools/ToolRig';
+import { PHASE_C_DRAW_CALLS } from '../../../../../src/features/games/sweepers/lib/engine/SweepersGame';
 
 const camera = (x: number, z: number, yaw = 0): THREE.PerspectiveCamera => {
   const cam = new THREE.PerspectiveCamera(75, 16 / 9, 0.1, 900);
@@ -63,12 +66,12 @@ describe('draw-call budget (spec 11)', () => {
   it('the plan worst case (every kind visible at once, 16 remote players, night shadows) stays under 400', () => {
     const plan = planDraws(worstCaseInput());
     const players = 16;
-    const budget = drawBudget(plan, players * FIGURE_DRAW_CALLS, players * FIGURE_SHADOW_CASTERS);
+    const budget = drawBudget(plan, players * FIGURE_DRAW_CALLS + PHASE_C_DRAW_CALLS, players * FIGURE_SHADOW_CASTERS);
     expect(budget.total).toBeLessThanOrEqual(DRAW_CALL_LIMIT);
     expect(budget.main + budget.sunShadow + budget.spotShadow).toBe(budget.total);
   });
 
-  it('counts what three really draws: the real city with every mesh shown and 16 players at night', () => {
+  it('counts what three really draws: the real city, debris, tool rig, props and particles shown, 16 players at night', () => {
     // name tags draw on a canvas; node has no DOM
     vi.stubGlobal('document', { createElement: () => ({ width: 0, height: 0, getContext: () => null }) });
     const init = realInit();
@@ -79,22 +82,30 @@ describe('draw-call budget (spec 11)', () => {
     const remotes = new RemotePlayers(scene);
     const players = 16;
     for (let id = 1; id <= players; id++) {
-      remotes.add({ id, accountId: null, username: `p${id}`, avatarColor: '#FF7A1A', x: id, y: 0, z: 0, rotY: 0, state: 'IDLE' }, 0);
+      remotes.add({ id, accountId: null, username: `p${id}`, avatarColor: '#FF7A1A', x: id, y: 0, z: 0, rotY: 0, state: 'IDLE', tool: 0 }, 0);
     }
     const rain = new WeatherFx();
     const cam = camera(0, 0);
-    scene.add(cam, rain.root);
-    // worst case: every group of the city has instances in view, tape and rain are on
+    const debris = new DebrisWorld(() => 0);
+    const rig = new ToolRig();
+    cam.add(rig.root);
+    scene.add(cam, rain.root, debris.root);
+    // worst case: every group of the city has instances in view, tape and rain are on, every debris kind,
+    // every prop family and the particles are drawn
     scene.traverse((o) => {
       o.visible = true;
     });
+    // the rig shows body + head or body + hose, never all three: the vacuum is its widest state
+    rig.setTool(0);
+    rig.setTool(5);
+    expect(PHASE_C_DRAW_CALLS).toBeLessThanOrEqual(16);
     const lights = shadowLights(scene);
     expect(lights).toContain(env.sun);
     const casters = shadowDraws(scene, cam.layers);
     const real = { main: mainDraws(scene, cam.layers), sun: casters, spot: (lights.length - 1) * casters };
     const plan = world.plan;
     if (!plan) throw new Error('no plan');
-    const budget = drawBudget(plan, players * FIGURE_DRAW_CALLS, players * FIGURE_SHADOW_CASTERS);
+    const budget = drawBudget(plan, players * FIGURE_DRAW_CALLS + PHASE_C_DRAW_CALLS, players * FIGURE_SHADOW_CASTERS);
     // the budget model follows the real passes exactly: every caster in every shadow map…
     expect(real).toEqual({ main: budget.main, sun: budget.sunShadow, spot: budget.spotShadow });
     expect(lights.length - 1).toBe(SPOT_SHADOW_LIGHTS);
@@ -105,6 +116,50 @@ describe('draw-call budget (spec 11)', () => {
     });
     expect(mid).toEqual([]);
     expect(real.main + real.sun + real.spot).toBeLessThanOrEqual(DRAW_CALL_LIMIT);
+    // debris, rig, props and particles cast no shadows
+    const phaseC: THREE.Object3D[] = [];
+    for (const root of [debris.root, rig.root, remotes.props.root]) root.traverse((o) => {
+      if (o.castShadow) phaseC.push(o);
+    });
+    expect(phaseC).toEqual([]);
+    debris.dispose();
+    rig.dispose();
+    remotes.dispose();
+    rain.dispose();
+    world.dispose();
+    env.dispose();
+  });
+
+  it('every transparent double-sided material of the full scene is forced single-pass (B LOW-12)', () => {
+    // three r170 draws transparent + DoubleSide in two passes (back, then front) unless forceSinglePass;
+    // the budget counts one call per mesh, so a missing flag would silently cost one draw more
+    vi.stubGlobal('document', { createElement: () => ({ width: 0, height: 0, getContext: () => null }) });
+    const init = realInit();
+    const scene = new THREE.Scene();
+    const env = new SceneEnvironment(scene);
+    const world = new WorldBuilder(scene);
+    world.load(init.layout, init.hexes, init.unlockedDistricts);
+    const remotes = new RemotePlayers(scene);
+    remotes.add({ id: 1, accountId: null, username: 'p', avatarColor: '#FF7A1A', x: 0, y: 0, z: 0, rotY: 0, state: 'IDLE', tool: 3 }, 0);
+    const rain = new WeatherFx();
+    const debris = new DebrisWorld(() => 0);
+    const rig = new ToolRig();
+    const cam = camera(0, 0);
+    cam.add(rig.root);
+    scene.add(cam, rain.root, debris.root);
+    const materials = new Set<THREE.Material>();
+    scene.traverse((o) => {
+      if (!(o instanceof THREE.Mesh || o instanceof THREE.Line || o instanceof THREE.Points || o instanceof THREE.Sprite)) return;
+      const m: unknown = o.material;
+      for (const mat of Array.isArray(m) ? m : [m]) if (mat instanceof THREE.Material) materials.add(mat);
+    });
+    expect(materials.size).toBeGreaterThan(10);
+    const twoPass = [...materials].filter((m) => m.transparent && m.side === THREE.DoubleSide && !m.forceSinglePass).map((m) => m.name || m.type);
+    expect(twoPass).toEqual([]);
+    // the one transparent double-sided material of the city is among them, so the check is not vacuous
+    expect([...materials].some((m) => m.transparent && m.side === THREE.DoubleSide)).toBe(true);
+    debris.dispose();
+    rig.dispose();
     remotes.dispose();
     rain.dispose();
     world.dispose();

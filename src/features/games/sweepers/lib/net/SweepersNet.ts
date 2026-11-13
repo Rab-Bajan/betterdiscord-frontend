@@ -22,6 +22,19 @@ import {
   type DistrictUnlocked,
   type WeatherState
 } from '../../worldTypes';
+import {
+  parseActionAck,
+  parseBuyAck,
+  parseChunkUpdate,
+  parsePersonalState,
+  parseSweepAck,
+  type ActionAck,
+  type BuyAck,
+  type ChunkUpdate,
+  type PersonalState,
+  type SweepAck
+} from '../../debrisTypes';
+import type { UpgradeItem } from '../tools/catalog';
 
 export interface PlayerInputPayload {
   readonly seq: number;
@@ -31,6 +44,32 @@ export interface PlayerInputPayload {
   readonly rotY: number;
   readonly state: PlayerAnimState;
 }
+
+/** `miskolc:sweep_hit` without the channel (C.4): one message per stroke / pulse. */
+export interface SweepHitPayload {
+  readonly seq: number;
+  readonly tool: number;
+  readonly alt: 0 | 1;
+  readonly x: number;
+  readonly z: number;
+  readonly rotY: number;
+}
+
+/** `miskolc:player_action` without the channel (C.4). */
+export type PlayerActionPayload =
+  | { readonly kind: 'select'; readonly tool: number }
+  | { readonly kind: 'kick'; readonly id: number; readonly vx: number; readonly vz: number }
+  | { readonly kind: 'dump' };
+
+/** `miskolc:buy_upgrade` without the channel (C.4). */
+export interface BuyUpgradePayload {
+  readonly item: UpgradeItem;
+  readonly tier?: number;
+  readonly level?: number;
+}
+
+/** Sweep payloads go out with at most 3 decimals (C intro: floats ≤ 3 decimals). */
+const r3 = (v: number): number => Math.round(v * 1000) / 1000;
 
 export interface SweepersNetHandlers {
   onInit(state: InitState): void;
@@ -44,6 +83,10 @@ export interface SweepersNetHandlers {
   onDistrictUnlocked(event: DistrictUnlocked): void;
   onClock(clock: ClockState): void;
   onWeather(weather: WeatherState): void;
+  /** `miskolc:debris_chunk_update` (loads and room-wide deltas). */
+  onDebris(update: ChunkUpdate): void;
+  /** `miskolc:personal_update`: the full PersonalState of this player. */
+  onPersonal(state: PersonalState): void;
 }
 
 /** One RTT probe rides on a player_input ack this often. */
@@ -129,6 +172,14 @@ export class SweepersNet {
       ['miskolc:weather', route((v) => {
         const weather = parseWeather(v);
         if (weather && this.#worldEventsOpen) handlers.onWeather(weather);
+      })],
+      ['miskolc:debris_chunk_update', route((v) => {
+        const update = parseChunkUpdate(v);
+        if (update && this.#worldEventsOpen) handlers.onDebris(update);
+      })],
+      ['miskolc:personal_update', route((v) => {
+        const state = parsePersonalState(v);
+        if (state && this.#worldEventsOpen) handlers.onPersonal(state);
       })]
     ];
   }
@@ -205,6 +256,35 @@ export class SweepersNet {
       return;
     }
     this.#socket.emit('miskolc:player_input', payload);
+  }
+
+  /** One tool use; false (nothing sent) while inputs cannot go out. The ack is always parsed. */
+  sendSweep(hit: SweepHitPayload, onAck: (ack: SweepAck) => void): boolean {
+    if (!this.canSend) return false;
+    const payload = { channelId: this.#channelId, seq: hit.seq, tool: hit.tool, alt: hit.alt, x: r3(hit.x), z: r3(hit.z), rotY: r3(hit.rotY) };
+    this.#socket.emit('miskolc:sweep_hit', payload, (res: unknown) => {
+      if (this.#started) onAck(parseSweepAck(res));
+    });
+    return true;
+  }
+
+  sendAction(action: PlayerActionPayload, onAck: (ack: ActionAck) => void): boolean {
+    if (!this.canSend) return false;
+    const payload = action.kind === 'kick'
+      ? { channelId: this.#channelId, kind: action.kind, id: action.id, vx: r3(action.vx), vz: r3(action.vz) }
+      : { channelId: this.#channelId, ...action };
+    this.#socket.emit('miskolc:player_action', payload, (res: unknown) => {
+      if (this.#started) onAck(parseActionAck(res));
+    });
+    return true;
+  }
+
+  buyUpgrade(buy: BuyUpgradePayload, onAck: (ack: BuyAck) => void): boolean {
+    if (!this.canSend) return false;
+    this.#socket.emit('miskolc:buy_upgrade', { channelId: this.#channelId, ...buy }, (res: unknown) => {
+      if (this.#started) onAck(parseBuyAck(res));
+    });
+    return true;
   }
 
   stop(): void {

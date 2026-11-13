@@ -38,7 +38,9 @@ const recorder = () => {
     onKicked: (reason) => calls.push(`kicked:${reason}`),
     onDistrictUnlocked: (e) => calls.push(`unlocked:${e.district}:${e.unlockedDistricts.join(',')}`),
     onClock: (c) => calls.push(`clock:${c.timeMs}:${c.day}:${c.dayMs}`),
-    onWeather: (w) => calls.push(`weather:${w.kind}:${w.untilServerTime ?? 'null'}`)
+    onWeather: (w) => calls.push(`weather:${w.kind}:${w.untilServerTime ?? 'null'}`),
+    onDebris: (u) => calls.push(`debris:${u.t}:${u.load.length}:${u.del.join(',')}`),
+    onPersonal: (p) => calls.push(`personal:${p.cash}:${p.toolTier}`)
   };
   return { calls, handlers };
 };
@@ -295,7 +297,7 @@ describe('SweepersNet', () => {
     const socket = new FakeSocket();
     const net = new SweepersNet(socket, 'ch-1', recorder().handlers);
     net.start();
-    expect(socket.count()).toBe(10); // 7 Phase A + district_unlocked, clock, weather
+    expect(socket.count()).toBe(12); // 7 Phase A + district_unlocked, clock, weather + debris_chunk_update, personal_update
     net.stop();
     net.stop();
     expect(socket.count()).toBe(0);
@@ -366,5 +368,63 @@ describe('SweepersNet', () => {
     net.stop();
     expect(socket.emitted.length).toBe(before); // no input, no join_room, no leave_room
     expect(calls).toEqual(['init:1', 'kicked:displaced']);
+  });
+
+  it('routes Phase C debris and personal updates only on top of an init_state', () => {
+    const socket = new FakeSocket();
+    const { calls, handlers } = recorder();
+    new SweepersNet(socket, 'ch-1', handlers).start();
+    const phaseC = (): void => {
+      socket.fire('miskolc:debris_chunk_update', { t: 7, del: [3, 4] });
+      socket.fire('miskolc:debris_chunk_update', { del: [3] }); // no t: dropped
+      socket.fire('miskolc:personal_update', { cash: 2000, toolTier: 7 });
+      socket.fire('miskolc:personal_update', { toolTier: 1 }); // no cash: dropped
+    };
+    phaseC();
+    expect(calls).toEqual([]);
+    socket.fire('miskolc:init_state', init);
+    phaseC();
+    expect(calls).toEqual(['init:1', 'debris:7:0:3,4', 'personal:2000:7']);
+    socket.fire('connect');
+    phaseC();
+    expect(calls).toHaveLength(3);
+  });
+
+  it('sends sweep_hit / player_action / buy_upgrade with the channel and parses their acks', () => {
+    const socket = new FakeSocket();
+    const net = new SweepersNet(socket, 'ch-1', recorder().handlers);
+    const acks: string[] = [];
+    expect(net.sendSweep({ seq: 1, tool: 2, alt: 0, x: 1, z: 2, rotY: 0 }, () => acks.push('early'))).toBe(false);
+    net.start();
+    socket.fire('miskolc:init_state', init);
+    expect(net.sendSweep({ seq: 3, tool: 2, alt: 1, x: 1.23456, z: -2.0004, rotY: 0.12349 }, (a) => acks.push(a.ok ? `ok:${a.items.join(',')}` : `no:${a.code ?? '-'}`))).toBe(true);
+    expect(net.sendAction({ kind: 'kick', id: 0x30007, vx: 2.34567, vz: -1 }, (a) => acks.push(a.ok ? 'kick:ok' : 'kick:no'))).toBe(true);
+    expect(net.buyUpgrade({ item: 'width', level: 1 }, (a) => acks.push(a.ok ? `buy:${a.cash}` : `buy:${a.error}`))).toBe(true);
+    const sweep = socket.emitted.find((e) => e.event === 'miskolc:sweep_hit');
+    const kick = socket.emitted.find((e) => e.event === 'miskolc:player_action');
+    const buy = socket.emitted.find((e) => e.event === 'miskolc:buy_upgrade');
+    // floats go out with at most 3 decimals (C intro)
+    expect(sweep?.args[0]).toEqual({ channelId: 'ch-1', seq: 3, tool: 2, alt: 1, x: 1.235, z: -2, rotY: 0.123 });
+    expect(kick?.args[0]).toEqual({ channelId: 'ch-1', kind: 'kick', id: 0x30007, vx: 2.346, vz: -1 });
+    expect(buy?.args[0]).toEqual({ channelId: 'ch-1', item: 'width', level: 1 });
+    const ack = (e: { args: unknown[] } | undefined, payload: unknown): void => {
+      const cb = e?.args[1];
+      if (typeof cb === 'function') cb(payload);
+    };
+    ack(sweep, { ok: true, seq: 3, kg: 0.5, items: [7], pushed: false });
+    ack(kick, { ok: false, error: 'Túl messze vagy ehhez.', code: 'tooFar' });
+    ack(buy, { ok: true, cash: 0 });
+    expect(acks).toEqual(['ok:7', 'kick:no', 'buy:0']);
+    // nothing goes out while disconnected; a late ack after stop() is ignored
+    socket.fire('disconnect');
+    expect(net.sendAction({ kind: 'dump' }, () => acks.push('dump'))).toBe(false);
+    socket.fire('connect');
+    socket.fire('miskolc:init_state', init);
+    net.sendAction({ kind: 'dump' }, () => acks.push('dump'));
+    const dump = socket.emitted.filter((e) => e.event === 'miskolc:player_action').at(-1);
+    expect(dump?.args[0]).toEqual({ channelId: 'ch-1', kind: 'dump' });
+    net.stop();
+    ack(dump, { ok: true });
+    expect(acks).toEqual(['ok:7', 'kick:no', 'buy:0']);
   });
 });

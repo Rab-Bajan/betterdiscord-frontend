@@ -19,6 +19,8 @@ export interface MoveIntent {
   readonly jump: boolean;
   /** Facing yaw, radians (three.js: 0 looks down -Z). */
   readonly yaw: number;
+  /** Sprint speed multiplier (Kofola: 1.15, as the server's budget); absent = 1. */
+  readonly sprintMul?: number;
 }
 
 export interface BodyState {
@@ -54,7 +56,7 @@ export function stepBody(body: BodyState, intent: MoveIntent, dt: number, world?
   const moving = len > 0.001;
   const sprinting = moving && intent.sprint && f > 0;
   const surface = SURFACE_RESPONSE[world?.surfaceAt(body.x, body.z) ?? 'dry'];
-  const speed = (sprinting ? SPRINT_SPEED : WALK_SPEED) * surface.speed;
+  const speed = (sprinting ? SPRINT_SPEED * (intent.sprintMul ?? 1) : WALK_SPEED) * surface.speed;
   // three.js camera forward at yaw θ is (-sinθ, 0, -cosθ); right is (cosθ, 0, -sinθ)
   const sin = Math.sin(intent.yaw);
   const cos = Math.cos(intent.yaw);

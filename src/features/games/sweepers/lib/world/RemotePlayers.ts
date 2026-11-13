@@ -4,9 +4,13 @@ import { AssetCache } from '../engine/AssetCache';
 import { PartsBuilder } from './geometryKit';
 import { litMaterial } from './materials';
 import { InterpolationBuffer, type PoseSample } from '../net/interpolation';
+import { RemoteToolProps, type PropHolder } from '../tools/RemoteToolProps';
 import type { PlayerAnimState, PlayerSnapshot } from '../../types';
 
-/** Draw calls of one figure: one merged vertex-coloured mesh + the name tag sprite (one shadow caster). */
+/**
+ * Draw calls of one figure: one merged vertex-coloured mesh + the name tag sprite (one shadow caster).
+ * Held tools are drawn for all figures together (REMOTE_PROP_DRAW_CALLS).
+ */
 export const FIGURE_DRAW_CALLS = 2;
 export const FIGURE_SHADOW_CASTERS = 1;
 
@@ -78,6 +82,7 @@ class RemoteFigure {
   readonly buffer = new InterpolationBuffer();
   readonly #tag: THREE.Sprite;
   state: PlayerAnimState;
+  tool: number;
   #phase = 0;
 
   constructor(readonly snapshot: PlayerSnapshot, serverTime: number) {
@@ -87,14 +92,16 @@ class RemoteFigure {
     this.group.add(body, this.#tag);
     this.group.name = `player-${snapshot.id}`;
     this.state = snapshot.state;
+    this.tool = snapshot.tool;
     this.push({ t: serverTime, x: snapshot.x, y: snapshot.y, z: snapshot.z, rotY: snapshot.rotY }, snapshot.state);
     this.group.position.set(snapshot.x, snapshot.y, snapshot.z);
     this.group.rotation.y = snapshot.rotY;
   }
 
-  push(sample: PoseSample, state: PlayerAnimState): void {
+  push(sample: PoseSample, state: PlayerAnimState, tool = this.tool): void {
     this.buffer.push(sample);
     this.state = state;
+    this.tool = tool;
   }
 
   update(serverNow: number, dt: number): void {
@@ -116,9 +123,12 @@ class RemoteFigure {
 export class RemotePlayers {
   readonly root = new THREE.Group();
   readonly #figures = new Map<number, RemoteFigure>();
+  readonly props = new RemoteToolProps();
+  #time = 0;
 
   constructor(scene: THREE.Scene) {
     this.root.name = 'remote-players';
+    this.root.add(this.props.root);
     scene.add(this.root);
   }
 
@@ -143,12 +153,19 @@ export class RemotePlayers {
   }
 
   /** Feeds one tick sample; unknown ids are ignored until player_joined / init_state. */
-  push(id: number, sample: PoseSample, state: PlayerAnimState): void {
-    this.#figures.get(id)?.push(sample, state);
+  push(id: number, sample: PoseSample, state: PlayerAnimState, tool?: number): void {
+    this.#figures.get(id)?.push(sample, state, tool);
   }
 
   update(serverNow: number, dt: number): void {
-    for (const figure of this.#figures.values()) figure.update(serverNow, dt);
+    this.#time += dt;
+    const holders: PropHolder[] = [];
+    for (const figure of this.#figures.values()) {
+      figure.update(serverNow, dt);
+      const g = figure.group;
+      holders.push({ x: g.position.x, y: g.position.y, z: g.position.z, rotY: g.rotation.y, tool: figure.tool, state: figure.state });
+    }
+    this.props.update(holders, this.#time);
   }
 
   get count(): number {
@@ -173,6 +190,7 @@ export class RemotePlayers {
 
   dispose(): void {
     this.clear();
+    this.props.dispose();
     this.root.removeFromParent();
   }
 }
