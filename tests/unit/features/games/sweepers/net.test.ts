@@ -46,7 +46,8 @@ const recorder = () => {
     onTelemetry: (t) => calls.push(`telemetry:${t.jams}`),
     onEconomy: (u) => calls.push(`economy:${u.t}:${u.funds ?? '-'}`),
     onScaleWeighed: (w) => calls.push(`weighed:${w.by}:${w.total}`),
-    onInspection: (e) => calls.push(`inspection:${e.fine}`)
+    onInspection: (e) => calls.push(`inspection:${e.fine}`),
+    onVehicles: (u) => calls.push(`vehicles:${u.t}:${u.rows.length}`)
   };
   return { calls, handlers };
 };
@@ -303,7 +304,7 @@ describe('SweepersNet', () => {
     const socket = new FakeSocket();
     const net = new SweepersNet(socket, 'ch-1', recorder().handlers);
     net.start();
-    expect(socket.count()).toBe(18); // 7 Phase A + district_unlocked, clock, weather + debris_chunk_update, personal_update + structure_spawned, logistics_update, logistics_telemetry + economy, scale_weighed, inspection
+    expect(socket.count()).toBe(19); // 7 Phase A + district_unlocked, clock, weather + debris_chunk_update, personal_update + structure_spawned, logistics_update, logistics_telemetry + economy, scale_weighed, inspection + vehicle_update
     net.stop();
     net.stop();
     expect(socket.count()).toBe(0);

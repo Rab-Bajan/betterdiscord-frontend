@@ -39,6 +39,7 @@ import {
   type ActionAck,
   type ChunkUpdate,
   type PersonalState,
+  type Refusal,
   type SweepAck
 } from '../../debrisTypes';
 import { SWEEPERS_ERRORS } from '../../errors';
@@ -59,6 +60,16 @@ import { LED_SHOW_MS } from '../economy/tables';
 import { SCALE_PROMPT, SMOKE_TOAST, coinToast, copperChip, gridToast, gridVisual, inspectionToast, inspectorChip, receiptLines, tickerText, weighedToast } from '../economy/format';
 import { ScaleWatch, inZone, nearestGreasePoint, scaleAt, scaleZones, type ScaleZone } from '../economy/world';
 import { parseGeneratorAck, parseGreaseAck, type EconomyInit, type EconomyUpdate, type GridRow, type Inspection, type LmeRow, type ScaleWeighed } from '../../economyTypes';
+import { EYE_HEIGHT } from './FirstPersonControls';
+import { VehicleStore } from '../vehicles/VehicleStore';
+import { VEHICLE_DRAW_CALLS, VehicleRenderer, type VehiclePose } from '../vehicles/VehicleRenderer';
+import { newVehicleBody, stepVehicle, vehicleTop, type VehicleBody, type VehicleWorld } from '../vehicles/VehicleModel';
+import { HORN_RANGE_M, JERRYCAN, GARAGE, VEHICLE, VEHICLE_TYPES, endCircles, vehicleToWorld, type VehicleType } from '../vehicles/tables';
+import { CURB_TOAST, PUNCTURE_TOAST, REPAIR_PROMPT, STALL_TOAST, dashValues, fuelToast, hornToast, nearestBed, nearestEnterable, nearestFiller, nearestRepairable, tipToast, type DashValues } from '../vehicles/dash';
+import { parseBedAck, parseExitAck, parseRefuelAck, parseRepairAck, parseTipAck, type EnterAck, type VehicleUpdate } from '../../vehicleTypes';
+import type { VehicleActionPayload, VehicleDrivePayload } from '../net/SweepersNet';
+import { ledKgDg } from '../economy/format';
+import type { EngineKind, SfxId } from '../audio/SweepersAudio';
 
 export interface SweepersHud {
   readonly district: number | null;
@@ -105,6 +116,8 @@ export interface SweepersDebugStats {
   readonly lod: { readonly near: number; readonly mid: number; readonly far: number; readonly culled: number } | null;
   readonly debris: number;
   readonly conveyors: number;
+  /** Vehicles in the room (Phase F). */
+  readonly vehicles: number;
   /** Grid state 0 ok / 1 brownout / 2 blackout and demand kW (Phase E), null without the economy. */
   readonly grid: { readonly st: number; readonly kW: number } | null;
   readonly rttMs: number | null;
@@ -139,6 +152,13 @@ export interface SweepersBuildHud {
   readonly reason: string | null;
 }
 
+/** Phase F (F.7): the dash while seated, the on-foot prompt and the room's vehicle types (shop). */
+export interface SweepersVehicleHud {
+  readonly dash: DashValues | null;
+  readonly prompt: string | null;
+  readonly owned: readonly number[];
+}
+
 /** What E opened (D.7): the crane panel, the office (MÉH műhely + Logisztika) or the büfé. */
 export type SweepersPanel = 'crane' | 'office' | 'kiosk';
 
@@ -148,6 +168,8 @@ export const PHASE_C_DRAW_CALLS = DEBRIS_DRAW_CALLS + RIG_DRAW_CALLS + REMOTE_PR
 export const PHASE_D_DRAW_CALLS = LOGISTICS_DRAW_CALLS;
 /** Main-pass draws of the Phase E economy renderer (LED, ticker, car, smoke, grease markers). */
 export const PHASE_E_DRAW_CALLS = ECONOMY_DRAW_CALLS;
+/** Main-pass draws of the Phase F vehicles (bodies 6, beds, wheels, glows); the garage rides the logistics families. */
+export const PHASE_F_DRAW_CALLS = VEHICLE_DRAW_CALLS;
 
 /** Radar snapshot (spec 30), ~10 Hz. */
 export interface SweepersRadar {
@@ -188,6 +210,11 @@ export interface SweepersGameCallbacks {
   onBuild(hud: SweepersBuildHud | null): void;
   /** Phase E: the weigher's receipt strip (88), one string per printed line. */
   onReceipt(lines: readonly string[]): void;
+  /** Phase F sends (false: nothing was sent) and the vehicle HUD. */
+  sendDrive(drive: VehicleDrivePayload): void;
+  vehicleEnter(id: number, seat: number, onAck: (ack: EnterAck) => void): boolean;
+  vehicleAction<T>(action: VehicleActionPayload, parse: (value: unknown) => T, onAck: (ack: T) => void): boolean;
+  onVehicle(hud: SweepersVehicleHud): void;
 }
 
 const KEEPALIVE_MS = 1000;
@@ -225,6 +252,16 @@ const formatKg = (kg: number): string => KG_FORMAT.format(kg);
 const JAM_TOAST = 'Elakadt a szalag! Üsd meg a vészgombot seprűvel (E).';
 /** The smoke toast only for machines this close (as the jam buzzer). */
 const SMOKE_RANGE_M = 25;
+/** Cockpit (98): the camera lerps into the seat eye this long; a seated eye is this far above the seat. */
+const SEAT_LERP_MS = 400;
+const SEATED_EYE_M = 0.75;
+const VEHICLE_HUD_INTERVAL_MS = 100;
+const SMOKE_EVERY_MS = 150;
+const BRUSH_EVERY_MS = 1100;
+/** The garage toast once no litre arrived for this long. */
+const GARAGE_TOAST_MS = 1500;
+const engineOf = (type: number): EngineKind | null => (type === 2 ? 'simson' : type === 3 ? 'lada' : type >= 4 ? 'ifa' : null);
+const START_SFX: readonly (SfxId | null)[] = [null, null, 'sfx_simson_2t', 'sfx_lada_engine', 'sfx_ifa_diesel', 'sfx_ifa_diesel'];
 
 export const EMPTY_HUD: SweepersHud = {
   district: null,
@@ -318,6 +355,29 @@ export class SweepersGame {
   #greaseNear = false;
   /** Machines seen smoking (the toast fires once per start). */
   #smoking = new Set<number>();
+  readonly #vehicles = new VehicleStore();
+  readonly #vehRender = new VehicleRenderer();
+  /** Own seat (vehicle id, seat); the driver (seat 0) predicts `#drive`. */
+  #seat: { readonly id: number; readonly seat: number } | null = null;
+  #drive: VehicleBody | null = null;
+  /** Pose of the last corr snap (review M3). */
+  #lastSnap: { readonly x: number; readonly z: number; readonly rotY: number } | null = null;
+  #driveSeq = 0;
+  readonly #driveLimiter = new SendRateLimiter(50);
+  #lastDrive = { x: NaN, z: NaN, rotY: NaN, at: -Infinity };
+  /** Where the camera starts its 400 ms lerp into the seat. */
+  #camFrom: { readonly x: number; readonly y: number; readonly z: number; readonly at: number } | null = null;
+  readonly #seatFeet = { x: 0, y: 0, z: 0 };
+  readonly #tipStart = new Map<number, number>();
+  /** Remote vehicles' rolled metres (wheel spin), from their interpolated poses. */
+  readonly #odo = new Map<number, { x: number; z: number; odo: number }>();
+  #engineSince = 0;
+  #lastSmoke = -Infinity;
+  #lastBrush = -Infinity;
+  #garageL = 0;
+  #garageAt = 0;
+  #vehicleHudKey = '';
+  #lastVehicleHud = 0;
   readonly #euler = new THREE.Euler(0, 0, 0, 'YXZ');
   readonly #ray = new THREE.Raycaster();
   readonly #rayNdc = new THREE.Vector2();
@@ -348,7 +408,7 @@ export class SweepersGame {
       this.#rain = new WeatherFx();
       this.#debris = new DebrisWorld((x, z) => this.#world.groundAt(x, z));
       controls.camera.add(this.#rig.root);
-      this.#scene.add(controls.camera, this.#rain.root, this.#debris.root, this.#logi.root, this.#econ.root);
+      this.#scene.add(controls.camera, this.#rain.root, this.#debris.root, this.#logi.root, this.#econ.root, this.#vehRender.root);
       resetWorldUniforms();
 
       this.input.attach(window, canvas);
@@ -423,6 +483,12 @@ export class SweepersGame {
       this.#selfColor = self.avatarColor;
     }
     this.#remotes.reset(state.players.filter((p) => p.id !== state.selfId), state.serverTime);
+    this.#vehicles.applyInit(state.vehicles, state.serverTime);
+    this.#tipStart.clear();
+    this.#odo.clear();
+    this.#seat = null;
+    this.#drive = null;
+    this.#syncSeat(now); // a seat kept through the reconnect grace (spec 13) boards again
     this.#prediction.reset(this.#body);
     this.#world.collision.setPathOrigin(this.#body.x, this.#body.z);
     this.#lastSent.at = -Infinity;
@@ -450,7 +516,7 @@ export class SweepersGame {
       else if (p.carry !== 0) this.#carriers.set(p.id, p.carry);
       else this.#carriers.delete(p.id);
       if (p.id === self) {
-        if (!p.corr) continue; // own pose is predicted locally; only corrections apply
+        if (!p.corr || this.#seat) continue; // own pose is predicted locally (the seat while seated); only corrections apply
         const fixed = this.#prediction.reconcile(p, ack, this.#body);
         Object.assign(this.#body, fixed);
         const origin = this.#prediction.lastSent;
@@ -531,7 +597,7 @@ export class SweepersGame {
   /** `miskolc:scale_weighed` (E.5): LED, ding, and the receipt (weigher) or a toast (everyone else). */
   applyScaleWeighed(w: ScaleWeighed): void {
     this.audio.sfx('sfx_scale_ding', this.#scales[w.scale]);
-    this.#econ.showLed(w.kgDg, performance.now() + LED_SHOW_MS);
+    this.#econ.showLed(ledKgDg(w), performance.now() + LED_SHOW_MS);
     if (w.by === this.#selfId) {
       this.#scaleWatch.weighed();
       this.#cb.onReceipt(receiptLines(w, this.#economy?.lme ?? null));
@@ -547,6 +613,47 @@ export class SweepersGame {
     this.#econ.startCar(performance.now());
     this.audio.sfx('sfx_car_arrive', this.#world.layout?.landmarks.office);
     this.#updateHud(true);
+  }
+
+  /** `miskolc:vehicle_update` (F.5): rows, the driver's correction, horn / curb / puncture / stall / tip. */
+  applyVehicles(u: VehicleUpdate): void {
+    const now = performance.now();
+    const ownId = this.#seat?.id ?? null;
+    const before = ownId === null ? undefined : this.#vehicles.rows.get(ownId);
+    const events = this.#vehicles.applyUpdate(u);
+    const own = ownId === null ? undefined : this.#vehicles.rows.get(ownId);
+    if (own && this.#drive && this.#seat?.seat === 0) {
+      const last = this.#lastSnap;
+      // rows carry no seq: a corr row at the pose already snapped to answers a drive sent before that snap
+      const stale = last !== null && Math.abs(own.x - last.x) <= 0.01 && Math.abs(own.z - last.z) <= 0.01 && Math.abs(own.rotY - last.rotY) < 1e-4;
+      if (own.corr && !stale) {
+        // the server refused the move: snap without replay (F.10)
+        Object.assign(this.#drive, { x: own.x, z: own.z, rotY: own.rotY, course: own.rotY, v: 0 });
+        this.#world.collision.setPathOrigin(own.x, own.z);
+        this.#lastSnap = { x: own.x, z: own.z, rotY: own.rotY };
+      } else if (!own.corr) this.#lastSnap = null; // an accepted move: the next refusal snaps again
+    }
+    if (own && before && own.inGarage && own.fuelL > before.fuelL) {
+      this.#garageL += own.fuelL - before.fuelL;
+      this.#garageAt = now;
+    }
+    for (const r of events.tipped) {
+      this.#tipStart.set(r.id, now);
+      this.audio.sfx('sfx_hydraulic_tip', r);
+    }
+    for (const r of events.stalled) {
+      this.audio.sfx('sfx_engine_stall', r);
+      if (r.id === ownId) this.#cb.onToast(STALL_TOAST);
+    }
+    for (const h of events.hit) {
+      this.audio.sfx(h.kind === 0 ? 'sfx_curb_thud' : 'sfx_tire_pop', h.row);
+      if (h.id === ownId) this.#cb.onToast(h.kind === 0 ? CURB_TOAST : PUNCTURE_TOAST);
+    }
+    for (const r of events.horn) {
+      this.audio.sfx('sfx_ifa_horn', r);
+      if (r.id !== ownId && Math.hypot(r.x - this.#body.x, r.z - this.#body.z) <= HORN_RANGE_M) this.#cb.onToast(hornToast(r.type));
+    }
+    this.#syncSeat(now);
   }
 
   /** Telemetry subscription for the Logisztika tab (D.7: on while it is open). */
@@ -688,6 +795,7 @@ export class SweepersGame {
     this.#debris.dispose();
     this.#logi.dispose();
     this.#econ.dispose();
+    this.#vehRender.dispose();
     this.#rig.dispose();
     this.#world.dispose();
     this.#env.dispose();
@@ -711,13 +819,16 @@ export class SweepersGame {
     const wasGrounded = this.#body.grounded;
     const prevX = this.#body.x;
     const prevZ = this.#body.z;
-    this.#mode = stepBody(this.#body, intent, dt, this.#world.collision);
-    if (!wasGrounded && this.#body.grounded) this.audio.land();
-    this.#footsteps(Math.hypot(this.#body.x - prevX, this.#body.z - prevZ));
+    if (this.#seat) this.#ride(dt, serverNowStart);
+    else {
+      this.#mode = stepBody(this.#body, intent, dt, this.#world.collision);
+      if (!wasGrounded && this.#body.grounded) this.audio.land();
+      this.#footsteps(Math.hypot(this.#body.x - prevX, this.#body.z - prevZ));
+    }
 
     const beer = (this.#tools.personal.fx.beer ?? 0) > serverNowStart;
     const roll = beer ? BEER_ROLL_RAD * Math.sin(this.#elapsed * Math.PI * 2 * BEER_HZ) : 0;
-    this.#controls.update(this.#body, this.#mode === 'SPRINT', dt, roll);
+    this.#controls.update(this.#seat ? this.#eyeFeet(now) : this.#body, this.#mode === 'SPRINT', dt, roll);
     if (this.#build) this.#buildCamera(yaw);
     const serverNow = this.#clock.now(now);
     this.#environment(serverNow, dt, now);
@@ -726,6 +837,7 @@ export class SweepersGame {
       this.#phaseC(now, serverNow, dt, yaw, prevX, prevZ);
       this.#phaseD(now, serverNow, yaw);
       this.#phaseE(now, dt);
+      this.#phaseF(now, serverNow);
       this.#maybeSend(now, yaw);
       this.#updateHud(false);
       this.#radarTick(now, yaw);
@@ -779,7 +891,7 @@ export class SweepersGame {
     }
     this.#inAcid = inAcid;
     if (!this.#debrisOn) return;
-    if (this.#controls.isLocked && this.#build === null && this.#carry === 0) this.#useTools(now, yaw, stench);
+    if (this.#controls.isLocked && this.#build === null && this.#carry === 0 && this.#seat?.seat !== 0) this.#useTools(now, yaw, stench);
     if (dt > 0) this.#kicks(now, (this.#body.x - prevX) / dt, (this.#body.z - prevZ) / dt);
     if (this.#tools.tool === 6) {
       const interval = detectorInterval(nearestBuriedCopper(this.#debris.store, this.#body.x, this.#body.z, 6));
@@ -907,14 +1019,16 @@ export class SweepersGame {
   /** Hotbar keys (60), G (dump) and the Phase D keys (Q, E, B, R, PgUp/PgDn, wheel, Esc, LMB/RMB in build mode). */
   #toolAction(action: InputAction): void {
     if (!this.#ready) return;
+    if (this.#seat && this.#vehicleKey(action, this.#seat.id)) return;
     if (action === 'interact') {
       this.#interact();
       return;
     }
+    if (action === 'rotateBuild' && !this.#build && this.#repair()) return;
     if (this.#logisticsAction(action) || !this.#debrisOn) return;
     if (action === 'dumpPack') {
       this.#cb.sendAction({ kind: 'dump' }, (ack) => {
-        if (ack.ok) this.#cb.onToast(ack.hopperKg === undefined ? 'Kiborítottad a hátizsákot.' : `Garatba ürítve: ${formatKg(ack.hopperKg)} kg`);
+        if (ack.ok) this.#cb.onToast(ack.hopperKg !== undefined ? `Garatba ürítve: ${formatKg(ack.hopperKg)} kg` : ack.bedKg !== undefined ? `Platóra ürítve – a platón ${formatKg(ack.bedKg)} kg` : 'Kiborítottad a hátizsákot.');
         else if (isToastable(ack, false)) this.#cb.onToast(ack.error);
       });
       return;
@@ -971,6 +1085,226 @@ export class SweepersGame {
     this.#selectRetry = null;
   }
 
+  /** Follows the server's seat rows: boards a seat it gives us (reconnect), leaves one it took away. */
+  #syncSeat(now: number): void {
+    const self = this.#selfId;
+    const found = self === null ? null : this.#vehicles.seatOf(self);
+    const s = this.#seat;
+    if (found && (!s || s.id !== found.row.id || s.seat !== found.seat)) this.#board(found.row.id, found.seat, now);
+    else if (!found && s) this.#unseat();
+  }
+
+  /** Takes a seat: the driver predicts from the row; the camera lerps into the seat (98). */
+  #board(id: number, seat: number, now: number): void {
+    const row = this.#vehicles.rows.get(id);
+    if (!row) return;
+    this.#seat = { id, seat };
+    this.#tie.cancel();
+    this.#drive = seat === 0 ? newVehicleBody(row.x, row.z, row.rotY) : null;
+    this.#lastSnap = null;
+    this.#lastDrive.at = -Infinity;
+    const cam = this.#controls.camera.position;
+    this.#camFrom = { x: cam.x, y: cam.y - EYE_HEIGHT, z: cam.z, at: now };
+    if (seat === 0) {
+      this.#controls.setYaw(row.rotY);
+      this.#world.collision.setPathOrigin(row.x, row.z);
+      const start = START_SFX[row.type];
+      if (start && !row.stalled) this.audio.sfx(start);
+    }
+    this.#engineSince = now;
+    this.#mode = 'IDLE';
+  }
+
+  #unseat(): void {
+    this.#seat = null;
+    this.#drive = null;
+    this.#camFrom = null;
+    this.audio.setEngine(null, 0);
+    this.#body.vy = 0;
+    this.#prediction.reset(this.#body);
+    this.#world.collision.setPathOrigin(this.#body.x, this.#body.z);
+    this.#lastSent.at = -Infinity;
+  }
+
+  /** The motion world of a vehicle: its body circle slides, its end circles must stay out of walls (F.2). */
+  #vehicleWorld(t: VehicleType): VehicleWorld {
+    const c = this.#world.collision;
+    return {
+      resolve: (fx, fz, tx, tz, r) => c.resolve(fx, fz, tx, tz, r),
+      blocked: (x, z, rotY) => endCircles(t, { x, z, rotY }).some((p) => c.blockingAt(p.x, p.z, t.r).length > 0)
+    };
+  }
+
+  /** Seated frame: the driver steps the model, everyone's feet follow the seat (98). */
+  #ride(dt: number, serverNow: number): void {
+    const s = this.#seat;
+    const row = s ? this.#vehicles.rows.get(s.id) : undefined;
+    const t = row ? VEHICLE_TYPES[row.type] : undefined;
+    if (!s || !row || !t) {
+      this.#unseat();
+      return;
+    }
+    this.#mode = 'IDLE';
+    let pose: { readonly x: number; readonly z: number; readonly rotY: number } | null = null;
+    const drive = this.#drive;
+    if (s.seat === 0 && drive) {
+      const on = this.#controls.isLocked && this.#build === null;
+      const key = (a: InputAction): number => (on && this.input.isDown(a) ? 1 : 0);
+      const input = { throttle: key('moveForward') - key('moveBack'), steer: key('moveLeft') - key('moveRight') };
+      const yaw0 = drive.rotY;
+      stepVehicle(drive, t, row, input, dt, this.#vehicleWorld(t), !t.manual && row.fuelL <= 0);
+      this.#controls.setYaw(this.#controls.yaw + (drive.rotY - yaw0)); // the view turns with the vehicle
+      pose = drive;
+    } else pose = this.#vehicles.pose(row.id, serverNow);
+    if (!pose) return;
+    const seat = t.seats[s.seat] ?? t.seats[0];
+    const o = vehicleToWorld(seat?.x ?? 0, seat?.z ?? 0, pose.rotY);
+    const ground = this.#world.collision.terrain(pose.x, pose.z);
+    Object.assign(this.#body, { x: pose.x + o.x, y: ground + (seat?.y ?? 0), z: pose.z + o.z, vy: 0, grounded: true });
+  }
+
+  /** Feet for the camera: the seat eye of a motor vehicle (sitting), standing behind a cart; lerped 400 ms after boarding. */
+  #eyeFeet(now: number): { x: number; y: number; z: number } {
+    const row = this.#seat ? this.#vehicles.rows.get(this.#seat.id) : undefined;
+    const sitting = row !== undefined && !(VEHICLE_TYPES[row.type]?.manual ?? true);
+    const f = this.#seatFeet;
+    f.x = this.#body.x;
+    f.y = this.#body.y + (sitting ? SEATED_EYE_M - EYE_HEIGHT : 0);
+    f.z = this.#body.z;
+    const from = this.#camFrom;
+    if (from) {
+      const k = Math.min(1, (now - from.at) / SEAT_LERP_MS);
+      f.x = from.x + (f.x - from.x) * k;
+      f.y = from.y + (f.y - from.y) * k;
+      f.z = from.z + (f.z - from.z) * k;
+      if (k >= 1) this.#camFrom = null;
+    }
+    return f;
+  }
+
+  /** `vehicle_drive` at ≤ 20 Hz (F.7); a keepalive while standing still. */
+  #sendDrive(now: number, d: VehicleBody): void {
+    if (!this.#driveLimiter.ready(now)) return;
+    const last = this.#lastDrive;
+    const changed = Math.abs(d.x - last.x) > 0.005 || Math.abs(d.z - last.z) > 0.005 || Math.abs(d.rotY - last.rotY) > 0.002;
+    if (!changed && now - last.at < KEEPALIVE_MS) return;
+    this.#driveSeq += 1;
+    this.#lastDrive = { x: d.x, z: d.z, rotY: d.rotY, at: now };
+    this.#world.collision.setPathOrigin(d.x, d.z);
+    this.#cb.sendDrive({ seq: this.#driveSeq, x: d.x, y: this.#world.collision.terrain(d.x, d.z), z: d.z, rotY: d.rotY });
+  }
+
+  /** Seated keys (F.7): E exit, Space tip, L lights, K beacon, H horn; R / Q / B do nothing; true when the key was taken. */
+  #vehicleKey(action: InputAction, id: number): boolean {
+    const row = this.#vehicles.rows.get(id);
+    const refuse = (ack: { readonly ok: true } | Refusal): void => {
+      if (!ack.ok && isToastable(ack, false)) this.#cb.onToast(ack.error);
+    };
+    switch (action) {
+      case 'interact':
+        this.#cb.vehicleAction({ kind: 'exit' }, parseExitAck, (ack) => {
+          if (!ack.ok) return refuse(ack);
+          Object.assign(this.#body, { x: ack.x, y: this.#world.collision.support(ack.x, ack.z), z: ack.z });
+          this.#unseat();
+        });
+        return true;
+      case 'jump':
+        this.#cb.vehicleAction({ kind: 'tip' }, parseTipAck, (ack) => (ack.ok ? this.#cb.onToast(tipToast(ack.into, ack.kg)) : refuse(ack)));
+        return true;
+      case 'headlights': {
+        const mode = row?.lights === 0 ? 1 : row?.lights === 1 ? 2 : 0; // off → low → high → off
+        this.#cb.vehicleAction({ kind: 'lights', mode }, parseOkAck, refuse);
+        return true;
+      }
+      case 'beacon':
+        this.#cb.vehicleAction({ kind: 'beacon', on: !(row?.beacon ?? false) }, parseOkAck, refuse);
+        return true;
+      case 'horn':
+        this.#cb.vehicleAction({ kind: 'horn' }, parseOkAck, refuse);
+        return true;
+      case 'rotateBuild': // review L1/L2: no repair, tie or build mode from a seat
+      case 'tieBag':
+      case 'toggleBuild':
+        return true;
+      default:
+        return false;
+    }
+  }
+
+  /** R on foot (103): repairs the nearest damaged, stopped vehicle in reach; false when none. */
+  #repair(): boolean {
+    const id = nearestRepairable(this.#vehicles.rows.values(), this.#body.x, this.#body.z);
+    if (id === null) return false;
+    const name = VEHICLE_TYPES[this.#vehicles.rows.get(id)?.type ?? -1]?.name ?? '';
+    this.#cb.vehicleAction({ kind: 'repair', id }, parseRepairAck, (ack) => {
+      if (!ack.ok) {
+        if (isToastable(ack, false)) this.#cb.onToast(ack.error);
+        return;
+      }
+      this.#cb.onToast(`Megjavítva: ${name}`);
+      if (this.#economy) this.#economy.funds = ack.teamFunds;
+      this.#hud = { ...this.#hud, teamFunds: ack.teamFunds };
+      this.#updateHud(true);
+    });
+    return true;
+  }
+
+  /** Vehicle visuals, engine, smoke, brushes and the dash, once per frame (Phase F). */
+  #phaseF(now: number, serverNow: number): void {
+    const own = this.#seat;
+    const poses: VehiclePose[] = [];
+    for (const row of this.#vehicles.rows.values()) {
+      const drive = own?.id === row.id ? this.#drive : null;
+      const p = drive ?? this.#vehicles.pose(row.id, serverNow);
+      if (!p) continue;
+      let odo = drive?.odo ?? 0;
+      if (!drive) {
+        const o = this.#odo.get(row.id) ?? { x: p.x, z: p.z, odo: 0 };
+        o.odo += Math.hypot(p.x - o.x, p.z - o.z);
+        o.x = p.x;
+        o.z = p.z;
+        this.#odo.set(row.id, o);
+        odo = o.odo;
+      }
+      const started = this.#tipStart.get(row.id);
+      const tip = started === undefined ? null : (now - started) / VEHICLE.tipMs;
+      if (tip !== null && tip > 1 && !row.tipping) this.#tipStart.delete(row.id);
+      poses.push({ row, x: p.x, y: this.#world.collision.terrain(p.x, p.z), z: p.z, rotY: p.rotY, pitch: drive?.pitch ?? 0, roll: drive?.roll ?? 0, odo, tip });
+      const speed = drive ? Math.abs(drive.v) : row.v;
+      // Simson blue two-stroke smoke (93)
+      if (row.type === 2 && speed > 0.5 && now - this.#lastSmoke >= SMOKE_EVERY_MS) {
+        this.#lastSmoke = now;
+        const t = VEHICLE_TYPES[2];
+        const rear = vehicleToWorld(0.3, (t?.l ?? 2.6) / 2, p.rotY);
+        this.#debris.particles.puff({ x: p.x + rear.x, y: this.#world.groundAt(p.x, p.z) + 0.4, z: p.z + rear.z }, 3, 0x6f8fd8);
+      }
+    }
+    this.#vehRender.update(poses, own?.id ?? null, this.#body.x, this.#body.z, this.#elapsed);
+    const row = own ? this.#vehicles.rows.get(own.id) : undefined;
+    const t = row ? VEHICLE_TYPES[row.type] : undefined;
+    const drive = this.#drive;
+    const speed = drive ? Math.abs(drive.v) : row?.v ?? 0;
+    const engine = row && t && own?.seat === 0 && !row.stalled ? engineOf(row.type) : null;
+    this.audio.setEngine(engine, t ? speed / vehicleTop(t, row?.punct ?? false) : 0);
+    if (row && own?.seat === 0 && t?.brushW !== null && speed > 1 && now - this.#lastBrush >= BRUSH_EVERY_MS) {
+      this.#lastBrush = now;
+      this.audio.sfx('sfx_brush_whirr');
+    }
+    if (this.#garageL > 0 && now - this.#garageAt >= GARAGE_TOAST_MS) {
+      this.#cb.onToast(fuelToast(this.#garageL, Math.round(this.#garageL * GARAGE.ftPerL)));
+      this.#garageL = 0;
+    }
+    if (now - this.#lastVehicleHud < VEHICLE_HUD_INTERVAL_MS) return;
+    this.#lastVehicleHud = now;
+    const dash = row && own ? dashValues(row, speed, now - this.#engineSince, own.seat === 0) : null;
+    const prompt = !own && nearestRepairable(this.#vehicles.rows.values(), this.#body.x, this.#body.z) !== null ? REPAIR_PROMPT : null;
+    const hud: SweepersVehicleHud = { dash, prompt, owned: this.#vehicles.ownedTypes };
+    const key = JSON.stringify(hud);
+    if (key === this.#vehicleHudKey) return;
+    this.#vehicleHudKey = key;
+    this.#cb.onVehicle(hud);
+  }
+
   #applyLogisticsInit(init: LogisticsInit | null, serverTime: number): void {
     this.#logisticsOn = init !== null;
     this.#logistics.applyInit(init, this.#world.layout?.landmarks.hopper ?? null, serverTime);
@@ -997,7 +1331,8 @@ export class SweepersGame {
     const p = this.#tools.personal;
     const scale = scaleAt(this.#scales, x, z);
     const zone = scale === null ? undefined : this.#scales[scale];
-    const goods = p.pack.kg + p.buf.kg > 0 || p.pack.jackpots.length > 0 || this.#carry !== 0
+    const seated = this.#seat ? this.#vehicles.rows.get(this.#seat.id) : undefined;
+    const goods = p.pack.kg + p.buf.kg > 0 || p.pack.jackpots.length > 0 || this.#carry !== 0 || (seated !== undefined && (seated.bedKg > 0 || seated.bags > 0))
       || (zone !== undefined && [...this.#logistics.bags.values()].some((b) => b.st === 0 && inZone(zone, b.x, b.z)));
     const ring = this.#scaleWatch.update(scale, x, z, now, goods);
     this.#scaleRing = ring === null ? null : Math.round(ring * 20) / 20;
@@ -1103,12 +1438,18 @@ export class SweepersGame {
     };
     const econ = this.#economy;
     const generator = this.#world.layout?.landmarks.generator;
+    const rows = [...this.#vehicles.rows.values()];
+    const jerry = this.#tools.personal.jerry;
     const choice = chooseInteraction({
       jam: on ? nearestJam(store, x, z) : null,
       broom: isBroom(this.#tools.tool),
       grease: econ ? nearestGreasePoint(store.structures.values(), x, z) : null,
       generatorD: econ && generator ? Math.hypot(generator.x - x, generator.z - z) : Infinity,
       bag: on && this.#carry === 0 ? nearestPickableBag(store, store.cargoS(this.#clock.now(performance.now())), pathAt, x, z, this.#world.groundAt(x, z)) : null,
+      load: this.#carry !== 0 ? nearestBed(rows, x, z) : null,
+      refuel: jerry !== 0 ? nearestFiller(rows, x, z) : null,
+      enter: this.#carry === 0 && jerry === 0 ? nearestEnterable(rows, x, z) : null,
+      can: jerry !== 0,
       craneD: on ? Math.hypot(CRANE.console.x - x, CRANE.console.z - z) : Infinity,
       officeD: this.#debrisOn && office ? Math.hypot(office.x - x, office.z - z) : Infinity,
       kiosk: this.shopAccess.kiosk
@@ -1129,6 +1470,24 @@ export class SweepersGame {
       this.#cb.logisticsAction({ kind: 'generator', on }, parseGeneratorAck, (ack) => {
         if (!ack.ok) toastRefusal(ack);
         else this.#cb.onToast(ack.on ? 'A generátor beindult.' : 'A generátor leállt.');
+      });
+    } else if (choice.kind === 'load') {
+      this.#cb.vehicleAction({ kind: 'load', id: choice.id }, parseBedAck, (ack) => {
+        if (!ack.ok) toastRefusal(ack);
+        else this.#cb.onToast(`Zsák a platón – a platón ${formatKg(ack.bedKg)} kg`);
+      });
+    } else if (choice.kind === 'refuel') {
+      const before = this.#vehicles.rows.get(choice.id)?.fuelL ?? 0;
+      this.#cb.vehicleAction({ kind: 'refuel', id: choice.id }, parseRefuelAck, (ack) => {
+        if (!ack.ok) return toastRefusal(ack);
+        this.audio.sfx('sfx_fuel_pour');
+        this.#cb.onToast(fuelToast(Math.max(0, ack.fuelL - before), JERRYCAN.cost));
+      });
+    } else if (choice.kind === 'enter') {
+      const { id } = choice;
+      this.#cb.vehicleEnter(id, choice.seat, (ack) => {
+        if (!ack.ok) toastRefusal(ack);
+        else this.#board(id, ack.seat, performance.now());
       });
     } else this.#cb.onPanel(choice.kind);
   }
@@ -1311,6 +1670,7 @@ export class SweepersGame {
 
   /** The animation state sent to the server: the tool's while it is in use, else the locomotion mode. */
   #sendState(now: number): PlayerAnimState {
+    if (this.#seat) return 'IDLE'; // a passenger (the server sets the driver's state)
     if (this.#carry !== 0) return 'HOLDING_BAG';
     if (now - this.#lastUseAt >= USE_STATE_MS) return this.#mode;
     const tool = this.#tools.tool;
@@ -1351,6 +1711,10 @@ export class SweepersGame {
     if (!this.#cb.canSend()) {
       // offline the server keeps its old pose and the next init_state re-anchors: no stale path check
       this.#world.collision.setPathOrigin(NaN, NaN);
+      return;
+    }
+    if (this.#seat?.seat === 0 && this.#drive) {
+      this.#sendDrive(now, this.#drive);
       return;
     }
     if (!this.#limiter.ready(now)) return;
@@ -1412,7 +1776,7 @@ export class SweepersGame {
     const info = this.#renderer.renderer.info;
     const plan = this.#world.plan;
     const players = this.#remotes.count;
-    const budget = plan ? drawBudget(plan, players * FIGURE_DRAW_CALLS + PHASE_C_DRAW_CALLS + PHASE_D_DRAW_CALLS + PHASE_E_DRAW_CALLS, players * FIGURE_SHADOW_CASTERS) : null;
+    const budget = plan ? drawBudget(plan, players * FIGURE_DRAW_CALLS + PHASE_C_DRAW_CALLS + PHASE_D_DRAW_CALLS + PHASE_E_DRAW_CALLS + PHASE_F_DRAW_CALLS, players * FIGURE_SHADOW_CASTERS) : null;
     const lod = this.#world.lodStats;
     this.#cb.onDebug({
       fps: this.#fps,
@@ -1425,6 +1789,7 @@ export class SweepersGame {
       lod: lod ? { ...lod } : null,
       debris: this.#debris.renderer.stats.rendered,
       conveyors: this.#logi.stats.conveyors,
+      vehicles: this.#vehicles.rows.size,
       grid: this.#economy ? { st: this.#economy.grid.st, kW: this.#economy.grid.demandW / 1000 } : null,
       rttMs: this.#rttMs,
       x: this.#body.x,

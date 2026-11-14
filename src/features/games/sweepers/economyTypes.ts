@@ -3,6 +3,7 @@
 import { isRecord, isString } from '../../../shared/lib/guards';
 import { MATERIALS, PROC_NAMES } from './lib/economy/tables';
 import type { Refusal } from './debrisTypes';
+import { VEHICLE_TYPES } from './lib/vehicles/tables';
 
 const isFiniteNumber = (value: unknown): value is number => typeof value === 'number' && Number.isFinite(value);
 const isInt = (value: unknown): value is number => Number.isInteger(value);
@@ -77,6 +78,8 @@ export interface ScaleWeighed {
   readonly each: number;
   readonly to: readonly number[];
   readonly epoch: number;
+  /** A vehicle weighing (F.5): the vehicle and its tare. */
+  readonly veh?: { readonly id: number; readonly type: number; readonly tareKg: number };
 }
 
 /** `miskolc:inspection` (E.5). */
@@ -164,10 +167,13 @@ export function parseScaleWeighed(value: unknown): ScaleWeighed | null {
   const { scale, by, kgDg, lines, dirtyFt, total, team, each, to, epoch } = value;
   if (!(scale === 0 || scale === 1) || !isInt(by) || !intIn(kgDg, 0, 1e9) || !isInt(dirtyFt) || dirtyFt > 0) return null;
   if (!intIn(total, 0, 1e12) || !isInt(team) || !intIn(each, 0, 1e12) || !isInt(epoch)) return null;
+  const veh = isRecord(value.veh) && intIn(value.veh.id, 1, 255) && intIn(value.veh.type, 0, VEHICLE_TYPES.length - 1) && isFiniteNumber(value.veh.tareKg) && value.veh.tareKg >= 0
+    ? { id: value.veh.id, type: value.veh.type, tareKg: value.veh.tareKg } : null;
   return {
     scale, by, kgDg, dirtyFt, total, team, each, epoch,
     lines: listOf(lines, decodeReceiptLine),
-    to: Array.isArray(to) ? to.slice(0, MAX_ROWS).filter(isInt) : []
+    to: Array.isArray(to) ? to.slice(0, MAX_ROWS).filter(isInt) : [],
+    ...(veh ? { veh } : {})
   };
 }
 

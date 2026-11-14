@@ -2,7 +2,7 @@
 // ugyanezt ellenőrzi és mindig ő dönt. Plusz: a szellem rácsra illesztése egy szabad kimeneti portra. Tiszta kód.
 import { GRID_RADIUS, hexDistance, worldToHex } from '../world/hexGrid';
 import { BUILD_LIMIT_WHAT, type SweepersErrorKey } from '../../errors';
-import { CRANE, CRANE_LEGS, DECK_M, LEVEL_M, ROOM_CAPS, STRUCT_TYPES, T_FENCE, T_HOPPER, T_PACKAGER, T_STRIPPER, BAG_TIERS, footprintSize, isBeltLike, isFoundation, isMachine, toWorld } from './tables';
+import { CRANE, CRANE_LEGS, DECK_M, LEVEL_M, ROOM_CAPS, STRUCT_TYPES, T_FENCE, T_HOPPER, T_PACKAGER, T_STRIPPER, T_GARAGE, BAG_TIERS, footprintSize, isBeltLike, isFoundation, isMachine, toWorld } from './tables';
 import { outPorts, type LinkTarget, type WorldPort } from './network';
 import type { BagRow, StructRow } from '../../logisticsTypes';
 import type { Collider, WorldLayout } from '../../worldTypes';
@@ -148,6 +148,7 @@ function limit(req: PlaceRequest, rows: readonly StructRow[]): keyof typeof BUIL
   if (req.type === T_PACKAGER && count((t) => t === T_PACKAGER) > ROOM_CAPS.packagers) return 'packagers';
   if (req.type === T_FENCE && count((t) => t === T_FENCE) > ROOM_CAPS.fences) return 'fences';
   if (isMachine(req.type) && count(isMachine) > ROOM_CAPS.machines) return 'machines';
+  if (req.type === T_GARAGE && count((t) => t === T_GARAGE) > ROOM_CAPS.garages) return 'garages';
   return null;
 }
 

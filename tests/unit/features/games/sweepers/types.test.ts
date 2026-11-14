@@ -78,6 +78,7 @@ describe('sweepers init_state guard', () => {
       debris: null,
       logistics: null,
       economy: null,
+      vehicles: [],
       layout: null,
       unlockedDistricts: [0],
       lifetimeEarned: 0,

@@ -17,6 +17,9 @@ import { DEFAULT_PERSONAL, parseChunkUpdate } from '../../../../../src/features/
 import type { PlayerActionPayload, SweepHitPayload } from '../../../../../src/features/games/sweepers/lib/net/SweepersNet';
 import { chunkIdAt } from '../../../../../src/features/games/sweepers/lib/debris/tables';
 import { loadEntry, uniformCells } from './debrisHelpers';
+import type { VehicleActionPayload, VehicleDrivePayload } from '../../../../../src/features/games/sweepers/lib/net/SweepersNet';
+import type { SweepersVehicleHud } from '../../../../../src/features/games/sweepers/lib/engine/SweepersGame';
+import { parseVehicleList, parseVehicleUpdate, type EnterAck } from '../../../../../src/features/games/sweepers/vehicleTypes';
 
 interface Harness {
   readonly game: SweepersGame;
@@ -26,6 +29,10 @@ interface Harness {
   readonly sweeps: Array<{ hit: SweepHitPayload; onAck: (ack: SweepAck) => void }>;
   readonly actions: Array<{ action: PlayerActionPayload; onAck: (ack: ActionAck) => void }>;
   readonly toasts: string[];
+  readonly drives: VehicleDrivePayload[];
+  readonly enters: Array<{ id: number; seat: number; onAck: (ack: EnterAck) => void }>;
+  readonly vehicleActions: Array<{ action: VehicleActionPayload; onAck: (ack: unknown) => void }>;
+  readonly vehicleHuds: SweepersVehicleHud[];
   canSend: boolean;
 }
 
@@ -35,7 +42,7 @@ let harness: Harness | null = null;
 const start = (): Harness => {
   const mount = document.createElement('div');
   document.body.appendChild(mount);
-  const h: Omit<Harness, 'game'> = { sent: [], debug: [], huds: [], sweeps: [], actions: [], toasts: [], canSend: true };
+  const h: Omit<Harness, 'game'> = { sent: [], debug: [], huds: [], sweeps: [], actions: [], toasts: [], drives: [], enters: [], vehicleActions: [], vehicleHuds: [], canSend: true };
   const callbacks: SweepersGameCallbacks = {
     onReady: () => undefined,
     onHud: (hud) => h.huds.push(hud),
@@ -61,7 +68,17 @@ const start = (): Harness => {
     logisticsAction: () => false,
     onPanel: () => undefined,
     onBuild: () => undefined,
-    onReceipt: () => undefined
+    onReceipt: () => undefined,
+    sendDrive: (drive) => h.drives.push(drive),
+    vehicleEnter: (id, seat, onAck) => {
+      h.enters.push({ id, seat, onAck });
+      return true;
+    },
+    vehicleAction: (action, parse, onAck) => {
+      h.vehicleActions.push({ action, onAck: (raw) => onAck(parse(raw)) });
+      return true;
+    },
+    onVehicle: (hud) => h.vehicleHuds.push(hud)
   };
   const game = new SweepersGame(mount, callbacks);
   const out: Harness = Object.assign(h, { game });
@@ -369,5 +386,75 @@ describe('SweepersGame frame loop on a stub WebGL2 context', () => {
     const fast = walk(true);
     expect(plain).toBeGreaterThan(0.5);
     expect(fast / plain).toBeCloseTo(KOFOLA_SPRINT, 1);
+  });
+
+  it('Phase F: enter a Lada, drive with vehicle_drive, snap on corr, exit back to player_input', () => {
+    const h = start();
+    // the Lada at its spawn slot (4, −10) heading +x; the player 2 m beside it
+    const lada = [1, 3, 400, -1000, 49152, 0, 200, 0, 0, 0, 0, 0, 0];
+    const init = nightInit(4, -8);
+    const t0 = init.serverTime;
+    h.game.applyInit({ ...init, vehicles: parseVehicleList([lada]) });
+    lockPointer();
+    dom.frame(20);
+    key('KeyE');
+    const enter = h.enters.at(-1);
+    expect(enter).toMatchObject({ id: 1, seat: 0 });
+    enter?.onAck({ ok: true, seat: 0 });
+    const inputs = h.sent.length;
+    window.dispatchEvent(new KeyboardEvent('keydown', { code: 'KeyW' }));
+    for (let i = 0; i < 40; i++) dom.frame(25);
+    window.dispatchEvent(new KeyboardEvent('keyup', { code: 'KeyW' }));
+    const last = h.drives.at(-1);
+    if (!last) throw new Error('no drive sent');
+    expect(last.x).toBeGreaterThan(4.5); // forward = +x at this heading
+    expect(last.z).toBeCloseTo(-10, 1);
+    expect(h.drives.map((d) => d.seq)).toEqual(h.drives.map((_, i) => i + 1));
+    expect(h.sent.length).toBe(inputs); // the driver sends no player_input
+    expect(h.vehicleHuds.some((v) => v.dash !== null && v.dash.driver)).toBe(true);
+    // the server refused: the row carries corr (flag bit 6) at the old pose
+    const corr = parseVehicleUpdate({ t: t0, v: [[1, 3, 400, -1000, 49152, 0, 200, 64, 0, 0, init.selfId, 0, 0]] });
+    if (!corr) throw new Error('update');
+    h.game.applyVehicles(corr);
+    for (let i = 0; i < 3; i++) dom.frame(60);
+    const snapped = h.drives.at(-1);
+    expect(snapped?.x).toBeCloseTo(4, 1);
+    // review M3: drives in flight before the snap come back refused at the same pose: no second snap
+    window.dispatchEvent(new KeyboardEvent('keydown', { code: 'KeyW' }));
+    for (let i = 0; i < 10; i++) dom.frame(25);
+    const moving = h.drives.at(-1)?.x ?? 0;
+    expect(moving).toBeGreaterThan(4.05);
+    h.game.applyVehicles(corr);
+    for (let i = 0; i < 3; i++) dom.frame(25);
+    window.dispatchEvent(new KeyboardEvent('keyup', { code: 'KeyW' }));
+    expect(h.drives.at(-1)?.x ?? 0).toBeGreaterThanOrEqual(moving);
+    // an accepted row re-arms the snap: the next refusal snaps again
+    const accepted = parseVehicleUpdate({ t: t0 + 50, v: [[1, 3, Math.round(moving * 100), -1000, 49152, 300, 200, 0, 0, 0, init.selfId, 0, 0]] });
+    if (!accepted) throw new Error('update');
+    h.game.applyVehicles(accepted);
+    h.game.applyVehicles(corr);
+    for (let i = 0; i < 3; i++) dom.frame(60);
+    expect(h.drives.at(-1)?.x).toBeCloseTo(4, 1);
+    // review L1/L2/L5: R, Q, B do nothing from the seat; the own horn plays without a toast
+    const actionsBefore = h.vehicleActions.length;
+    const toastsBefore = h.toasts.length;
+    for (const code of ['KeyR', 'KeyQ', 'KeyB']) key(code);
+    expect(h.vehicleActions.length).toBe(actionsBefore);
+    expect(h.toasts.length).toBe(toastsBefore);
+    const horn = parseVehicleUpdate({ t: t0 + 60, v: [], horn: [1] });
+    if (!horn) throw new Error('update');
+    h.game.applyVehicles(horn);
+    expect(h.toasts.length).toBe(toastsBefore);
+    expect(h.game.audio.played.at(-1)).toBe('sfx_ifa_horn');
+    key('KeyE');
+    const exit = h.vehicleActions.at(-1);
+    expect(exit?.action).toEqual({ kind: 'exit' });
+    exit?.onAck({ ok: true, x: 4, z: -11.4 });
+    const freed = parseVehicleUpdate({ t: t0 + 100, v: [lada] }); // the seat is free again
+    if (!freed) throw new Error('update');
+    h.game.applyVehicles(freed);
+    for (let i = 0; i < 30; i++) dom.frame(40);
+    expect(h.sent.length).toBeGreaterThan(inputs); // on foot again
+    expect(h.sent.at(-1)?.z).toBeCloseTo(-11.4, 1);
   });
 });

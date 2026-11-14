@@ -53,7 +53,18 @@ export const SFX_IDS = [
   'sfx_baler_crunch',
   'sfx_stripper_whirr',
   'sfx_coin_drop',
-  'sfx_car_arrive'
+  'sfx_car_arrive',
+  // Phase F (F.7): the engine ids are the start burst; the running engine is `setEngine`
+  'sfx_simson_2t',
+  'sfx_lada_engine',
+  'sfx_ifa_diesel',
+  'sfx_ifa_horn',
+  'sfx_hydraulic_tip',
+  'sfx_curb_thud',
+  'sfx_tire_pop',
+  'sfx_fuel_pour',
+  'sfx_engine_stall',
+  'sfx_brush_whirr'
 ] as const;
 export type SfxId = (typeof SFX_IDS)[number];
 
@@ -127,8 +138,27 @@ const SFX: Readonly<Record<SfxId, readonly SfxLayer[]>> = {
   sfx_baler_crunch: [{ src: 'noise', filter: { type: 'lowpass', freq: 700 }, gain: 0.35, attack: 0.01, decay: 0.5 }, { src: 'noise', filter: { type: 'highpass', freq: 5000 }, gain: 0.12, attack: 0.1, decay: 0.9, delay: 0.4 }],
   sfx_stripper_whirr: [{ src: 'sawtooth', freq: 180, freqEnd: 260, gain: 0.08, attack: 0.08, decay: 1.2, tremolo: 40 }],
   sfx_coin_drop: [0, 0.09, 0.16].map((delay, i) => ({ src: 'triangle' as const, freq: 3200 + i * 400, gain: 0.12, attack: 0.001, decay: 0.12, delay })),
-  sfx_car_arrive: [{ src: 'sawtooth', freq: 45, freqEnd: 70, gain: 0.12, attack: 0.6, decay: 2.5, tremolo: 12 }]
+  sfx_car_arrive: [{ src: 'sawtooth', freq: 45, freqEnd: 70, gain: 0.12, attack: 0.6, decay: 2.5, tremolo: 12 }],
+  sfx_simson_2t: [{ src: 'square', freq: 90, freqEnd: 140, gain: 0.1, attack: 0.02, decay: 0.7, tremolo: 28 }],
+  sfx_lada_engine: [{ src: 'sawtooth', freq: 60, freqEnd: 95, gain: 0.12, attack: 0.05, decay: 0.9, tremolo: 14 }],
+  sfx_ifa_diesel: [{ src: 'sawtooth', freq: 38, freqEnd: 55, gain: 0.16, attack: 0.08, decay: 1.2, tremolo: 18 }, { src: 'noise', filter: { type: 'lowpass', freq: 300 }, gain: 0.08, attack: 0.08, decay: 1.2 }],
+  // dual-tone air horn
+  sfx_ifa_horn: [{ src: 'sawtooth', freq: 311, gain: 0.14, attack: 0.02, decay: 0.9 }, { src: 'sawtooth', freq: 392, gain: 0.12, attack: 0.02, decay: 0.9 }],
+  sfx_hydraulic_tip: [{ src: 'sawtooth', freq: 110, freqEnd: 160, gain: 0.08, attack: 0.2, decay: 2.6, tremolo: 9 }, { src: 'noise', filter: { type: 'bandpass', freq: 900, q: 2 }, gain: 0.05, attack: 0.2, decay: 2.6 }],
+  sfx_curb_thud: [{ src: 'sine', freq: 95, freqEnd: 40, gain: 0.4, attack: 0.002, decay: 0.25 }, { src: 'noise', filter: { type: 'lowpass', freq: 600 }, gain: 0.2, attack: 0.002, decay: 0.12 }],
+  sfx_tire_pop: [{ src: 'noise', filter: { type: 'highpass', freq: 1500 }, gain: 0.4, attack: 0.001, decay: 0.08 }, { src: 'noise', filter: { type: 'bandpass', freq: 500, q: 0.7 }, gain: 0.15, attack: 0.05, decay: 1.2, delay: 0.05 }],
+  sfx_fuel_pour: [{ src: 'noise', filter: { type: 'bandpass', freq: 700, freqEnd: 1100, q: 3 }, gain: 0.14, attack: 0.1, decay: 1.6, tremolo: 11 }],
+  sfx_engine_stall: [0, 0.2, 0.45].map((delay, i) => ({ src: 'sawtooth' as const, freq: 70 - i * 15, freqEnd: 40 - i * 8, gain: 0.14 - i * 0.03, attack: 0.01, decay: 0.18, delay })),
+  sfx_brush_whirr: [{ src: 'noise', filter: { type: 'bandpass', freq: 1800, q: 1.5 }, gain: 0.09, attack: 0.05, decay: 1.1, tremolo: 30 }]
 };
+
+/** Running engine per vehicle family (F.7): oscillator type, idle / top pitch (Hz), level. */
+export const ENGINES = {
+  simson: { osc: 'square', idleHz: 55, topHz: 190, gain: 0.05 },
+  lada: { osc: 'sawtooth', idleHz: 38, topHz: 120, gain: 0.06 },
+  ifa: { osc: 'sawtooth', idleHz: 28, topHz: 85, gain: 0.08 }
+} as const satisfies Readonly<Record<string, { readonly osc: OscillatorType; readonly idleHz: number; readonly topHz: number; readonly gain: number }>>;
+export type EngineKind = keyof typeof ENGINES;
 
 /** Beyond this distance a positioned sound is not played (the full mix is Phase H). */
 const SFX_HEARING_M = 40;
@@ -142,6 +172,9 @@ export class SweepersAudio {
   #listener = { x: 0, z: 0 };
   /** Every sfx id played (debug / tests), most recent last; bounded. */
   readonly played: SfxId[] = [];
+  #engine: { readonly kind: EngineKind; readonly osc: OscillatorNode; readonly gain: GainNode } | null = null;
+  /** The engine running now (tests). */
+  engineKind: EngineKind | null = null;
 
   /** Creates / resumes the context; call from a user gesture. */
   unlock(): void {
@@ -268,6 +301,36 @@ export class SweepersAudio {
     };
   }
 
+  /** The own vehicle's engine loop: pitch from `speed01` (0 idle .. 1 top); null stops it. */
+  setEngine(kind: EngineKind | null, speed01: number): void {
+    this.engineKind = kind;
+    const ctx = this.#ctx;
+    const master = this.#master;
+    if (this.#engine && this.#engine.kind !== kind) this.#stopEngine();
+    if (!kind || !ctx || !master || ctx.state !== 'running') return;
+    const spec = ENGINES[kind];
+    if (!this.#engine) {
+      const osc = ctx.createOscillator();
+      osc.type = spec.osc;
+      const gain = ctx.createGain();
+      gain.gain.value = spec.gain;
+      osc.connect(gain).connect(master);
+      osc.start();
+      this.#engine = { kind, osc, gain };
+    }
+    const s = Math.min(1, Math.max(0, speed01));
+    this.#engine.osc.frequency.setTargetAtTime(spec.idleHz + (spec.topHz - spec.idleHz) * s, ctx.currentTime, 0.08);
+  }
+
+  #stopEngine(): void {
+    const e = this.#engine;
+    this.#engine = null;
+    if (!e) return;
+    e.osc.stop();
+    e.osc.disconnect();
+    e.gain.disconnect();
+  }
+
   /** Low thump when landing from a jump. */
   land(): void {
     const ctx = this.#ctx;
@@ -318,6 +381,7 @@ export class SweepersAudio {
   }
 
   dispose(): void {
+    this.#stopEngine();
     this.#master?.disconnect();
     this.#ctx?.close().catch(() => {});
     this.#ctx = null;

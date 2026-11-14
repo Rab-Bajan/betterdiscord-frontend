@@ -57,6 +57,7 @@ import {
   type Inspection,
   type ScaleWeighed
 } from '../../economyTypes';
+import { parseEnterAck, parseVehicleUpdate, type EnterAck, type VehicleUpdate } from '../../vehicleTypes';
 
 export interface PlayerInputPayload {
   readonly seq: number;
@@ -85,7 +86,7 @@ export type PlayerActionPayload =
 
 /** `miskolc:buy_upgrade` without the channel (C.4; D.4 adds `bag` with `tier` and `qty`; E.4 the team items). */
 export interface BuyUpgradePayload {
-  readonly item: UpgradeItem | 'bag' | 'grease' | 'blueprint' | 'diesel' | 'license';
+  readonly item: UpgradeItem | 'bag' | 'grease' | 'blueprint' | 'diesel' | 'license' | 'vehicle' | 'jerrycan';
   readonly tier?: number;
   readonly level?: number;
   readonly qty?: 1 | 5 | 10;
@@ -109,6 +110,26 @@ export type LogisticsActionPayload =
   | { readonly kind: 'telemetry'; readonly on: boolean }
   | { readonly kind: 'grease'; readonly id: number; readonly point: number }
   | { readonly kind: 'generator'; readonly on: boolean };
+
+/** `miskolc:vehicle_drive` without the channel (F.4). */
+export interface VehicleDrivePayload {
+  readonly seq: number;
+  readonly x: number;
+  readonly y: number;
+  readonly z: number;
+  readonly rotY: number;
+}
+
+/** `miskolc:vehicle_action` without the channel (F.4). */
+export type VehicleActionPayload =
+  | { readonly kind: 'exit' }
+  | { readonly kind: 'tip' }
+  | { readonly kind: 'lights'; readonly mode: 0 | 1 | 2 }
+  | { readonly kind: 'beacon'; readonly on: boolean }
+  | { readonly kind: 'horn' }
+  | { readonly kind: 'load'; readonly id: number }
+  | { readonly kind: 'refuel'; readonly id: number }
+  | { readonly kind: 'repair'; readonly id: number };
 
 /** Sweep payloads go out with at most 3 decimals (C intro: floats ≤ 3 decimals). */
 const r3 = (v: number): number => Math.round(v * 1000) / 1000;
@@ -141,6 +162,8 @@ export interface SweepersNetHandlers {
   onScaleWeighed(event: ScaleWeighed): void;
   /** `miskolc:inspection` (E.5). */
   onInspection(event: Inspection): void;
+  /** `miskolc:vehicle_update` (F.5). */
+  onVehicles(update: VehicleUpdate): void;
 }
 
 /** One RTT probe rides on a player_input ack this often. */
@@ -258,6 +281,10 @@ export class SweepersNet {
       ['miskolc:inspection', route((v) => {
         const event = parseInspection(v);
         if (event && this.#worldEventsOpen) handlers.onInspection(event);
+      })],
+      ['miskolc:vehicle_update', route((v) => {
+        const update = parseVehicleUpdate(v);
+        if (update && this.#worldEventsOpen) handlers.onVehicles(update);
       })]
     ];
   }
@@ -382,6 +409,21 @@ export class SweepersNet {
   logisticsAction<T>(action: LogisticsActionPayload, parse: (value: unknown) => T, onAck: (ack: T) => void): boolean {
     const payload = action.kind === 'throw' ? { kind: action.kind, power: r3(action.power), pitch: r3(action.pitch), rotY: r3(action.rotY) } : action;
     return this.#emit('miskolc:logistics_action', payload, parse, onAck);
+  }
+
+  /** `miskolc:vehicle_drive` (seat 0, ≤ 20 Hz); corrections come back as the row's `corr` flag. */
+  sendDrive(drive: VehicleDrivePayload): void {
+    if (!this.canSend) return;
+    this.#socket.emit('miskolc:vehicle_drive', { channelId: this.#channelId, seq: drive.seq, x: r3(drive.x), y: r3(drive.y), z: r3(drive.z), rotY: r3(drive.rotY) });
+  }
+
+  vehicleEnter(id: number, seat: number, onAck: (ack: EnterAck) => void): boolean {
+    return this.#emit('miskolc:vehicle_enter', { id, seat }, parseEnterAck, onAck);
+  }
+
+  /** `miskolc:vehicle_action`; `parse` is the ack guard of that kind. */
+  vehicleAction<T>(action: VehicleActionPayload, parse: (value: unknown) => T, onAck: (ack: T) => void): boolean {
+    return this.#emit('miskolc:vehicle_action', action, parse, onAck);
   }
 
   #emit<T>(event: string, body: object, parse: (value: unknown) => T, onAck: (ack: T) => void): boolean {

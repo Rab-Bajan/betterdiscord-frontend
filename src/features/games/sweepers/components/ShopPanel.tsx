@@ -17,6 +17,7 @@ import type { BuyUpgradePayload } from '../lib/net/SweepersNet';
 import { BAG_TIERS, STOCK_TIERS, STRUCT_TYPES, T_STRIPPER } from '../lib/logistics/tables';
 import { BLUEPRINT_COST, DIESEL_CAN, GREASE_GUN_COST, LICENSE_COST, POWER } from '../lib/economy/tables';
 import { DISTRICT_NAMES } from '../types';
+import { FUEL_NAMES, JERRYCAN, VEHICLE_TYPES } from '../lib/vehicles/tables';
 import type { PersonalState } from '../debrisTypes';
 
 /** One row of the shop: what it sells, its price, and why it cannot be bought (null: it can). */
@@ -41,6 +42,9 @@ export interface TeamShop {
   readonly bp: number;
   readonly dieselL: number;
   readonly unlocked: readonly number[];
+  /** Phase F: vehicle types the room owns, the jerry can in hand (0 none). */
+  readonly vehicles?: readonly number[];
+  readonly jerry?: number;
 }
 
 /** Blueprints, diesel and district licences (85), as far as the client can tell. */
@@ -66,6 +70,24 @@ export function teamOffers(t: TeamShop): ShopOffer[] {
     out.push({
       key: `license.${d}`, section: 'team', name: `Kerületi engedély: ${DISTRICT_NAMES[d] ?? ''}`, detail: open ? 'Nyitva' : 'Azonnal megnyitja a kerületet',
       price: open ? null : price, blocked: open ? 'Nyitva' : afford(price), buy: open ? null : { item: 'license', tier: d }, toastName: `Kerületi engedély: ${DISTRICT_NAMES[d] ?? ''}`, repair: false
+    });
+  }
+  // Phase F (F.1): vehicles once per room, spawned at their slot; jerry cans with free hands
+  if (t.vehicles) {
+    const owned = t.vehicles;
+    VEHICLE_TYPES.forEach((v, type) => {
+      const have = owned.includes(type);
+      out.push({
+        key: `vehicle.${type}`, section: 'team', name: v.name, detail: `${v.capKg} kg · ${v.topKmh} km/h${v.fuel === null ? ' · kézi' : ` · ${FUEL_NAMES[v.fuel] ?? ''}`}`,
+        price: have ? null : v.cost, blocked: have ? 'Megvan' : afford(v.cost), buy: have ? null : { item: 'vehicle', tier: type }, toastName: v.name, repair: false
+      });
+    });
+    FUEL_NAMES.forEach((fuel, tier) => {
+      const held = (t.jerry ?? 0) !== 0;
+      out.push({
+        key: `jerrycan.${tier}`, section: 'team', name: `${JERRYCAN.name} (${fuel})`, detail: 'Kézben viszed a jármű tanksapkájához (E)',
+        price: JERRYCAN.cost, blocked: held ? 'Tele a kezed' : afford(JERRYCAN.cost), buy: { item: 'jerrycan', tier }, toastName: `${JERRYCAN.name} (${fuel})`, repair: false
+      });
     });
   }
   return out;

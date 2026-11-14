@@ -3,6 +3,7 @@ import { formatFt } from '../../theme';
 import { DISTRICT_NAMES } from '../../types';
 import { GRID_STATES, LME_SERIES, MATERIALS, POWER, PROC_NAMES, isJackpotMat, type GridState } from './tables';
 import type { GridRow, InspRow, LmeRow, ScaleWeighed } from '../../economyTypes';
+import { VEHICLE_TYPES } from '../vehicles/tables';
 
 const KG = new Intl.NumberFormat('hu-HU', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 const NUM = new Intl.NumberFormat('hu-HU', { maximumFractionDigits: 1 });
@@ -13,7 +14,10 @@ const seriesName = (i: number): string => (LME_SERIES[i]?.name ?? '').replace(/^
 
 /** The receipt strip (88), one string per printed line; `lme` adds the LME line when it is the sale's epoch. */
 export function receiptLines(w: ScaleWeighed, lme: LmeRow | null): string[] {
-  const out = ['BÉLA BÁ MÉH TELEP', w.scale === 0 ? 'Hídmérleg' : 'Darus mérlegplató', `Nettó: ${kgOf(w.kgDg)} kg`];
+  const out = ['BÉLA BÁ MÉH TELEP', w.scale === 0 ? 'Hídmérleg' : 'Darus mérlegplató'];
+  // a vehicle weighing prints gross and tare above the net (F.7)
+  if (w.veh) out.push(`Bruttó: ${kgOf(ledKgDg(w))} kg`, `Tára (${VEHICLE_TYPES[w.veh.type]?.name ?? '?'}): ${kgOf(w.veh.tareKg * 100)} kg`);
+  out.push(`Nettó: ${kgOf(w.kgDg)} kg`);
   for (const l of w.lines) {
     const name = `${MATERIALS[l.mat]?.name ?? '?'}${l.proc > 0 ? ` (${PROC_NAMES[l.proc] ?? ''})` : ''}`;
     // jackpots: ftPerKg is the Ft per piece
@@ -25,6 +29,9 @@ export function receiptLines(w: ScaleWeighed, lme: LmeRow | null): string[] {
   out.push(`Összesen: ${formatFt(w.total)}`, `Csapatkassza 80 %: ${formatFt(w.team)}`, `Bér fejenként: ${formatFt(w.each)} (${w.to.length} fő)`);
   return out;
 }
+
+/** What the LED shows (76): the net, gross (net + tare) for a vehicle (F.7). */
+export const ledKgDg = (w: ScaleWeighed): number => w.kgDg + Math.round((w.veh?.tareKg ?? 0) * 100);
 
 /** The toast the other players see (E.8). */
 export const weighedToast = (w: ScaleWeighed): string =>

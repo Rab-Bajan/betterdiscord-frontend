@@ -39,7 +39,7 @@ export const LOT_GROUPS = ['bulk', 'ferrous', 'copper'] as const;
 export const lotColor = (group: number): string => TINT_COLORS[group + 1] ?? '#8A8F96';
 
 /** Building families the renderer instances (D.7: 8). */
-export type StructFamily = 'foundation' | 'belt' | 'bend' | 'ramp' | 'junction' | 'hopper' | 'packager' | 'fence' | 'stripper' | 'baler' | 'magnet' | 'trommel';
+export type StructFamily = 'foundation' | 'belt' | 'bend' | 'ramp' | 'junction' | 'hopper' | 'packager' | 'fence' | 'stripper' | 'baler' | 'magnet' | 'trommel' | 'garage';
 
 /** A port in the structure's local frame: point, heading (unit, local) and level offset of its deck. */
 export interface Port {
@@ -92,7 +92,9 @@ export const STRUCT_TYPES: readonly StructType[] = [
   { key: 'stripper', name: 'Kábelnyúzó masina', w: 2, d: 2, lvlMin: 0, lvlMax: 0, ins: [p(0, 1, 0, -1)], outs: [p(0, -1, 0, -1)], len: 2, family: 'stripper', collider: 1.6 },
   { key: 'baler', name: 'Hidraulikus hulladékbálázó', w: 2, d: 2, lvlMin: 0, lvlMax: 0, ins: [p(0, 1, 0, -1)], outs: [p(0, -1, 0, -1)], len: 2, family: 'baler', collider: 2.4 },
   { key: 'magnet', name: 'Mágneses dobosztályozó', w: 2, d: 2, lvlMin: 0, lvlMax: 0, ins: [p(0, 1, 0, -1)], outs: [p(0, -1, 0, -1), p(1, 0, 1, 0)], len: 2, family: 'magnet', collider: 1.8 },
-  { key: 'trommel', name: 'Forgódobos salakrostáló', w: 2, d: 4, lvlMin: 0, lvlMax: 0, ins: [p(0, 2, 0, -1)], outs: [p(0, -2, 0, -1), p(1, 0, 1, 0)], len: 4, family: 'trommel', collider: 2.2 }
+  { key: 'trommel', name: 'Forgódobos salakrostáló', w: 2, d: 4, lvlMin: 0, lvlMax: 0, ins: [p(0, 2, 0, -1)], outs: [p(0, -2, 0, -1), p(1, 0, 1, 0)], len: 4, family: 'trommel', collider: 2.2 },
+  // Phase F (F.1): drive-in refuel pad; roof and posts are visual
+  { key: 'garage', name: 'Garázsállás', w: 4, d: 8, lvlMin: 0, lvlMax: 0, ins: [], outs: [], len: null, family: 'garage', collider: null }
 ];
 
 export const T_FOUND2 = 0;
@@ -106,6 +108,7 @@ export const T_STRIPPER = 14;
 export const T_BALER = 15;
 export const T_MAGNET = 16;
 export const T_TROMMEL = 17;
+export const T_GARAGE = 18;
 /** Machines 14–17 (E.1): need a blueprint, share the `machines` cap. */
 export const isMachine = (type: number): boolean => type >= T_STRIPPER && type <= T_TROMMEL;
 /** Stripper / baler wear and smoke (89). */
@@ -128,7 +131,7 @@ export const W_PER_M = 12;
 export const deckY = (base: number, lvl: number): number => base + DECK_M + LEVEL_M * lvl;
 
 /** Room limits (D.1) and the `{what}` of `buildLimit` (D.8). */
-export const ROOM_CAPS = { structures: 256, foundations: 96, beltM: 300, junctions: 24, hoppers: 4, packagers: 4, fences: 64, machines: 8, bags: 300, lots: 150 } as const;
+export const ROOM_CAPS = { structures: 256, foundations: 96, beltM: 300, junctions: 24, hoppers: 4, packagers: 4, fences: 64, machines: 8, garages: 6, bags: 300, lots: 150 } as const;
 
 /** Landmark hopper: node 0; its intake zone is the footprint expanded by 1.5 m. */
 export const LANDMARK_NODE = 0;

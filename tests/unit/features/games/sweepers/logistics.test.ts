@@ -56,9 +56,9 @@ describe('D.1 tables', () => {
     // local x → world (cos θ, −sin θ)
     expect(toWorld(1, 0, 1)).toEqual({ x: 0, z: 1 });
   });
-  it('18 structure types (D 14 + E machines), 5 bag tiers, the path lengths and level ranges', () => {
-    expect(STRUCT_TYPES.map((t) => t.key)).toEqual(['found2', 'found4', 'belt1', 'belt2', 'belt5', 'bendL', 'bendR', 'rampUp', 'rampDown', 'splitter', 'merger', 'hopper', 'packager', 'fence', 'stripper', 'baler', 'magnet', 'trommel']);
-    expect(STRUCT_TYPES.map((t) => t.len)).toEqual([null, null, 1, 2, 5, Math.PI / 4, Math.PI / 4, Math.sqrt(4.81), Math.sqrt(4.81), 1, 1, null, 2, null, 2, 2, 2, 4]);
+  it('19 structure types (D 14 + E machines + F garage), 5 bag tiers, the path lengths and level ranges', () => {
+    expect(STRUCT_TYPES.map((t) => t.key)).toEqual(['found2', 'found4', 'belt1', 'belt2', 'belt5', 'bendL', 'bendR', 'rampUp', 'rampDown', 'splitter', 'merger', 'hopper', 'packager', 'fence', 'stripper', 'baler', 'magnet', 'trommel', 'garage']);
+    expect(STRUCT_TYPES.map((t) => t.len)).toEqual([null, null, 1, 2, 5, Math.PI / 4, Math.PI / 4, Math.sqrt(4.81), Math.sqrt(4.81), 1, 1, null, 2, null, 2, 2, 2, 4, null]);
     expect(STRUCT_TYPES[7]).toMatchObject({ lvlMin: 0, lvlMax: 1 });
     expect(STRUCT_TYPES[8]).toMatchObject({ lvlMin: 1, lvlMax: 2 });
     expect(BAG_TIERS.map((b) => [b.l, b.kg, b.cost, b.cap])).toEqual([[30, 20, 50, 99], [60, 50, 150, 99], [1000, 1000, 2500, 9], [50, 50, 0, 0], [8, 20, 0, 0]]);
@@ -72,7 +72,7 @@ describe('D.5 guards', () => {
     expect(decodeStructRow([5, 7, 0, 0, 0, 0, 2, 0])).toBeNull(); // rampUp input lvl ≤ 1
     expect(decodeStructRow([5, 13, 0, 0, 0, 0, 1, 0])).toBeNull(); // a fence is lvl 0
     expect(decodeStructRow([0, 2, 0, 0, 0, 0, 0, 0])).toBeNull();
-    expect(decodeStructRow([5, 18, 0, 0, 0, 0, 0, 0])).toBeNull();
+    expect(decodeStructRow([5, 19, 0, 0, 0, 0, 0, 0])).toBeNull();
     // E.3: bit 2 smoking, bits 3–6 the grease mask
     expect(decodeStructRow([5, 14, 0, 0, 0, 0, 0, 4 | (0b1010 << 3)])).toMatchObject({ type: 14, smoking: true, grease: 0b1010, jammed: false, busy: false });
     expect(decodeStructRow([5, 2, 0, 0, 0, 4, 0, 0])).toBeNull();
@@ -427,8 +427,8 @@ describe('rendering caps and the combined collision index', () => {
     expect(p.z).toBeCloseTo(hook.z, 4);
     r.dispose();
   });
-  it('Phase D adds 18 draws (+ E machines 4, processed bags 2); instances never exceed their capacity', () => {
-    expect(LOGISTICS_DRAW_CALLS).toBe(24);
+  it('Phase D adds 18 draws (+ E machines 4, processed bags 2, F garage 1); instances never exceed their capacity', () => {
+    expect(LOGISTICS_DRAW_CALLS).toBe(25);
     const store = new LogisticsStore();
     const structures = Array.from({ length: 300 }, (_, i) => row(i + 1, 2, (i % 20) * 2, Math.floor(i / 20) * 2));
     const bags = Array.from({ length: 600 }, (_, i) => bag(i + 1, i * 0.01, 0));

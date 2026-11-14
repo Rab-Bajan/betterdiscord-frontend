@@ -1,7 +1,7 @@
 // MiskolcSweepers: kooperatív, belső nézetes takarítós játék a hangszobán belül (lazy chunk).
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { X } from 'lucide-react';
-import { EMPTY_HUD, SweepersGame, type SweepersBuildHud, type SweepersDebugStats, type SweepersHud, type SweepersPanel, type SweepersPlayerHud, type SweepersRadar } from '../lib/engine/SweepersGame';
+import { EMPTY_HUD, SweepersGame, type SweepersBuildHud, type SweepersDebugStats, type SweepersHud, type SweepersPanel, type SweepersPlayerHud, type SweepersRadar, type SweepersVehicleHud } from '../lib/engine/SweepersGame';
 import { DISTRICT_HUD_NAMES } from '../types';
 import { SweepersNet } from '../lib/net/SweepersNet';
 import { useCallSettings } from '../../../call/lib/callSettings';
@@ -17,6 +17,7 @@ import BuildPalette from './BuildPalette';
 import CranePanel from './CranePanel';
 import LogisticsPanel from './LogisticsPanel';
 import ReceiptPrinter from './ReceiptPrinter';
+import VehicleDash from './VehicleDash';
 import type { BagRow, Telemetry } from '../logisticsTypes';
 import { SWEEPERS_THEME as T } from '../theme';
 
@@ -78,6 +79,7 @@ export default function MiskolcSweepersView({ socket, channelId, voice, onClose 
   const [craneBusy, setCraneBusy] = useState(false);
   /** The weigher's receipt strip (E.7), null when none is printing. */
   const [receipt, setReceipt] = useState<readonly string[] | null>(null);
+  const [vehicleHud, setVehicleHud] = useState<SweepersVehicleHud | null>(null);
   const netRef = useRef<SweepersNet | null>(null);
   const toastId = useRef(0);
 
@@ -119,6 +121,7 @@ export default function MiskolcSweepersView({ socket, channelId, voice, onClose 
     setPanel(null);
     setBuildHud(null);
     setReceipt(null);
+    setVehicleHud(null);
     if (!channelId) {
       setError(NO_ROOM_MESSAGE);
       return undefined;
@@ -157,6 +160,10 @@ export default function MiskolcSweepersView({ socket, channelId, voice, onClose 
         },
         onBuild: setBuildHud,
         onReceipt: setReceipt,
+        onVehicle: setVehicleHud,
+        sendDrive: (drive) => net?.sendDrive(drive),
+        vehicleEnter: (id, seat, onAck) => net?.vehicleEnter(id, seat, onAck) ?? false,
+        vehicleAction: (action, parse, onAck) => net?.vehicleAction(action, parse, onAck) ?? false,
         tieBag: (tier, onAck) => net?.tieBag(tier, onAck) ?? false,
         placeStructure: (req, onAck) => net?.placeStructure(req, onAck) ?? false,
         deleteStructure: (id, onAck) => net?.deleteStructure(id, onAck) ?? false,
@@ -201,6 +208,7 @@ export default function MiskolcSweepersView({ socket, channelId, voice, onClose 
       onEconomy: (update) => game.applyEconomy(update),
       onScaleWeighed: (event) => game.applyScaleWeighed(event),
       onInspection: (event) => game.applyInspection(event),
+      onVehicles: (update) => game.applyVehicles(update),
       onKicked: (reason) => {
         game.unlock();
         setKickedReason(reason); // re-runs this effect: the cleanup stops the net (no leave_room) and disposes the game
@@ -299,19 +307,20 @@ export default function MiskolcSweepersView({ socket, channelId, voice, onClose 
           onBuy={buy}
           onClose={closeShop}
           logistics={panel === 'office' && logiGen > 0 ? <LogisticsPanel key={logiGen} telemetry={telemetry} onSubscribe={subscribeTelemetry} grid={hud.economy?.grid ?? null} /> : undefined}
-          team={panel === 'office' && hud.economy ? { funds: hud.teamFunds, bp: hud.economy.bp, dieselL: hud.economy.grid.dieselL, unlocked: hud.economy.unlocked } : undefined}
+          team={panel === 'office' && hud.economy ? { funds: hud.teamFunds, bp: hud.economy.bp, dieselL: hud.economy.grid.dieselL, unlocked: hud.economy.unlocked, vehicles: vehicleHud?.owned ?? [], jerry: playerHud.personal.jerry } : undefined}
         />
       )}
       {ready && panel === 'crane' && !error && <CranePanel bags={craneBags} busy={craneBusy} onSend={sendCrane} onClose={closeShop} />}
       {ready && buildHud && !error && <BuildPalette hud={buildHud} bp={hud.economy?.bp ?? 0} />}
       {ready && receipt && !error && <ReceiptPrinter lines={receipt} onDone={closeReceipt} />}
+      {ready && vehicleHud && !error && !buildHud && <VehicleDash hud={vehicleHud} />}
 
       {ready && !locked && !error && !shopOpen && !buildHud && (
         <div className="absolute inset-0 z-30 flex items-center justify-center p-4" style={{ background: 'rgba(9, 10, 24, 0.55)' }}>
           <div className="rounded-xl px-6 py-5 max-w-sm text-center space-y-3" style={{ background: T.bg1, border: `1px solid ${T.border}`, color: T.text }}>
             <div className="text-lg font-black">MiskolcSweepers</div>
             <p className="text-xs" style={{ color: T.muted }}>
-              WASD mozgás · Shift sprint · Space ugrás · Bal/jobb klikk eszköz · 1–6 eszközváltás · G kiborítás · Q bezsákolás · B építés · E használat · F3 diagnosztika · F11 teljes képernyő · Esc szünet
+              WASD mozgás · Shift sprint · Space ugrás · Bal/jobb klikk eszköz · 1–6 eszközváltás · G kiborítás · Q bezsákolás · B építés · E használat / beszállás · Járműben: Space billentés, L lámpa, K villogó, H duda · R kerékcsere · F3 diagnosztika · F11 teljes képernyő · Esc szünet
             </p>
             <button
               type="button"

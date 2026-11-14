@@ -64,6 +64,8 @@ export interface PersonalState {
   readonly bags: readonly [number, number, number];
   /** Zsírzóprés owned (Phase E, 89). */
   readonly greaseGun: boolean;
+  /** Held jerry can (Phase F): 0 none, 1 benzin, 2 dízel. */
+  readonly jerry: 0 | 1 | 2;
 }
 
 export const EMPTY_LOAD: Load = { dustG: 0, seedG: 0, cans: 0, crushed: 0, ironG: 0, copperG: 0, jackpots: [], kg: 0, l: 0 };
@@ -87,7 +89,8 @@ export const DEFAULT_PERSONAL: PersonalState = {
   caps: { bufKg: TOOLS[0]?.bufKg ?? 0.5, packKg: PACK_LEVELS[0]?.kg ?? 10, packL: PACK_LEVELS[0]?.l ?? 8 },
   fx: {},
   bags: [0, 0, 0],
-  greaseGun: false
+  greaseGun: false,
+  jerry: 0
 };
 
 export function parseLoad(value: unknown): Load {
@@ -150,7 +153,8 @@ export function parsePersonalState(value: unknown): PersonalState | null {
     },
     fx: parseFx(value.fx),
     bags: parseBagStock(value.bags),
-    greaseGun: value.greaseGun === true
+    greaseGun: value.greaseGun === true,
+    jerry: value.jerry === 1 || value.jerry === 2 ? value.jerry : 0
   };
 }
 
@@ -328,8 +332,8 @@ export interface Refusal {
 }
 
 export type SweepAck = { readonly ok: true; readonly seq: number; readonly kg: number; readonly items: readonly number[]; readonly pushed: boolean } | Refusal;
-/** `player_action` ack; a `dump` into a hopper intake carries the hopper's kg (D.4). */
-export type ActionAck = { readonly ok: true; readonly hopperKg?: number } | Refusal;
+/** `player_action` ack; a `dump` into a hopper intake carries the hopper's kg (D.4), onto a bed the bed's kg (F.5). */
+export type ActionAck = { readonly ok: true; readonly hopperKg?: number; readonly bedKg?: number } | Refusal;
 /** E.4 adds `teamFunds` (team purchases); absent from a pre-E server. */
 export type BuyAck = { readonly ok: true; readonly cash: number; readonly teamFunds?: number } | Refusal;
 
@@ -362,7 +366,8 @@ export function parseSweepAck(value: unknown): SweepAck {
 export function parseActionAck(value: unknown): ActionAck {
   if (!isRecord(value) || typeof value.ok !== 'boolean') return MALFORMED;
   if (!value.ok) return parseRefusal(value);
-  return isFiniteNumber(value.hopperKg) ? { ok: true, hopperKg: value.hopperKg } : { ok: true };
+  if (isFiniteNumber(value.hopperKg)) return { ok: true, hopperKg: value.hopperKg };
+  return isFiniteNumber(value.bedKg) ? { ok: true, bedKg: value.bedKg } : { ok: true };
 }
 
 export function parseBuyAck(value: unknown): BuyAck {

@@ -79,9 +79,9 @@ describe('Phase D backend fixture: tables (D.1)', () => {
   });
   it('rotation, caps and their names', () => {
     expect([0, 1, 2, 3].map(rotYOf)).toEqual(tables.rotY);
-    // E adds the `machines` cap; the rest is D's
-    const { machines: _cap, ...dCaps } = ROOM_CAPS;
-    const { machines: _name, ...dNames } = BUILD_LIMIT_WHAT;
+    // E adds the `machines` cap, F the `garages` cap; the rest is D's
+    const { machines: _cap, garages: _gCap, ...dCaps } = ROOM_CAPS;
+    const { machines: _name, garages: _gName, ...dNames } = BUILD_LIMIT_WHAT;
     expect(tables.caps).toEqual(dCaps);
     expect(tables.capNames).toEqual(dNames);
   });

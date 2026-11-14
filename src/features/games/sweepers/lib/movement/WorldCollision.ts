@@ -209,24 +209,25 @@ export class WorldCollision implements MovementWorld {
   }
 
   /** Colliders that block a player at (x, z) (debug / tests). */
-  blockingAt(x: number, z: number): Collider[] {
-    return this.#near(x, z).flatMap(({ c }) => (c.h > STEP_HEIGHT && pushOut(c, x, z, PLAYER_RADIUS) ? [c] : []));
+  blockingAt(x: number, z: number, r = PLAYER_RADIUS): Collider[] {
+    return this.#near(x, z).flatMap(({ c }) => (c.h > STEP_HEIGHT && pushOut(c, x, z, r) ? [c] : []));
   }
 
-  resolve(fromX: number, fromZ: number, toX: number, toZ: number): { x: number; z: number } {
+  /** `r` is the body radius (a vehicle's, F.2); the player's by default. */
+  resolve(fromX: number, fromZ: number, toX: number, toZ: number, r = PLAYER_RADIUS): { x: number; z: number } {
     const steps = Math.max(1, Math.ceil(Math.hypot(toX - fromX, toZ - fromZ) / SUB_STEP));
     let x = fromX;
     let z = fromZ;
     for (let i = 1; i <= steps; i++) {
-      const next = this.#pushOutAll(x + (toX - fromX) / steps, z + (toZ - fromZ) / steps);
+      const next = this.#pushOutAll(x + (toX - fromX) / steps, z + (toZ - fromZ) / steps, r);
       x = next.x;
       z = next.z;
     }
     // the server refuses an input whose path from the last sent pose crosses a locked district (the
     // player stays); slide along the border instead
     if (this.isLocked(fromX, fromZ) || this.#reachable(fromX, fromZ, x, z)) return { x, z };
-    if (this.#reachable(fromX, fromZ, x, fromZ) && this.blockingAt(x, fromZ).length === 0) return { x, z: fromZ };
-    if (this.#reachable(fromX, fromZ, fromX, z) && this.blockingAt(fromX, z).length === 0) return { x: fromX, z };
+    if (this.#reachable(fromX, fromZ, x, fromZ) && this.blockingAt(x, fromZ, r).length === 0) return { x, z: fromZ };
+    if (this.#reachable(fromX, fromZ, fromX, z) && this.blockingAt(fromX, z, r).length === 0) return { x: fromX, z };
     return { x: fromX, z: fromZ };
   }
 
@@ -236,14 +237,14 @@ export class WorldCollision implements MovementWorld {
     return Number.isNaN(this.#originX) || this.pathOpen(this.#originX, this.#originZ, x, z);
   }
 
-  #pushOutAll(px: number, pz: number): { x: number; z: number } {
+  #pushOutAll(px: number, pz: number, r: number): { x: number; z: number } {
     let x = px;
     let z = pz;
     for (let i = 0; i < PUSH_ITERATIONS; i++) {
       let moved = false;
       for (const { c } of this.#near(x, z)) {
         if (c.h <= STEP_HEIGHT) continue;
-        const push = pushOut(c, x, z, PLAYER_RADIUS + SKIN);
+        const push = pushOut(c, x, z, r + SKIN);
         if (!push) continue;
         x += push.x;
         z += push.z;

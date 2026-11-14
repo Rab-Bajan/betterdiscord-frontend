@@ -4,6 +4,9 @@ export type Interaction =
   | { readonly kind: 'clearJam'; readonly id: number }
   | { readonly kind: 'grease'; readonly id: number; readonly point: number }
   | { readonly kind: 'pickup'; readonly id: number }
+  | { readonly kind: 'load'; readonly id: number }
+  | { readonly kind: 'refuel'; readonly id: number }
+  | { readonly kind: 'enter'; readonly id: number; readonly seat: number }
   | { readonly kind: 'crane' }
   | { readonly kind: 'generator' }
   | { readonly kind: 'office' }
@@ -25,6 +28,12 @@ export interface InteractCandidates {
   readonly grease?: { readonly id: number; readonly point: number } | null;
   /** Nearest pickable bag. */
   readonly bag: { readonly id: number; readonly d: number } | null;
+  /** Phase F (F.7): a bed within reach while carrying, a filler neck while holding a can, a free vehicle. */
+  readonly load?: number | null;
+  readonly refuel?: number | null;
+  readonly enter?: { readonly id: number; readonly seat: number } | null;
+  /** A jerry can in hand: bag pickup would be refused `handsFull` (F.2). */
+  readonly can?: boolean;
   readonly craneD: number;
   /** Distance to the generator landmark (Infinity without the economy). */
   readonly generatorD?: number;
@@ -32,11 +41,14 @@ export interface InteractCandidates {
   readonly kiosk: boolean;
 }
 
-/** E.7: jam (with a broom) → grease point → bag → crane console → generator → office → kiosk. */
+/** E.7 + F.7: jam (with a broom) → grease point → bag → bed load → refuel → enter → crane console → generator → office → kiosk. */
 export function chooseInteraction(c: InteractCandidates): Interaction {
   if (c.jam && c.broom && c.jam.d <= JAM_REACH_M) return { kind: 'clearJam', id: c.jam.id };
   if (c.grease) return { kind: 'grease', id: c.grease.id, point: c.grease.point };
-  if (c.bag && c.bag.d <= BAG_REACH_M) return { kind: 'pickup', id: c.bag.id };
+  if (c.bag && c.bag.d <= BAG_REACH_M && !c.can) return { kind: 'pickup', id: c.bag.id };
+  if (typeof c.load === 'number') return { kind: 'load', id: c.load };
+  if (typeof c.refuel === 'number') return { kind: 'refuel', id: c.refuel };
+  if (c.enter) return { kind: 'enter', id: c.enter.id, seat: c.enter.seat };
   if (c.craneD <= CRANE_REACH_M) return { kind: 'crane' };
   if ((c.generatorD ?? Infinity) <= GENERATOR_REACH_M) return { kind: 'generator' };
   if (c.officeD <= OFFICE_REACH_M) return { kind: 'office' };

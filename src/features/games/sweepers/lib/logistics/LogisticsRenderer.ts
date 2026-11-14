@@ -12,9 +12,9 @@ import type { LogisticsStore } from './LogisticsStore';
 import type { ActiveArc } from './LogisticsStore';
 import type { StructRow } from '../../logisticsTypes';
 
-export const STRUCT_FAMILIES: readonly StructFamily[] = ['foundation', 'belt', 'bend', 'ramp', 'junction', 'hopper', 'packager', 'fence', 'stripper', 'baler', 'magnet', 'trommel'];
+export const STRUCT_FAMILIES: readonly StructFamily[] = ['foundation', 'belt', 'bend', 'ramp', 'junction', 'hopper', 'packager', 'fence', 'stripper', 'baler', 'magnet', 'trommel', 'garage'];
 /**
- * Main-pass draws: structures 12 (D 8 + E machines 4), bags 5 (D 3 + E bala / köteg 2), lots 1, crane 2,
+ * Main-pass draws: structures 13 (D 8 + E machines 4 + F garage), bags 5 (D 3 + E bala / köteg 2), lots 1, crane 2,
  * strobe 1, ghost 1, grid 1, arc 1.
  */
 export const LOGISTICS_DRAW_CALLS = STRUCT_FAMILIES.length + BAG_TIERS.length + 1 + 2 + 1 + 1 + 1 + 1;
@@ -108,6 +108,12 @@ function familyGeometry(family: StructFamily): THREE.BufferGeometry {
         break;
       case 'trommel':
         b.add(new THREE.CylinderGeometry(0.8, 0.8, 4, 12, 1).rotateX(Math.PI / 2), 0x6b7078).box(0.12, 1.62, 3.9, 0xd6a21e);
+        break;
+      case 'garage': // Phase F (F.7): yellow striped drive-in pad, 4 posts, roof and the overhead pump
+        b.box(4, 0.04, 8, 0x3a3e45, { y: 0.02 });
+        for (let i = 0; i < 8; i++) b.box(4.02, 0.045, 0.4, 0xf2c230, { y: 0.022, z: -3.6 + i, ry: 0.35 });
+        for (const [x, z] of [[-1.9, -3.9], [1.9, -3.9], [-1.9, 3.9], [1.9, 3.9]] as const) b.box(0.15, 3.4, 0.15, 0x8a8f96, { x, y: 1.7, z });
+        b.box(4.3, 0.15, 8.3, 0xb5452c, { y: 3.45 }).box(0.5, 0.8, 0.5, 0xd9822b, { y: 2.95 }).box(0.06, 1.6, 0.06, 0x1c1c1c, { x: 0.15, y: 1.9 });
         break;
     }
     return b.build();
@@ -384,7 +390,7 @@ export class LogisticsRenderer {
       } else if (isMachine(r.type)) {
         this.#poseMachine(mesh, i, r, 0);
         if (r.type !== T_MAGNET) this.#animated.push({ row: r, mesh, i });
-      } else this.#compose(mesh, i, r.x, t.family === 'hopper' || t.family === 'packager' || t.family === 'fence' ? r.baseY : deck, r.z, rotY, 1, 1, 1);
+      } else this.#compose(mesh, i, r.x, t.family === 'hopper' || t.family === 'packager' || t.family === 'fence' || t.family === 'garage' ? r.baseY : deck, r.z, rotY, 1, 1, 1);
       if (t.family === 'junction') mesh.setColorAt(i, this.#c.set(r.type === 9 ? '#F5A623' : '#28C997'));
       const run = mesh.geometry.getAttribute('aRun');
       if (run instanceof THREE.InstancedBufferAttribute) run.setX(i, r.jammed ? 0 : 1);
