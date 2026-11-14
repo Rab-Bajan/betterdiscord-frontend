@@ -1,7 +1,7 @@
 // MiskolcSweepers: kooperatív, belső nézetes takarítós játék a hangszobán belül (lazy chunk).
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { X } from 'lucide-react';
-import { EMPTY_HUD, SweepersGame, type SweepersDebugStats, type SweepersHud, type SweepersPlayerHud, type SweepersRadar } from '../lib/engine/SweepersGame';
+import { EMPTY_HUD, SweepersGame, type SweepersBuildHud, type SweepersDebugStats, type SweepersHud, type SweepersPanel, type SweepersPlayerHud, type SweepersRadar } from '../lib/engine/SweepersGame';
 import { DISTRICT_HUD_NAMES } from '../types';
 import { SweepersNet } from '../lib/net/SweepersNet';
 import { useCallSettings } from '../../../call/lib/callSettings';
@@ -13,6 +13,10 @@ import VoicePill, { type SweepersVoiceControls } from './VoicePill';
 import ToolHud from './ToolHud';
 import ShopPanel, { type ShopOffer } from './ShopPanel';
 import { isToastable } from '../debrisTypes';
+import BuildPalette from './BuildPalette';
+import CranePanel from './CranePanel';
+import LogisticsPanel from './LogisticsPanel';
+import type { BagRow, Telemetry } from '../logisticsTypes';
 import { SWEEPERS_THEME as T } from '../theme';
 
 interface MiskolcSweepersViewProps {
@@ -60,9 +64,17 @@ export default function MiskolcSweepersView({ socket, channelId, voice, onClose 
   const [isFullscreen, setIsFullscreen] = useState(false);
   const [playerHud, setPlayerHud] = useState<SweepersPlayerHud | null>(null);
   const [toasts, setToasts] = useState<readonly Toast[]>([]);
-  const [shopOpen, setShopOpen] = useState(false);
-  const shopOpenRef = useRef(false);
-  shopOpenRef.current = shopOpen;
+  /** The panel E opened (D.7): office (MÉH műhely + Logisztika), büfé or crane. */
+  const [panel, setPanel] = useState<SweepersPanel | null>(null);
+  const panelRef = useRef<SweepersPanel | null>(null);
+  panelRef.current = panel;
+  const shopOpen = panel !== null;
+  const [buildHud, setBuildHud] = useState<SweepersBuildHud | null>(null);
+  const [telemetry, setTelemetry] = useState<Telemetry | null>(null);
+  /** Join generation with logistics (0: the server has none); keys the Logisztika tab so a re-join re-subscribes. */
+  const [logiGen, setLogiGen] = useState(0);
+  const [craneBags, setCraneBags] = useState<readonly BagRow[]>([]);
+  const [craneBusy, setCraneBusy] = useState(false);
   const netRef = useRef<SweepersNet | null>(null);
   const toastId = useRef(0);
 
@@ -101,7 +113,8 @@ export default function MiskolcSweepersView({ socket, channelId, voice, onClose 
     setHud(EMPTY_HUD);
     setRadar(null);
     setPlayerHud(null);
-    setShopOpen(false);
+    setPanel(null);
+    setBuildHud(null);
     if (!channelId) {
       setError(NO_ROOM_MESSAGE);
       return undefined;
@@ -131,14 +144,18 @@ export default function MiskolcSweepersView({ socket, channelId, voice, onClose 
             setDebugVisible(debugVisibleRef.current);
           } else if (action === 'toggleFullscreen') {
             toggleFullscreen();
-          } else if (action === 'interact' && !shopOpenRef.current) {
-            const access = gameRef.current?.shopAccess;
-            if (access && (access.workbench || access.kiosk)) {
-              setShopOpen(true);
-              gameRef.current?.unlock();
-            }
           }
         },
+        onPanel: (next) => {
+          if (panelRef.current !== null) return;
+          setPanel(next);
+          gameRef.current?.unlock();
+        },
+        onBuild: setBuildHud,
+        tieBag: (tier, onAck) => net?.tieBag(tier, onAck) ?? false,
+        placeStructure: (req, onAck) => net?.placeStructure(req, onAck) ?? false,
+        deleteStructure: (id, onAck) => net?.deleteStructure(id, onAck) ?? false,
+        logisticsAction: (action, parse, onAck) => net?.logisticsAction(action, parse, onAck) ?? false,
         canSend: () => net?.canSend ?? false,
         sendInput: (input) => net?.sendInput(input),
         sendSweep: (hit, onAck) => net?.sendSweep(hit, onAck) ?? false,
@@ -157,6 +174,7 @@ export default function MiskolcSweepersView({ socket, channelId, voice, onClose 
       onInit: (state) => {
         setError(null);
         game.applyInit(state);
+        setLogiGen((g) => (state.logistics ? g + 1 : 0));
       },
       onTick: (tick) => game.applyTick(tick),
       onPlayerJoined: (player) => game.addPlayer(player),
@@ -172,6 +190,9 @@ export default function MiskolcSweepersView({ socket, channelId, voice, onClose 
       onWeather: (weather) => game.applyWeather(weather),
       onDebris: (update) => game.applyDebris(update),
       onPersonal: (personal) => game.applyPersonal(personal),
+      onStructureSpawned: (row) => game.applyStructureSpawned(row),
+      onLogistics: (update) => game.applyLogistics(update),
+      onTelemetry: setTelemetry,
       onKicked: (reason) => {
         game.unlock();
         setKickedReason(reason); // re-runs this effect: the cleanup stops the net (no leave_room) and disposes the game
@@ -207,8 +228,30 @@ export default function MiskolcSweepersView({ socket, channelId, voice, onClose 
   }, [pushToast]);
 
   const closeShop = useCallback(() => {
-    setShopOpen(false);
+    setPanel(null);
+    setTelemetry(null);
     gameRef.current?.lock();
+  }, []);
+
+  const subscribeTelemetry = useCallback((on: boolean) => {
+    gameRef.current?.setTelemetry(on);
+  }, []);
+
+  // the crane panel lists the bags in the area; refreshed while it is open
+  useEffect(() => {
+    if (panel !== 'crane') return undefined;
+    const refresh = () => {
+      const game = gameRef.current;
+      setCraneBags(game ? game.craneBags : []);
+      setCraneBusy((game?.logistics.job ?? null) !== null);
+    };
+    refresh();
+    const timer = setInterval(refresh, 500);
+    return () => clearInterval(timer);
+  }, [panel]);
+
+  const sendCrane = useCallback((bag: number, to: number) => {
+    gameRef.current?.sendCrane(bag, to);
   }, []);
 
   useEffect(() => {
@@ -239,16 +282,24 @@ export default function MiskolcSweepersView({ socket, channelId, voice, onClose 
           ))}
         </div>
       )}
-      {ready && shopOpen && playerHud && !error && (
-        <ShopPanel personal={playerHud.personal} access={playerHud.shop} onBuy={buy} onClose={closeShop} />
+      {ready && (panel === 'office' || panel === 'kiosk') && playerHud && !error && (
+        <ShopPanel
+          personal={playerHud.personal}
+          access={panel === 'kiosk' ? { workbench: false, kiosk: true } : playerHud.shop}
+          onBuy={buy}
+          onClose={closeShop}
+          logistics={panel === 'office' && logiGen > 0 ? <LogisticsPanel key={logiGen} telemetry={telemetry} onSubscribe={subscribeTelemetry} /> : undefined}
+        />
       )}
+      {ready && panel === 'crane' && !error && <CranePanel bags={craneBags} busy={craneBusy} onSend={sendCrane} onClose={closeShop} />}
+      {ready && buildHud && !error && <BuildPalette hud={buildHud} />}
 
-      {ready && !locked && !error && !shopOpen && (
+      {ready && !locked && !error && !shopOpen && !buildHud && (
         <div className="absolute inset-0 z-30 flex items-center justify-center p-4" style={{ background: 'rgba(9, 10, 24, 0.55)' }}>
           <div className="rounded-xl px-6 py-5 max-w-sm text-center space-y-3" style={{ background: T.bg1, border: `1px solid ${T.border}`, color: T.text }}>
             <div className="text-lg font-black">MiskolcSweepers</div>
             <p className="text-xs" style={{ color: T.muted }}>
-              WASD mozgás · Shift sprint · Space ugrás · Bal/jobb klikk eszköz · 1–6 eszközváltás · G kiborítás · E bolt · F3 diagnosztika · F11 teljes képernyő · Esc szünet
+              WASD mozgás · Shift sprint · Space ugrás · Bal/jobb klikk eszköz · 1–6 eszközváltás · G kiborítás · Q bezsákolás · B építés · E használat · F3 diagnosztika · F11 teljes képernyő · Esc szünet
             </p>
             <button
               type="button"

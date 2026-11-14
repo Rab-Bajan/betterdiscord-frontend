@@ -46,7 +46,7 @@ describe('hotbar mapping and cycling (60, C.7)', () => {
   });
   it('the hotbar view shows durability (tools 1–3), the equipped buffer and the blower fuel', () => {
     const personal: PersonalState = { ...DEFAULT_PERSONAL, owned: bits(2, 4), toolTier: 2, dur: [1000, 150, 1000], fuelMl: 500, buf: { ...DEFAULT_PERSONAL.buf, kg: 2 }, caps: { bufKg: 8, packKg: 10, packL: 8 } };
-    const slots = hotbarSlots({ personal, tool: 2, stamina: 50, fx: { stench: false, beer: false, kofola: false }, shop: { workbench: false, kiosk: false }, debris: true });
+    const slots = hotbarSlots({ personal, tool: 2, stamina: 50, fx: { stench: false, beer: false, kofola: false }, shop: { workbench: false, kiosk: false }, debris: true, carrying: false, bagTier: null, tie: 0 });
     expect(slots.map((s) => s.active)).toEqual([true, false, false, false, false, false]);
     expect(slots[0]).toMatchObject({ tool: 2, durability: 0.15, fill: 0.25 });
     expect(slots[1]).toMatchObject({ tool: 4, owned: true, fuel: 0.25, fill: null });

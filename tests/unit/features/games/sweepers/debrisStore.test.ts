@@ -203,6 +203,15 @@ describe('client prediction of one use (C.7)', () => {
       expect(c.byte).toBe(packCell(10, 10));
     }
   });
+  it('the WC brush from an integer origin plans exactly the cell containing the arc midpoint (no centre in the 0.25 m band)', () => {
+    const store = storeWith(uniformCells(0xff));
+    for (const [rotY, mx, mz] of [[0, 4, 3.4], [Math.PI, 4, 4.6], [Math.PI / 2, 3.4, 4], [-Math.PI / 2, 4.6, 4]] as const) {
+      const cells = predictUse(store, ctx(0, {}, { rotY })).cells;
+      expect(cells).toHaveLength(1);
+      const { x, z } = cellCentre(cells[0]!.chunk, cells[0]!.idx);
+      expect([Math.floor(x / 0.5), Math.floor(z / 0.5)]).toEqual([Math.floor(mx / 0.5), Math.floor(mz / 0.5)]);
+    }
+  });
   it('the road broom also takes stuck cans and metal; capacity is respected in order of distance', () => {
     const store = storeWith(uniformCells(0), [
       { id: 1, kind: 'can', x: 4.2, z: 2.7, massKg: 0.05, flags: FLAG_STUCK },

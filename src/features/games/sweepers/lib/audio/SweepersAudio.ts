@@ -34,7 +34,17 @@ export const SFX_IDS = [
   'sfx_copper_heavy_thud',
   'sfx_can_rattle',
   'sfx_acid_sizzle',
-  'sfx_detector_click'
+  'sfx_detector_click',
+  // Phase D (D.7): spec ids, then lead additions
+  'sfx_bag_tie',
+  'sfx_conveyor_rollers_loop',
+  'sfx_buzzer_alarm',
+  'sfx_bag_throw',
+  'sfx_bag_burst',
+  'sfx_build_place',
+  'sfx_build_delete',
+  'sfx_crane_motor',
+  'sfx_packager_cycle'
 ] as const;
 export type SfxId = (typeof SFX_IDS)[number];
 
@@ -81,7 +91,25 @@ const SFX: Readonly<Record<SfxId, readonly SfxLayer[]>> = {
   ],
   sfx_can_rattle: [0, 0.11, 0.2, 0.33, 0.47, 0.62].map((delay, i) => ({ src: 'triangle' as const, freq: 2900 - i * 180, gain: 0.12 - i * 0.012, attack: 0.002, decay: 0.07, delay })),
   sfx_acid_sizzle: [{ src: 'noise', filter: { type: 'highpass', freq: 4200 }, gain: 0.22, attack: 0.05, decay: 0.8, tremolo: 47 }],
-  sfx_detector_click: [{ src: 'square', freq: 1850, gain: 0.08, attack: 0.001, decay: 0.018 }]
+  sfx_detector_click: [{ src: 'square', freq: 1850, gain: 0.08, attack: 0.001, decay: 0.018 }],
+  sfx_bag_tie: [
+    { src: 'noise', filter: { type: 'bandpass', freq: 900, freqEnd: 1500, q: 1.5 }, gain: 0.22, attack: 0.02, decay: 0.25 },
+    { src: 'noise', filter: { type: 'bandpass', freq: 1700, q: 2 }, gain: 0.18, attack: 0.01, decay: 0.12, delay: 0.3 }
+  ],
+  sfx_conveyor_rollers_loop: [{ src: 'sawtooth', freq: 55, gain: 0.05, attack: 0.1, decay: 0.6, tremolo: 18 }, { src: 'noise', filter: { type: 'lowpass', freq: 400 }, gain: 0.05, attack: 0.1, decay: 0.6 }],
+  sfx_buzzer_alarm: [{ src: 'square', freq: 440, gain: 0.12, attack: 0.01, decay: 0.45, tremolo: 8 }],
+  sfx_bag_throw: [{ src: 'noise', filter: { type: 'bandpass', freq: 600, freqEnd: 1800, q: 1 }, gain: 0.2, attack: 0.02, decay: 0.3 }],
+  sfx_bag_burst: [
+    { src: 'noise', filter: { type: 'highpass', freq: 1200 }, gain: 0.4, attack: 0.002, decay: 0.15 },
+    { src: 'noise', filter: { type: 'lowpass', freq: 600 }, gain: 0.3, attack: 0.01, decay: 0.4, delay: 0.05 }
+  ],
+  sfx_build_place: [{ src: 'sine', freq: 180, freqEnd: 90, gain: 0.35, attack: 0.003, decay: 0.25 }, { src: 'noise', filter: { type: 'lowpass', freq: 900 }, gain: 0.15, attack: 0.002, decay: 0.1 }],
+  sfx_build_delete: [{ src: 'square', freq: 320, freqEnd: 120, gain: 0.12, attack: 0.005, decay: 0.3 }, { src: 'noise', filter: { type: 'bandpass', freq: 1400, q: 1 }, gain: 0.15, attack: 0.005, decay: 0.2 }],
+  sfx_crane_motor: [{ src: 'sawtooth', freq: 70, freqEnd: 90, gain: 0.1, attack: 0.15, decay: 1.2, tremolo: 24 }],
+  sfx_packager_cycle: [
+    { src: 'noise', filter: { type: 'bandpass', freq: 500, q: 2 }, gain: 0.2, attack: 0.02, decay: 0.3 },
+    { src: 'sine', freq: 140, gain: 0.2, attack: 0.005, decay: 0.2, delay: 0.35 }
+  ]
 };
 
 /** Beyond this distance a positioned sound is not played (the full mix is Phase H). */

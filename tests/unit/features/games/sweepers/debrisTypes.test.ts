@@ -34,7 +34,8 @@ const personal = {
   buf: load,
   pack: EMPTY_LOAD,
   caps: { bufKg: 8, packKg: 25, packL: 30 },
-  fx: { stench: 123_000, kofola: 99_000 }
+  fx: { stench: 123_000, kofola: 99_000 },
+  bags: [3, 0, 1]
 };
 
 describe('Phase C PersonalState guard (C.5)', () => {

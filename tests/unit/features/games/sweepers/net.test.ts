@@ -40,7 +40,10 @@ const recorder = () => {
     onClock: (c) => calls.push(`clock:${c.timeMs}:${c.day}:${c.dayMs}`),
     onWeather: (w) => calls.push(`weather:${w.kind}:${w.untilServerTime ?? 'null'}`),
     onDebris: (u) => calls.push(`debris:${u.t}:${u.load.length}:${u.del.join(',')}`),
-    onPersonal: (p) => calls.push(`personal:${p.cash}:${p.toolTier}`)
+    onPersonal: (p) => calls.push(`personal:${p.cash}:${p.toolTier}`),
+    onStructureSpawned: (row, by) => calls.push(`spawned:${row.id}:${by}`),
+    onLogistics: (u) => calls.push(`logistics:${u.t}`),
+    onTelemetry: (t) => calls.push(`telemetry:${t.jams}`)
   };
   return { calls, handlers };
 };
@@ -297,7 +300,7 @@ describe('SweepersNet', () => {
     const socket = new FakeSocket();
     const net = new SweepersNet(socket, 'ch-1', recorder().handlers);
     net.start();
-    expect(socket.count()).toBe(12); // 7 Phase A + district_unlocked, clock, weather + debris_chunk_update, personal_update
+    expect(socket.count()).toBe(15); // 7 Phase A + district_unlocked, clock, weather + debris_chunk_update, personal_update + structure_spawned, logistics_update, logistics_telemetry
     net.stop();
     net.stop();
     expect(socket.count()).toBe(0);

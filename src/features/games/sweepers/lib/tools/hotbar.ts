@@ -31,6 +31,22 @@ export function slotTool(slot: number, owned: number, current: number): number |
   return FIXED_SLOT_TOOLS[slot] ?? null;
 }
 
+/** Slot 6 (D.7): enabled while any bag is in stock. */
+export const bagSlotEnabled = (bags: readonly number[]): boolean => bags.some((n) => n > 0);
+
+/** Pressing 6 cycles the tiers in stock after `current` (wrapping); null when nothing is in stock. */
+export function nextBagTier(bags: readonly number[], current: number | null): number | null {
+  for (let i = 1; i <= bags.length; i++) {
+    const tier = ((current ?? -1) + i + bags.length) % bags.length;
+    if ((bags[tier] ?? 0) > 0) return tier;
+  }
+  return null;
+}
+
+/** The tier slot 6 shows: the selected one while in stock, else the first in stock. */
+export const shownBagTier = (bags: readonly number[], selected: number | null): number | null =>
+  selected !== null && (bags[selected] ?? 0) > 0 ? selected : nextBagTier(bags, null);
+
 export type SlotChoice =
   | { readonly kind: 'select'; readonly tool: number }
   | { readonly kind: 'same' }

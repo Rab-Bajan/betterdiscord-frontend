@@ -65,9 +65,10 @@ describe('Phase C backend fixture: tables (C.1)', () => {
 describe('Phase C backend fixture: init_state', () => {
   const init = section('initState');
   it('personal, debris and the player tool parse with nothing changed', () => {
-    expect(parsePersonalState(init.personal)).toEqual(init.personal);
+    // Phase D adds `bags` and `carry`; a Phase C payload gets their defaults
+    expect(parsePersonalState(init.personal)).toEqual({ ...(isRecord(init.personal) ? init.personal : {}), bags: [0, 0, 0] });
     expect(parseDebrisInit(init.debris)).toEqual(init.debris);
-    for (const p of list(init, 'players')) expect(parsePlayerSnapshot(p)).toEqual(p);
+    for (const p of list(init, 'players')) expect(parsePlayerSnapshot(p)).toEqual({ ...(isRecord(p) ? p : {}), carry: 0 });
   });
   it('a full init_state (Phase B fixture + the Phase C fields) parses', () => {
     const b = realInitPayload();
@@ -101,15 +102,19 @@ describe('Phase C backend fixture: events parse with nothing dropped', () => {
     expect(JSON.stringify(event('joinBurst')).length).toBeLessThanOrEqual(50_000);
   });
   it('personal updates, acks and the tick row with tool', () => {
-    for (const name of ['personalAfterSweep', 'personalAfterBuy']) expect(parsePersonalState(event(name))).toEqual(event(name));
+    for (const name of ['personalAfterSweep', 'personalAfterBuy']) {
+      const raw = event(name);
+      expect(parsePersonalState(raw)).toEqual({ ...(isRecord(raw) ? raw : {}), bags: [0, 0, 0] });
+    }
     expect(parseSweepAck(event('sweepAck'))).toEqual(event('sweepAck'));
     expect(parseSweepAck(event('handAck'))).toEqual(event('handAck'));
     expect(parseBuyAck(event('buyAck'))).toEqual(event('buyAck'));
     expect(parseActionAck(event('selectAck'))).toEqual({ ok: true });
     expect(parseActionAck(event('dumpAck'))).toEqual({ ok: true });
+    // D.5: a tick row needs 9 elements (carry); the 8-element Phase C rows are dropped now
     const tick = parseTickSync(event('tickSyncWithTool'));
-    expect(tick?.players).toHaveLength(list(event('tickSyncWithTool'), 'p').length);
-    expect(tick?.players[0]?.tool).toBe(1);
+    expect(list(event('tickSyncWithTool'), 'p').length).toBeGreaterThan(0);
+    expect(tick?.players).toEqual([]);
   });
   it('refusals carry the C.8 text; only SWEEPERS_TOO_FAST is silent', () => {
     const refusals = section('refusals');

@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useState } from 'react';
 import { X } from 'lucide-react';
 import { SWEEPERS_THEME as T, formatFt } from '../theme';
 import {
@@ -14,12 +14,13 @@ import {
   repairCost
 } from '../lib/tools/catalog';
 import type { BuyUpgradePayload } from '../lib/net/SweepersNet';
+import { BAG_TIERS } from '../lib/logistics/tables';
 import type { PersonalState } from '../debrisTypes';
 
 /** One row of the shop: what it sells, its price, and why it cannot be bought (null: it can). */
 export interface ShopOffer {
   readonly key: string;
-  readonly section: 'workbench' | 'kiosk';
+  readonly section: 'workbench' | 'bags' | 'kiosk';
   readonly name: string;
   readonly detail: string;
   readonly price: number | null;
@@ -109,6 +110,24 @@ export function shopOffers(p: PersonalState): ShopOffer[] {
       repair: false
     });
   }
+  // Zsákok (D.4): tier × qty 1/5/10 at the workbench, within the stock cap
+  BAG_TIERS.forEach((bag, tier) => {
+    for (const qty of [1, 5, 10] as const) {
+      const price = bag.cost * qty;
+      const full = (p.bags[tier] ?? 0) + qty > bag.cap;
+      out.push({
+        key: `bag.${tier}.${qty}`,
+        section: 'bags',
+        name: bag.name,
+        detail: `${bag.kg} kg / ${bag.l} L · raktáron ${p.bags[tier] ?? 0} / ${bag.cap}`,
+        price,
+        blocked: full ? 'Nem fér több' : afford(price),
+        buy: { item: 'bag', tier, qty },
+        toastName: `${bag.name} ×${qty}`,
+        repair: false
+      });
+    }
+  });
   for (const r of REFRESHMENTS) {
     out.push({ key: r.item, section: 'kiosk', name: r.name, detail: r.effect, price: r.cost, blocked: afford(r.cost), buy: { item: r.item }, toastName: r.name, repair: false });
   }
@@ -120,12 +139,16 @@ interface ShopPanelProps {
   access: { readonly workbench: boolean; readonly kiosk: boolean };
   onBuy: (offer: ShopOffer) => void;
   onClose: () => void;
+  /** The office's "Logisztika" tab (D.7); without it there are no tabs. */
+  logistics?: React.ReactNode;
 }
 
 /** "MÉH műhely" (E at the office) and "Büfé" (E at a kiosk or the office), C.7 "Shop". */
-export default function ShopPanel({ personal, access, onBuy, onClose }: ShopPanelProps) {
+export default function ShopPanel({ personal, access, onBuy, onClose, logistics }: ShopPanelProps) {
+  const [tab, setTab] = useState<'shop' | 'logistics'>('shop');
   const offers = shopOffers(personal);
-  const sections: ReadonlyArray<readonly ['workbench' | 'kiosk', string]> = [['workbench', 'MÉH műhely'], ['kiosk', 'Büfé']];
+  const sections: ReadonlyArray<readonly ['workbench' | 'bags' | 'kiosk', string]> = [['workbench', 'MÉH műhely'], ['bags', 'Zsákok'], ['kiosk', 'Büfé']];
+  const allowed = (key: 'workbench' | 'bags' | 'kiosk'): boolean => (key === 'bags' ? access.workbench : access[key]);
   return (
     <div className="absolute inset-0 z-30 flex items-center justify-center p-4" style={{ background: 'rgba(9, 10, 24, 0.6)' }}>
       <div className="rounded-xl w-full max-w-lg max-h-[80vh] overflow-y-auto" style={{ background: T.bg1, border: `1px solid ${T.border}`, color: T.text }} role="dialog" aria-label="Bolt">
@@ -136,10 +159,44 @@ export default function ShopPanel({ personal, access, onBuy, onClose }: ShopPane
             <X className="w-4 h-4" />
           </button>
         </div>
-        {sections.filter(([key]) => access[key]).map(([key, title]) => (
+        {logistics !== undefined && (
+          <div className="flex gap-1 px-4 pt-3" role="tablist">
+            {([['shop', 'MÉH műhely'], ['logistics', 'Logisztika']] as const).map(([key, label]) => (
+              <button key={key} type="button" role="tab" aria-selected={tab === key} onClick={() => setTab(key)} className="px-3 py-1 rounded-md text-xs font-bold" style={{ background: tab === key ? T.violet : T.bg3, color: '#fff' }}>
+                {label}
+              </button>
+            ))}
+          </div>
+        )}
+        {logistics !== undefined && tab === 'logistics' && logistics}
+        {(logistics === undefined || tab === 'shop') && sections.filter(([key]) => allowed(key)).map(([key, title]) => (
           <div key={key} className="px-4 py-3 space-y-1.5">
             <div className="text-[11px] font-bold tracking-wider" style={{ color: T.muted }}>{title.toUpperCase()}</div>
-            {offers.filter((o) => o.section === key).map((o) => (
+            {key === 'bags' && BAG_TIERS.map((bag, tier) => {
+              const row = offers.filter((o) => o.key.startsWith(`bag.${tier}.`));
+              return (
+                <div key={bag.key} className="flex items-center gap-3 rounded-lg px-3 py-2" style={{ background: T.bg2 }}>
+                  <div className="flex-1 min-w-0">
+                    <div className="text-sm font-semibold truncate">{bag.name}</div>
+                    <div className="text-[11px] truncate" style={{ color: T.muted }}>{row[0]?.detail} · {formatFt(bag.cost)} / db</div>
+                  </div>
+                  {row.map((o) => (
+                    <button
+                      key={o.key}
+                      type="button"
+                      disabled={o.blocked !== null}
+                      onClick={() => onBuy(o)}
+                      className="px-2 py-1.5 rounded-md text-xs font-bold shrink-0 disabled:opacity-40"
+                      style={{ background: o.blocked ? T.bg3 : T.violet, color: '#fff' }}
+                      title={o.blocked ?? (o.price === null ? undefined : formatFt(o.price))}
+                    >
+                      ×{o.buy?.qty ?? 1}
+                    </button>
+                  ))}
+                </div>
+              );
+            })}
+            {key !== 'bags' && offers.filter((o) => o.section === key).map((o) => (
               <div key={o.key} className="flex items-center gap-3 rounded-lg px-3 py-2" style={{ background: T.bg2 }}>
                 <div className="flex-1 min-w-0">
                   <div className="text-sm font-semibold truncate">{o.name}</div>

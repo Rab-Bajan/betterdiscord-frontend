@@ -54,7 +54,13 @@ const start = (): Harness => {
       return h.canSend;
     },
     onPlayer: () => undefined,
-    onToast: (text) => h.toasts.push(text)
+    onToast: (text) => h.toasts.push(text),
+    tieBag: () => false,
+    placeStructure: () => false,
+    deleteStructure: () => false,
+    logisticsAction: () => false,
+    onPanel: () => undefined,
+    onBuild: () => undefined
   };
   const game = new SweepersGame(mount, callbacks);
   const out: Harness = Object.assign(h, { game });

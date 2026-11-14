@@ -35,6 +35,20 @@ import {
   type SweepAck
 } from '../../debrisTypes';
 import type { UpgradeItem } from '../tools/catalog';
+import {
+  parseLogisticsUpdate,
+  parsePlaceAck,
+  parseOkAck,
+  parseStructureSpawned,
+  parseTelemetry,
+  parseTieAck,
+  type LogisticsUpdate,
+  type OkAck,
+  type PlaceAck,
+  type StructRow,
+  type Telemetry,
+  type TieAck
+} from '../../logisticsTypes';
 
 export interface PlayerInputPayload {
   readonly seq: number;
@@ -61,12 +75,30 @@ export type PlayerActionPayload =
   | { readonly kind: 'kick'; readonly id: number; readonly vx: number; readonly vz: number }
   | { readonly kind: 'dump' };
 
-/** `miskolc:buy_upgrade` without the channel (C.4). */
+/** `miskolc:buy_upgrade` without the channel (C.4; D.4 adds `item: 'bag'` with `tier` and `qty`). */
 export interface BuyUpgradePayload {
-  readonly item: UpgradeItem;
+  readonly item: UpgradeItem | 'bag';
   readonly tier?: number;
   readonly level?: number;
+  readonly qty?: 1 | 5 | 10;
 }
+
+/** `miskolc:place_structure` without the channel (D.4). */
+export interface PlaceStructurePayload {
+  readonly type: number;
+  readonly x: number;
+  readonly z: number;
+  readonly rot: number;
+  readonly lvl: number;
+}
+
+/** `miskolc:logistics_action` without the channel (D.4). */
+export type LogisticsActionPayload =
+  | { readonly kind: 'pickup'; readonly id: number }
+  | { readonly kind: 'throw'; readonly power: number; readonly pitch: number; readonly rotY: number }
+  | { readonly kind: 'clearJam'; readonly id: number }
+  | { readonly kind: 'crane'; readonly bag: number; readonly to: number }
+  | { readonly kind: 'telemetry'; readonly on: boolean };
 
 /** Sweep payloads go out with at most 3 decimals (C intro: floats ≤ 3 decimals). */
 const r3 = (v: number): number => Math.round(v * 1000) / 1000;
@@ -87,6 +119,12 @@ export interface SweepersNetHandlers {
   onDebris(update: ChunkUpdate): void;
   /** `miskolc:personal_update`: the full PersonalState of this player. */
   onPersonal(state: PersonalState): void;
+  /** `miskolc:structure_spawned` (D.5). */
+  onStructureSpawned(row: StructRow, by: number): void;
+  /** `miskolc:logistics_update` (D.5). */
+  onLogistics(update: LogisticsUpdate): void;
+  /** `miskolc:logistics_telemetry` (1 Hz while subscribed). */
+  onTelemetry(telemetry: Telemetry): void;
 }
 
 /** One RTT probe rides on a player_input ack this often. */
@@ -180,6 +218,18 @@ export class SweepersNet {
       ['miskolc:personal_update', route((v) => {
         const state = parsePersonalState(v);
         if (state && this.#worldEventsOpen) handlers.onPersonal(state);
+      })],
+      ['miskolc:structure_spawned', route((v) => {
+        const spawned = parseStructureSpawned(v);
+        if (spawned && this.#worldEventsOpen) handlers.onStructureSpawned(spawned.row, spawned.by);
+      })],
+      ['miskolc:logistics_update', route((v) => {
+        const update = parseLogisticsUpdate(v);
+        if (update && this.#worldEventsOpen) handlers.onLogistics(update);
+      })],
+      ['miskolc:logistics_telemetry', route((v) => {
+        const telemetry = parseTelemetry(v);
+        if (telemetry && this.#worldEventsOpen) handlers.onTelemetry(telemetry);
       })]
     ];
   }
@@ -283,6 +333,33 @@ export class SweepersNet {
     if (!this.canSend) return false;
     this.#socket.emit('miskolc:buy_upgrade', { channelId: this.#channelId, ...buy }, (res: unknown) => {
       if (this.#started) onAck(parseBuyAck(res));
+    });
+    return true;
+  }
+
+  /** `miskolc:tie_bag` (D.4). */
+  tieBag(tier: number, onAck: (ack: TieAck) => void): boolean {
+    return this.#emit('miskolc:tie_bag', { tier }, parseTieAck, onAck);
+  }
+
+  placeStructure(req: PlaceStructurePayload, onAck: (ack: PlaceAck) => void): boolean {
+    return this.#emit('miskolc:place_structure', { type: req.type, x: req.x, z: req.z, rot: req.rot, lvl: req.lvl }, parsePlaceAck, onAck);
+  }
+
+  deleteStructure(id: number, onAck: (ack: OkAck) => void): boolean {
+    return this.#emit('miskolc:delete_structure', { id }, parseOkAck, onAck);
+  }
+
+  /** `miskolc:logistics_action`; `parse` is the ack guard of that kind. */
+  logisticsAction<T>(action: LogisticsActionPayload, parse: (value: unknown) => T, onAck: (ack: T) => void): boolean {
+    const payload = action.kind === 'throw' ? { kind: action.kind, power: r3(action.power), pitch: r3(action.pitch), rotY: r3(action.rotY) } : action;
+    return this.#emit('miskolc:logistics_action', payload, parse, onAck);
+  }
+
+  #emit<T>(event: string, body: object, parse: (value: unknown) => T, onAck: (ack: T) => void): boolean {
+    if (!this.canSend) return false;
+    this.#socket.emit(event, { channelId: this.#channelId, ...body }, (res: unknown) => {
+      if (this.#started) onAck(parse(res));
     });
     return true;
   }

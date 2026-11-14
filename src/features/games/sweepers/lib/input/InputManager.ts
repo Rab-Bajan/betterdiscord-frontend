@@ -4,6 +4,7 @@ import type { MoveIntent } from '../movement/MovementModel';
 
 export type InputEdge = 'down' | 'up';
 /** `heldMs` is set on 'up': how long the action was held (press / hold / release). */
+/** `heldMs` is set on a real 'up'; undefined on 'down' and on a cancelled release (`clear()`: blur, pointer unlock). */
 export type InputListener = (action: InputAction, edge: InputEdge, heldMs?: number) => void;
 
 const isEditable = (target: EventTarget | null): boolean =>
@@ -16,8 +17,10 @@ export class InputManager {
   readonly #now: () => number;
   readonly #listeners = new Set<InputListener>();
   #detach: (() => void) | null = null;
-  /** Gameplay keys only count while true (pointer locked); F3/F11/M always work. */
+  /** Gameplay keys only count while true (pointer locked, or build mode); F3/F11/M always work. */
   gameplayEnabled = false;
+  /** Cursor in normalised device coordinates over the canvas (build mode hover), null when unknown. */
+  pointer: { x: number; y: number } | null = null;
 
   constructor(now: () => number = () => performance.now()) {
     this.#now = now;
@@ -48,6 +51,14 @@ export class InputManager {
     if (action) this.#release(action);
   }
 
+  /** Mouse wheel: one palette step per notch (D.7 build mode). */
+  wheel(deltaY: number): void {
+    if (deltaY === 0) return;
+    const action = deltaY > 0 ? 'paletteNext' : 'palettePrev';
+    this.#press(action);
+    this.#release(action);
+  }
+
   isDown(action: InputAction): boolean {
     return this.#held.has(action);
   }
@@ -60,7 +71,7 @@ export class InputManager {
 
   /** Releases everything (window blur, pointer unlock). */
   clear(): void {
-    for (const action of [...this.#held.keys()]) this.#release(action);
+    for (const action of [...this.#held.keys()]) this.#release(action, true);
   }
 
   onAction(listener: InputListener): () => void {
@@ -96,6 +107,13 @@ export class InputManager {
     };
     const onMouseUp = (e: MouseEvent): void => this.mouseUp(e.button);
     const onContextMenu = (e: MouseEvent): void => e.preventDefault();
+    const onWheel = (e: WheelEvent): void => {
+      if (this.gameplayEnabled) this.wheel(e.deltaY);
+    };
+    const onMouseMove = (e: MouseEvent): void => {
+      const r = mouseTarget.getBoundingClientRect();
+      this.pointer = r.width > 0 && r.height > 0 ? { x: ((e.clientX - r.left) / r.width) * 2 - 1, y: -((e.clientY - r.top) / r.height) * 2 + 1 } : null;
+    };
     const onBlur = (): void => this.clear();
     win.addEventListener('keydown', onKeyDown);
     win.addEventListener('keyup', onKeyUp);
@@ -103,6 +121,8 @@ export class InputManager {
     mouseTarget.addEventListener('mousedown', onMouseDown);
     win.addEventListener('mouseup', onMouseUp);
     mouseTarget.addEventListener('contextmenu', onContextMenu);
+    mouseTarget.addEventListener('wheel', onWheel, { passive: true });
+    mouseTarget.addEventListener('mousemove', onMouseMove);
     this.#detach = () => {
       win.removeEventListener('keydown', onKeyDown);
       win.removeEventListener('keyup', onKeyUp);
@@ -110,6 +130,8 @@ export class InputManager {
       mouseTarget.removeEventListener('mousedown', onMouseDown);
       win.removeEventListener('mouseup', onMouseUp);
       mouseTarget.removeEventListener('contextmenu', onContextMenu);
+      mouseTarget.removeEventListener('wheel', onWheel);
+      mouseTarget.removeEventListener('mousemove', onMouseMove);
     };
   }
 
@@ -130,10 +152,11 @@ export class InputManager {
     for (const l of this.#listeners) l(action, 'down');
   }
 
-  #release(action: InputAction): void {
+  #release(action: InputAction, cancelled = false): void {
     const since = this.#held.get(action);
     if (since === undefined) return;
     this.#held.delete(action);
-    for (const l of this.#listeners) l(action, 'up', Math.max(0, this.#now() - since));
+    const heldMs = cancelled ? undefined : Math.max(0, this.#now() - since);
+    for (const l of this.#listeners) l(action, 'up', heldMs);
   }
 }

@@ -6,7 +6,7 @@ export const SWEEPERS_ERRORS = {
   notEquipped: 'Nem ez az eszköz van a kezedben.',
   exhausted: 'Kifulladtál – pihenj egy kicsit!',
   tankFull: 'Tele a tartály.',
-  packFull: 'Tele a hátizsák – borítsd ki (G).',
+  packFull: 'Tele a hátizsák – zsákold be (Q) vagy borítsd ki (G).',
   tooHeavy: 'Ez túl nehéz vagy túl nagy a hátizsákodnak.',
   noFuel: 'Kifogyott a benzin – tankolj a MÉH műhelyben.',
   clogged: 'Eldugult a cső – fújd ki (jobb klikk)!',
@@ -19,5 +19,42 @@ export const SWEEPERS_ERRORS = {
   staleLevel: 'Közben változott a szinted, próbáld újra.',
   noRepairNeeded: 'Ez az eszköz nem szorul javításra.',
   emptyPack: 'Üres a hátizsák.',
-  unknownItem: 'Ismeretlen tárgy.'
+  unknownItem: 'Ismeretlen tárgy.',
+  // Phase D (D.8)
+  handsFull: 'Tele a kezed – előbb tedd le a zsákot.',
+  notCarrying: 'Nincs a kezedben zsák.',
+  noBags: 'Nincs ilyen zsákod – vegyél a MÉH műhelyben.',
+  bagTooSmall: 'Ez nem fér bele ebbe a zsákba.',
+  tooManyBags: 'Túl sok zsák van már ebben a világban.',
+  bagStockFull: 'Ebből a zsákból nem fér több a raktáradba.',
+  noBagNear: 'Nincs zsák a közelben.',
+  bigBagCrane: 'A Big-Bag-et csak daruval lehet mozgatni.',
+  outOfGrid: 'A városon kívül nem építhetsz.',
+  reserved: 'Ez a terület foglalt (mérleg, garat vagy daru).',
+  buildLimit: 'Elérted az építési korlátot: {what}.',
+  blocked: 'Ide nem lehet építeni: valami útban van.',
+  notFlat: 'Túl egyenetlen a talaj – rakj le előbb betonalapot.',
+  supportsStructures: 'Előbb bontsd le, ami rajta áll.',
+  unknownStructure: 'Ismeretlen épületelem.',
+  notJammed: 'Ez a szalag nincs elakadva.',
+  needBroom: 'Seprűvel kell megütni a vészgombot.',
+  notAtCrane: 'A darut a vezérlőpultnál irányíthatod.',
+  craneBusy: 'A daru éppen dolgozik.',
+  craneTargetBusy: 'A célhely foglalt.',
+  notInCraneArea: 'Ez a zsák nincs a daru hatókörében.',
+  hopperFull: 'Tele a garat.',
+  notAtTerminal: 'A logisztikai terminál a MÉH irodánál van.'
+} as const;
+
+export type SweepersErrorKey = keyof typeof SWEEPERS_ERRORS;
+
+/** `{what}` of `buildLimit` (D.8). */
+export const BUILD_LIMIT_WHAT = {
+  structures: 'épületelem',
+  foundations: 'betonalap',
+  beltM: 'szalaghossz',
+  junctions: 'elágazás/idom',
+  hoppers: 'garat',
+  packagers: 'zsákoló',
+  fences: 'kerítés'
 } as const;

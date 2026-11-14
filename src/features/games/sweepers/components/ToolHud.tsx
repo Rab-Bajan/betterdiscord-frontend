@@ -1,7 +1,8 @@
 import React from 'react';
 import { Brush, Fan, Hand, Magnet, ShoppingBag, Wind, type LucideIcon } from 'lucide-react';
 import { SWEEPERS_THEME as T } from '../theme';
-import { BAG_SLOT, HOTBAR_SLOTS, slotOfTool, slotTool } from '../lib/tools/hotbar';
+import { BAG_SLOT, HOTBAR_SLOTS, bagSlotEnabled, slotOfTool, slotTool } from '../lib/tools/hotbar';
+import { BAG_TIERS } from '../lib/logistics/tables';
 import { FUEL_TANK_ML, ownsTool, toolSpec, wears } from '../lib/tools/catalog';
 import type { SweepersPlayerHud } from '../lib/engine/SweepersGame';
 
@@ -42,27 +43,52 @@ export interface SlotView {
   readonly fill: number | null;
   /** Fuel 0..1 (slot 2). */
   readonly fuel: number | null;
+  /** Slot 6: the selected bag tier's stock, and the tie progress 0..1. */
+  readonly count: number | null;
+  readonly tie: number | null;
 }
+
+/** Short bag names on slot 6. */
+const BAG_SHORT: readonly string[] = ['Kék', 'Fekete', 'Big-Bag'];
 
 export function hotbarSlots(hud: SweepersPlayerHud): SlotView[] {
   const p = hud.personal;
   const activeSlot = slotOfTool(hud.tool);
   const out: SlotView[] = [];
   for (let slot = 0; slot < HOTBAR_SLOTS; slot++) {
+    if (slot === BAG_SLOT) {
+      const tier = hud.bagTier;
+      out.push({
+        slot,
+        label: tier === null ? 'Zsák' : `Zsák: ${BAG_SHORT[tier] ?? ''}`,
+        tool: null,
+        owned: bagSlotEnabled(p.bags),
+        active: hud.carrying,
+        disabled: !bagSlotEnabled(p.bags),
+        durability: null,
+        fill: null,
+        fuel: null,
+        count: tier === null ? null : (p.bags[tier] ?? 0),
+        tie: hud.tie > 0 ? hud.tie : null
+      });
+      continue;
+    }
     const tool = slotTool(slot, p.owned, hud.tool);
     const spec = tool === null ? null : toolSpec(tool);
     const owned = tool !== null && ownsTool(p.owned, tool);
     const active = slot === activeSlot && tool === hud.tool;
     out.push({
       slot,
-      label: slot === BAG_SLOT ? 'Zsák' : slot === 0 ? `Seprű: ${spec?.short ?? ''}` : (spec?.short ?? ''),
+      label: slot === 0 ? `Seprű: ${spec?.short ?? ''}` : (spec?.short ?? ''),
       tool,
       owned,
-      active,
-      disabled: slot === BAG_SLOT,
+      active: active && !hud.carrying,
+      disabled: false,
       durability: tool !== null && wears(tool) && owned ? (p.dur[tool - 1] ?? 1000) / 1000 : null,
       fill: active && spec?.bufKg && p.caps.bufKg > 0 ? p.buf.kg / p.caps.bufKg : null,
-      fuel: tool === 4 && owned ? p.fuelMl / FUEL_TANK_ML : null
+      fuel: tool === 4 && owned ? p.fuelMl / FUEL_TANK_ML : null,
+      count: null,
+      tie: null
     });
   }
   return out;
@@ -104,7 +130,7 @@ export default function ToolHud({ hud }: { hud: SweepersPlayerHud }) {
           return (
             <div
               key={s.slot}
-              title={s.disabled ? 'Zsák (hamarosan)' : s.owned ? s.label : `${s.label} (nincs meg)`}
+              title={s.slot === BAG_SLOT ? (s.disabled ? 'Nincs zsákod – vegyél a MÉH műhelyben' : `${BAG_TIERS[hud.bagTier ?? 0]?.name ?? ''} · Q: bezsákolás, 6: váltás`) : s.owned ? s.label : `${s.label} (nincs meg)`}
               className="relative w-14 h-14 rounded-lg flex flex-col items-center justify-center gap-0.5 px-1"
               style={{ ...panel, border: `2px solid ${s.active ? ACTIVE_SLOT_COLOR : T.border}`, opacity: s.disabled ? 0.35 : s.owned ? 1 : 0.5 }}
               data-active={s.active ? 'true' : 'false'}
@@ -115,6 +141,8 @@ export default function ToolHud({ hud }: { hud: SweepersPlayerHud }) {
               {s.durability !== null && <Bar value={s.durability} color={s.durability < 0.2 ? T.red : T.orange} height={2} />}
               {s.fill !== null && <Bar value={s.fill} color={T.blue} height={2} />}
               {s.fuel !== null && <Bar value={s.fuel} color="#E0B23A" height={2} />}
+              {s.count !== null && <span className="absolute top-0.5 right-1 text-[9px] font-bold tabular-nums">×{s.count}</span>}
+              {s.tie !== null && <Bar value={s.tie} color={T.green} height={2} />}
             </div>
           );
         })}

@@ -58,6 +58,24 @@ interface IndexedCollider {
 const key = (ix: number, iz: number): string => `${ix},${iz}`;
 const reachOf = (c: Collider): number => (c.shape === 'cyl' ? c.r : Math.hypot(c.w, c.d) / 2);
 
+function indexColliders(grid: Map<string, IndexedCollider[]>, colliders: readonly Collider[]): void {
+  for (const c of colliders) {
+    const entry = { c, reach: reachOf(c) };
+    const x0 = Math.floor((c.x - entry.reach) / GRID_CELL);
+    const x1 = Math.floor((c.x + entry.reach) / GRID_CELL);
+    const z0 = Math.floor((c.z - entry.reach) / GRID_CELL);
+    const z1 = Math.floor((c.z + entry.reach) / GRID_CELL);
+    for (let ix = x0; ix <= x1; ix++) {
+      for (let iz = z0; iz <= z1; iz++) {
+        const k = key(ix, iz);
+        const cell = grid.get(k);
+        if (cell) cell.push(entry);
+        else grid.set(k, [entry]);
+      }
+    }
+  }
+}
+
 /** Signed overlap push of a circle (px, pz, r) out of `c`; null when they do not touch. */
 export function pushOut(c: Collider, px: number, pz: number, r: number): { x: number; z: number } | null {
   const dx = px - c.x;
@@ -118,6 +136,7 @@ export function covers(c: Collider, px: number, pz: number): boolean {
 export class WorldCollision implements MovementWorld {
   readonly #heightfield: Heightfield | null;
   readonly #grid = new Map<string, IndexedCollider[]>();
+  readonly #extra = new Map<string, IndexedCollider[]>();
   readonly #surfaces: readonly Surface[];
   #unlocked = new Set<number>([0]);
   /** Last pose sent to the server: it checks the straight path from there to the next input. */
@@ -127,21 +146,16 @@ export class WorldCollision implements MovementWorld {
   constructor(layout: WorldLayout | null) {
     this.#heightfield = layout?.heightfield ?? null;
     this.#surfaces = layout?.surfaces ?? [];
-    for (const c of layout?.colliders ?? []) {
-      const entry = { c, reach: reachOf(c) };
-      const x0 = Math.floor((c.x - entry.reach) / GRID_CELL);
-      const x1 = Math.floor((c.x + entry.reach) / GRID_CELL);
-      const z0 = Math.floor((c.z - entry.reach) / GRID_CELL);
-      const z1 = Math.floor((c.z + entry.reach) / GRID_CELL);
-      for (let ix = x0; ix <= x1; ix++) {
-        for (let iz = z0; iz <= z1; iz++) {
-          const k = key(ix, iz);
-          const cell = this.#grid.get(k);
-          if (cell) cell.push(entry);
-          else this.#grid.set(k, [entry]);
-        }
-      }
-    }
+    indexColliders(this.#grid, layout?.colliders ?? []);
+  }
+
+  /**
+   * Phase D structure colliders and the crane legs (D.2 combined index): swept together with the layout's.
+   * Rebuilt whenever the structure colliders change.
+   */
+  setStructureColliders(colliders: readonly Collider[]): void {
+    this.#extra.clear();
+    indexColliders(this.#extra, colliders);
   }
 
   setUnlocked(ids: readonly number[]): void {
@@ -187,6 +201,11 @@ export class WorldCollision implements MovementWorld {
       if (c.h > 0 && c.h <= STEP_HEIGHT && c.h > top && covers(c, x, z)) top = c.h;
     }
     return ground + top;
+  }
+
+  /** Colliders whose footprint covers the point (layout and structures; D.2 throw stops). */
+  collidersAt(x: number, z: number): Collider[] {
+    return this.#near(x, z).flatMap(({ c }) => (covers(c, x, z) ? [c] : []));
   }
 
   /** Colliders that block a player at (x, z) (debug / tests). */
@@ -254,15 +273,15 @@ export class WorldCollision implements MovementWorld {
   #near(x: number, z: number): readonly IndexedCollider[] {
     const ix = Math.floor(x / GRID_CELL);
     const iz = Math.floor(z / GRID_CELL);
-    const a = this.#grid.get(key(ix, iz));
     // a collider is indexed in every cell its reach touches; the player radius may cross into a neighbour
     const fx = x / GRID_CELL - ix;
     const fz = z / GRID_CELL - iz;
     const nx = fx < 0.25 ? ix - 1 : fx > 0.75 ? ix + 1 : ix;
     const nz = fz < 0.25 ? iz - 1 : fz > 0.75 ? iz + 1 : iz;
-    if (nx === ix && nz === iz) return a ?? [];
-    const seen = new Set<IndexedCollider>(a ?? []);
-    for (const k of [key(nx, iz), key(ix, nz), key(nx, nz)]) for (const e of this.#grid.get(k) ?? []) seen.add(e);
+    const keys = nx === ix && nz === iz ? [key(ix, iz)] : [key(ix, iz), key(nx, iz), key(ix, nz), key(nx, nz)];
+    if (keys.length === 1 && !this.#extra.has(keys[0] ?? '')) return this.#grid.get(key(ix, iz)) ?? [];
+    const seen = new Set<IndexedCollider>();
+    for (const grid of [this.#grid, this.#extra]) for (const k of keys) for (const e of grid.get(k) ?? []) seen.add(e);
     return [...seen];
   }
 }

@@ -160,27 +160,34 @@ function predictCells(store: ChunkStore, ctx: UseContext, spec: ToolSpec, w: num
   const reach = spec.region === 'cone' ? spec.reach : spec.reach + w / 2;
   const area = regionArea(spec, w);
   const first = (v: number): number => DEBRIS_ORIGIN + (Math.floor((v - reach - DEBRIS_ORIGIN) / CELL_M) + 0.5) * CELL_M;
+  const centres: [number, number][] = [];
   for (let cx = first(ctx.x); cx <= ctx.x + reach; cx += CELL_M) {
-    for (let cz = first(ctx.z); cz <= ctx.z + reach; cz += CELL_M) {
-      if (!inRegion(cx, cz)) continue;
-      const chunk = chunkIdAt(cx, cz);
-      const bytes = chunk === null ? undefined : store.chunk(chunk);
-      if (chunk === null || !bytes) continue;
-      const idx = cellIdxAt(cx, cz);
-      const byte = bytes[idx] ?? 0;
-      if (byte === 0 || ctx.isLocked(cx, cz)) continue;
-      const surface = ctx.surfaceAt(cx, cz);
-      const district = ctx.districtAt(cx, cz);
-      let next: number;
-      if (spec.id === 4) {
-        next = sweptByte(byte, { tool: 4, f: BLOWER_F, hardLvl: 0, heavy: false, seed: true });
-      } else {
-        const heavy = ctx.drizzle || district === 3 || surface === 'wet' || surface === 'mud' || surface === 'grease';
-        const f = sweepFraction(spec, area, ctx.stench, surface === null && !ctx.drizzle);
-        next = sweptByte(byte, { tool: spec.id, f, hardLvl: ctx.personal.hardLvl, heavy, seed: spec.id !== 5 });
-      }
-      if (next !== byte) plans.push({ cell: { chunk, idx, byte: next }, d: Math.hypot(cx - ctx.x, cz - ctx.z), kg: cellKg(byte, district) - cellKg(next, district) });
+    for (let cz = first(ctx.z); cz <= ctx.z + reach; cz += CELL_M) if (inRegion(cx, cz)) centres.push([cx, cz]);
+  }
+  if (!centres.length && spec.region !== 'cone') {
+    // a thin arc band can hold no cell centre: take the one cell containing the arc midpoint (backend planCells)
+    const f = forwardOf(ctx.rotY);
+    const mid = (v: number): number => DEBRIS_ORIGIN + (Math.floor((v - DEBRIS_ORIGIN) / CELL_M) + 0.5) * CELL_M;
+    centres.push([mid(ctx.x + f.x * spec.reach), mid(ctx.z + f.z * spec.reach)]);
+  }
+  for (const [cx, cz] of centres) {
+    const chunk = chunkIdAt(cx, cz);
+    const bytes = chunk === null ? undefined : store.chunk(chunk);
+    if (chunk === null || !bytes) continue;
+    const idx = cellIdxAt(cx, cz);
+    const byte = bytes[idx] ?? 0;
+    if (byte === 0 || ctx.isLocked(cx, cz)) continue;
+    const surface = ctx.surfaceAt(cx, cz);
+    const district = ctx.districtAt(cx, cz);
+    let next: number;
+    if (spec.id === 4) {
+      next = sweptByte(byte, { tool: 4, f: BLOWER_F, hardLvl: 0, heavy: false, seed: true });
+    } else {
+      const heavy = ctx.drizzle || district === 3 || surface === 'wet' || surface === 'mud' || surface === 'grease';
+      const f = sweepFraction(spec, area, ctx.stench, surface === null && !ctx.drizzle);
+      next = sweptByte(byte, { tool: spec.id, f, hardLvl: ctx.personal.hardLvl, heavy, seed: spec.id !== 5 });
     }
+    if (next !== byte) plans.push({ cell: { chunk, idx, byte: next }, d: Math.hypot(cx - ctx.x, cz - ctx.z), kg: cellKg(byte, district) - cellKg(next, district) });
   }
   plans.sort((a, b) => a.d - b.d || a.cell.chunk - b.cell.chunk || a.cell.idx - b.cell.idx);
   const cells: CellDelta[] = [];

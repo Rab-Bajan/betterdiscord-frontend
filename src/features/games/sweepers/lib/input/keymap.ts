@@ -22,6 +22,12 @@ export type InputAction =
   /** B: build mode ("Építés"); R rotates the placement 90° clockwise while building. */
   | 'toggleBuild'
   | 'rotateBuild'
+  /** PageUp / PageDown: build level of the ghost (D.7); Escape leaves build mode; the wheel cycles the palette. */
+  | 'buildLevelUp'
+  | 'buildLevelDown'
+  | 'exitBuild'
+  | 'paletteNext'
+  | 'palettePrev'
   /** Tab: PDA (upgrade tree & district heatmap). */
   | 'togglePda'
   | HotbarAction
@@ -49,6 +55,9 @@ export const KEY_BINDINGS: Readonly<Record<string, InputAction>> = {
   KeyE: 'interact',
   KeyB: 'toggleBuild',
   KeyR: 'rotateBuild',
+  PageUp: 'buildLevelUp',
+  PageDown: 'buildLevelDown',
+  Escape: 'exitBuild',
   Tab: 'togglePda',
   Digit1: 'hotbar1',
   Digit2: 'hotbar2',
@@ -71,7 +80,7 @@ export const MOUSE_BINDINGS: Readonly<Record<number, InputAction>> = {
 };
 
 /** Keys whose browser default (focus change, devtools-ish, fullscreen, scroll) the game takes over. */
-const CAPTURED_CODES = new Set(['Tab', 'F3', 'F11', 'Space']);
+const CAPTURED_CODES = new Set(['Tab', 'F3', 'F11', 'Space', 'PageUp', 'PageDown']);
 
 export const actionForKey = (code: string): InputAction | null => KEY_BINDINGS[code] ?? null;
 export const actionForMouseButton = (button: number): InputAction | null => MOUSE_BINDINGS[button] ?? null;

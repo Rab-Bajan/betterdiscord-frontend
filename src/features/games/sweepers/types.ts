@@ -11,6 +11,7 @@ import {
   type WorldLayout
 } from './worldTypes';
 import { DEFAULT_PERSONAL, parseDebrisInit, parsePersonalState, type DebrisInit, type PersonalState } from './debrisTypes';
+import { parseLogisticsInit, type LogisticsInit } from './logisticsTypes';
 
 /** Index order is protocol: `stateIdx` in tick_sync is an index into this list. */
 export const PLAYER_ANIM_STATES = [
@@ -61,6 +62,8 @@ export interface PlayerSnapshot {
   readonly state: PlayerAnimState;
   /** Held tool 0..7 (Phase C); 0 from an older server. */
   readonly tool: number;
+  /** Carried bag id, 0 = none (Phase D). */
+  readonly carry: number;
 }
 
 export interface HexSnapshot {
@@ -96,6 +99,8 @@ export interface InitState {
   readonly weather: WeatherState;
   /** Phase C debris grid; null on a server without debris. */
   readonly debris: DebrisInit | null;
+  /** Phase D network; null on a server without logistics. */
+  readonly logistics: LogisticsInit | null;
 }
 
 /** One decoded `p` entry of tick_sync (metres / radians). */
@@ -109,6 +114,8 @@ export interface TickPlayer {
   readonly corr: boolean;
   /** Held tool 0..7 (8th row element). */
   readonly tool: number;
+  /** Carried bag id, 0 = none (9th row element, D.5). */
+  readonly carry: number;
 }
 
 export interface TickSync {
@@ -130,10 +137,11 @@ export const JOIN_RATE_LIMITED_CODE = 'SWEEPERS_RATE_LIMITED';
 const isFiniteNumber = (value: unknown): value is number => typeof value === 'number' && Number.isFinite(value);
 const isInt = (value: unknown): value is number => Number.isInteger(value);
 const isToolId = (value: unknown): value is number => isInt(value) && value >= 0 && value <= 7;
+const isCarry = (value: unknown): value is number => isInt(value) && value >= 0 && value <= 65535;
 
 export function parsePlayerSnapshot(value: unknown): PlayerSnapshot | null {
   if (!isRecord(value)) return null;
-  const { id, accountId, username, avatarColor, x, y, z, rotY, state, tool } = value;
+  const { id, accountId, username, avatarColor, x, y, z, rotY, state, tool, carry } = value;
   if (!isInt(id) || !isString(username)) return null;
   if (!isFiniteNumber(x) || !isFiniteNumber(y) || !isFiniteNumber(z) || !isFiniteNumber(rotY)) return null;
   if (accountId !== null && accountId !== undefined && !isString(accountId)) return null;
@@ -147,7 +155,8 @@ export function parsePlayerSnapshot(value: unknown): PlayerSnapshot | null {
     z,
     rotY,
     state: isPlayerAnimState(state) ? state : 'IDLE',
-    tool: isToolId(tool) ? tool : 0
+    tool: isToolId(tool) ? tool : 0,
+    carry: isCarry(carry) ? carry : 0
   };
 }
 
@@ -164,7 +173,7 @@ const numberOr = (value: unknown, fallback: number): number => (isFiniteNumber(v
 /** `miskolc:init_state`; null when the core fields are missing. Malformed list entries are dropped. */
 export function parseInitState(value: unknown): InitState | null {
   if (!isRecord(value)) return null;
-  const { roomId, selfId, tickRate, serverTime, players, hexes, teamFunds, personal, layout, unlockedDistricts, lifetimeEarned, clock, weather, debris } = value;
+  const { roomId, selfId, tickRate, serverTime, players, hexes, teamFunds, personal, layout, unlockedDistricts, lifetimeEarned, clock, weather, debris, logistics } = value;
   if (!isString(roomId) || !isInt(selfId) || !isFiniteNumber(serverTime)) return null;
   if (!Array.isArray(players) || !Array.isArray(hexes)) return null;
   return {
@@ -181,7 +190,8 @@ export function parseInitState(value: unknown): InitState | null {
     lifetimeEarned: Math.max(0, numberOr(lifetimeEarned, 0)),
     clock: parseClock(clock) ?? { ...DEFAULT_CLOCK, serverTime },
     weather: parseWeather(weather) ?? { kind: 'clear', untilServerTime: null },
-    debris: parseDebrisInit(debris)
+    debris: parseDebrisInit(debris),
+    logistics: parseLogisticsInit(logistics)
   };
 }
 
@@ -194,11 +204,11 @@ export const decodeRot16 = (rot16: number): number => ((rot16 & 0xffff) / 65536)
 /** Radians -> rot16, as the server encodes it. */
 export const encodeRot16 = (rad: number): number => Math.round((rad / (Math.PI * 2)) * 65536) & 0xffff;
 
-/** One `[id, xCm, yCm, zCm, rot16, stateIdx, corr, tool]` tuple (C.5: length 8); null when malformed. */
+/** One `[id, xCm, yCm, zCm, rot16, stateIdx, corr, tool, carry]` tuple (D.5: length 9); null when malformed. */
 export function decodeTickPlayer(value: unknown): TickPlayer | null {
-  if (!Array.isArray(value) || value.length < 8) return null;
-  const [id, xCm, yCm, zCm, rot16, stateIdx, corr, tool]: unknown[] = value;
-  if (!isInt(id) || !isInt(xCm) || !isInt(yCm) || !isInt(zCm) || !isInt(rot16) || !isInt(stateIdx) || !isToolId(tool)) return null;
+  if (!Array.isArray(value) || value.length < 9) return null;
+  const [id, xCm, yCm, zCm, rot16, stateIdx, corr, tool, carry]: unknown[] = value;
+  if (!isInt(id) || !isInt(xCm) || !isInt(yCm) || !isInt(zCm) || !isInt(rot16) || !isInt(stateIdx) || !isToolId(tool) || !isCarry(carry)) return null;
   return {
     id,
     x: decodeCm(xCm),
@@ -207,7 +217,8 @@ export function decodeTickPlayer(value: unknown): TickPlayer | null {
     rotY: decodeRot16(rot16),
     state: PLAYER_ANIM_STATES[stateIdx] ?? 'IDLE',
     corr: corr === 1 || corr === true,
-    tool
+    tool,
+    carry
   };
 }
 

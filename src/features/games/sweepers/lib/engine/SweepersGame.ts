@@ -29,7 +29,7 @@ import type { CellPaint } from '../debris/ChunkStore';
 import { ToolRig, RIG_DRAW_CALLS } from '../tools/ToolRig';
 import { REMOTE_PROP_DRAW_CALLS } from '../tools/RemoteToolProps';
 import { ToolSession } from '../tools/ToolSession';
-import { chooseSlot } from '../tools/hotbar';
+import { BAG_SLOT, chooseSlot } from '../tools/hotbar';
 import { HAND_TOOL, KIOSK_RADIUS_M, KOFOLA_SPRINT, WORKBENCH_RADIUS_M, isBroom, toolSpec } from '../tools/catalog';
 import { hotbarSlot, type InputAction } from '../input/keymap';
 import {
@@ -42,6 +42,17 @@ import {
   type SweepAck
 } from '../../debrisTypes';
 import { SWEEPERS_ERRORS } from '../../errors';
+import { LogisticsStore } from '../logistics/LogisticsStore';
+import { LOGISTICS_DRAW_CALLS, LogisticsRenderer, type CarriedBag } from '../logistics/LogisticsRenderer';
+import { BAG_TIERS, CRANE, STRUCT_TYPES, isBeltLike } from '../logistics/tables';
+import { inPorts, landmarkOutPort, pathPoint } from '../logistics/network';
+import { checkPlacement, footprint, freeOutPorts, ghostAt, refusalText, structureColliders, type PlaceCheck } from '../logistics/placement';
+import { craneBags, nearestJam, nearestPickableBag, structName, throwWorld } from '../logistics/queries';
+import { THROW_TAP_MS, chargePower, simulateThrow } from '../logistics/throwArc';
+import { TieAnimation, chooseInteraction } from '../logistics/interact';
+import { nextBagTier, shownBagTier } from '../tools/hotbar';
+import type { LogisticsActionPayload, PlaceStructurePayload } from '../net/SweepersNet';
+import { parseCraneAck, parseOkAck, parseThrowAck, type LogisticsInit, type LogisticsUpdate, type OkAck, type PlaceAck, type StructRow, type TieAck } from '../../logisticsTypes';
 import { DEFAULT_CLOCK, type ClockState, type DistrictUnlocked, type WeatherKind, type WeatherState } from '../../worldTypes';
 
 export interface SweepersHud {
@@ -88,10 +99,27 @@ export interface SweepersPlayerHud {
   readonly shop: { readonly workbench: boolean; readonly kiosk: boolean };
   /** The server streams debris (Phase C). */
   readonly debris: boolean;
+  /** Phase D: a bag in hand, the tier slot 6 shows (null: no stock), the tie progress 0..1. */
+  readonly carrying: boolean;
+  readonly bagTier: number | null;
+  readonly tie: number;
 }
+
+/** Build mode (65): the selected type, rotation, level and why the ghost is red (null: green). */
+export interface SweepersBuildHud {
+  readonly type: number;
+  readonly rot: number;
+  readonly lvl: number;
+  readonly reason: string | null;
+}
+
+/** What E opened (D.7): the crane panel, the office (MÉH műhely + Logisztika) or the büfé. */
+export type SweepersPanel = 'crane' | 'office' | 'kiosk';
 
 /** Main-pass draws Phase C adds on top of the city plan and the figures (≤ 16, C.7). */
 export const PHASE_C_DRAW_CALLS = DEBRIS_DRAW_CALLS + RIG_DRAW_CALLS + REMOTE_PROP_DRAW_CALLS + PARTICLE_DRAW_CALLS;
+/** Main-pass draws Phase D adds (≤ 18, D.7). */
+export const PHASE_D_DRAW_CALLS = LOGISTICS_DRAW_CALLS;
 
 /** Radar snapshot (spec 30), ~10 Hz. */
 export interface SweepersRadar {
@@ -121,6 +149,15 @@ export interface SweepersGameCallbacks {
   onPlayer(hud: SweepersPlayerHud): void;
   /** A short Hungarian message for the player. */
   onToast(text: string): void;
+  /** Phase D sends (false: nothing was sent). */
+  tieBag(tier: number, onAck: (ack: TieAck) => void): boolean;
+  placeStructure(req: PlaceStructurePayload, onAck: (ack: PlaceAck) => void): boolean;
+  deleteStructure(id: number, onAck: (ack: OkAck) => void): boolean;
+  logisticsAction<T>(action: LogisticsActionPayload, parse: (value: unknown) => T, onAck: (ack: T) => void): boolean;
+  /** E opened a panel (D.7 priority 3–5). */
+  onPanel(panel: SweepersPanel): void;
+  /** Build mode state, null when it is off. */
+  onBuild(hud: SweepersBuildHud | null): void;
 }
 
 const KEEPALIVE_MS = 1000;
@@ -147,6 +184,15 @@ const ACID_TOAST_MS = 3000;
 const BEER_ROLL_RAD = (1.5 * Math.PI) / 180;
 const BEER_HZ = 0.6;
 const EXHAUSTED_TOAST_MS = 2500;
+/** Build camera (65): 45° pitch, 18 m behind and above the player. */
+const BUILD_CAM_M = 18;
+const BUILD_PITCH = -Math.PI / 4;
+/** Jam buzzer: every 2 s within 25 m (D.7). */
+const BUZZER_MS = 2000;
+const BUZZER_RANGE_M = 25;
+const KG_FORMAT = new Intl.NumberFormat('hu-HU', { maximumFractionDigits: 2 });
+const formatKg = (kg: number): string => KG_FORMAT.format(kg);
+const JAM_TOAST = 'Elakadt a szalag! Üsd meg a vészgombot seprűvel (E).';
 
 export const EMPTY_HUD: SweepersHud = {
   district: null,
@@ -214,18 +260,43 @@ export class SweepersGame {
   #lastExhaustedToast = -Infinity;
   #lastDetectorClick = -Infinity;
   #stenchUntil = 0;
+  readonly #logistics = new LogisticsStore();
+  readonly #logi = new LogisticsRenderer(this.#logistics);
+  #logisticsOn = false;
+  #structVersion = -1;
+  /** Bag in this player's hands (tick row `carry`), 0 = none. */
+  #carry = 0;
+  /** Remote player id → carried bag id. */
+  readonly #carriers = new Map<number, number>();
+  #bagTier: number | null = null;
+  readonly #tie = new TieAnimation();
+  /** Build mode (65): type, rotation, level; null when off. */
+  #build: { type: number; rot: number; lvl: number } | null = null;
+  #buildHud: SweepersBuildHud | null = null;
+  #ghost: (PlaceStructurePayload & { check: PlaceCheck }) | null = null;
+  #hover: { x: number; z: number } | null = null;
+  #lastBuzzer = -Infinity;
+  readonly #euler = new THREE.Euler(0, 0, 0, 'YXZ');
+  readonly #ray = new THREE.Raycaster();
+  readonly #rayNdc = new THREE.Vector2();
   constructor(mount: HTMLElement, callbacks: SweepersGameCallbacks) {
     this.#cb = callbacks;
     this.#renderer = new SweepersRenderer(mount);
     const canvas = this.#renderer.canvas;
-    this.#onCanvasClick = () => this.lock();
+    this.#onCanvasClick = () => {
+      if (this.#build === null) this.lock();
+    };
     this.#onWindowResize = () => this.#renderer.resize(this.#controls.camera);
     let controls: FirstPersonControls | null = null;
     let observer: ResizeObserver | null = null;
     try {
       controls = new FirstPersonControls(canvas, (locked) => {
-        this.input.gameplayEnabled = locked;
-        if (!locked) this.input.clear();
+        // build mode releases the pointer on purpose (the cursor aims the ghost) and keeps playing
+        this.input.gameplayEnabled = locked || this.#build !== null;
+        if (!locked && this.#build === null) {
+          this.input.clear();
+          this.#tie.cancel(); // a tie never completes behind the pause menu
+        }
         callbacks.onLockChange(locked);
       });
       this.#controls = controls;
@@ -235,13 +306,14 @@ export class SweepersGame {
       this.#rain = new WeatherFx();
       this.#debris = new DebrisWorld((x, z) => this.#world.groundAt(x, z));
       controls.camera.add(this.#rig.root);
-      this.#scene.add(controls.camera, this.#rain.root, this.#debris.root);
+      this.#scene.add(controls.camera, this.#rain.root, this.#debris.root, this.#logi.root);
       resetWorldUniforms();
 
       this.input.attach(window, canvas);
       this.#offAction = this.input.onAction(callbacks.onAction);
-      this.#offToolAction = this.input.onAction((action, edge) => {
+      this.#offToolAction = this.input.onAction((action, edge, heldMs) => {
         if (edge === 'down') this.#toolAction(action);
+        else if (action === 'primaryUse' && heldMs !== undefined) this.#primaryUp(heldMs); // a cancelled release (Esc, blur) never throws
       });
       canvas.addEventListener('click', this.#onCanvasClick);
 
@@ -292,6 +364,12 @@ export class SweepersGame {
     this.#debris.reset(); // the server streams the interest disc again; the mask keeps what it shows
     this.#world.load(state.layout, state.hexes, state.unlockedDistricts);
     this.#tools.reset(state.personal, now);
+    this.#applyLogisticsInit(state.logistics, state.serverTime);
+    this.#carry = state.players.find((p) => p.id === state.selfId)?.carry ?? 0;
+    this.#carriers.clear();
+    for (const p of state.players) if (p.id !== state.selfId && p.carry !== 0) this.#carriers.set(p.id, p.carry);
+    this.#tie.cancel();
+    this.#setBuild(null);
     this.#rig.setTool(state.personal.toolTier);
     this.#stenchUntil = state.personal.fx.stench ?? 0;
     const self = state.players.find((p) => p.id === state.selfId);
@@ -325,6 +403,9 @@ export class SweepersGame {
     const ack = self === null ? null : ackFor(tick, self);
     if (ack !== null) this.#prediction.acknowledge(ack);
     for (const p of tick.players) {
+      if (p.id === self) this.#carry = p.carry;
+      else if (p.carry !== 0) this.#carriers.set(p.id, p.carry);
+      else this.#carriers.delete(p.id);
       if (p.id === self) {
         if (!p.corr) continue; // own pose is predicted locally; only corrections apply
         const fixed = this.#prediction.reconcile(p, ack, this.#body);
@@ -341,7 +422,10 @@ export class SweepersGame {
       }
       this.#remotes.push(p.id, { t: tick.t, x: p.x, y: p.y, z: p.z, rotY: p.rotY }, p.state, p.tool);
     }
-    for (const id of tick.gone) this.#remotes.remove(id);
+    for (const id of tick.gone) {
+      this.#remotes.remove(id);
+      this.#carriers.delete(id);
+    }
   }
 
   addPlayer(player: PlayerSnapshot): void {
@@ -351,6 +435,55 @@ export class SweepersGame {
 
   removePlayer(id: number): void {
     this.#remotes.remove(id);
+    this.#carriers.delete(id);
+  }
+
+  /** `miskolc:structure_spawned`: shown at once; colliders and links follow. */
+  applyStructureSpawned(row: StructRow): void {
+    this.#logistics.applySpawned(row);
+  }
+
+  /** `miskolc:logistics_update` (D.5): the maps, arcs, bursts, crane and fills. */
+  applyLogistics(update: LogisticsUpdate): void {
+    const events = this.#logistics.applyUpdate(update);
+    const { x, z } = this.#body;
+    for (const b of events.bursts) {
+      this.audio.sfx('sfx_bag_burst', b);
+      this.#debris.particles.puff({ x: b.x, y: this.#world.groundAt(b.x, b.z) + 0.2, z: b.z }, 14);
+    }
+    if (events.jammed.some((r) => Math.hypot(r.x - x, r.z - z) <= BUZZER_RANGE_M)) this.#cb.onToast(JAM_TOAST);
+    if (events.packing.length > 0) this.audio.sfx('sfx_packager_cycle', events.packing[0]);
+    if (update.crane) this.audio.sfx('sfx_crane_motor', { x: update.crane.fx, z: update.crane.fz });
+  }
+
+  /** Telemetry subscription for the Logisztika tab (D.7: on while it is open). */
+  setTelemetry(on: boolean): boolean {
+    return this.#cb.logisticsAction({ kind: 'telemetry', on }, parseOkAck, (ack) => {
+      if (!ack.ok && isToastable(ack, false)) this.#cb.onToast(ack.error);
+    });
+  }
+
+  /** CranePanel: the bags in the area (D.4 `crane`). */
+  get craneBags(): ReturnType<typeof craneBags> {
+    return craneBags(this.#logistics);
+  }
+
+  /** CranePanel: moves `bag` to target `to` (0..4). */
+  sendCrane(bag: number, to: number): void {
+    this.#cb.logisticsAction({ kind: 'crane', bag, to }, parseCraneAck, (ack) => {
+      if (ack.ok) this.#cb.onToast(`A daru úton van (${Math.round(ack.durMs / 1000)} mp).`);
+      else if (isToastable(ack, false)) this.#cb.onToast(ack.error);
+    });
+  }
+
+  /** Build mode active (the view hides the pause overlay while the pointer is free). */
+  get building(): boolean {
+    return this.#build !== null;
+  }
+
+  /** The mirror (tests / panels). */
+  get logistics(): LogisticsStore {
+    return this.#logistics;
   }
 
   /** `miskolc:clock`: re-anchors the local extrapolation. */
@@ -460,6 +593,7 @@ export class SweepersGame {
     this.#remotes.dispose();
     this.#rain.dispose();
     this.#debris.dispose();
+    this.#logi.dispose();
     this.#rig.dispose();
     this.#world.dispose();
     this.#env.dispose();
@@ -490,11 +624,13 @@ export class SweepersGame {
     const beer = (this.#tools.personal.fx.beer ?? 0) > serverNowStart;
     const roll = beer ? BEER_ROLL_RAD * Math.sin(this.#elapsed * Math.PI * 2 * BEER_HZ) : 0;
     this.#controls.update(this.#body, this.#mode === 'SPRINT', dt, roll);
+    if (this.#build) this.#buildCamera(yaw);
     const serverNow = this.#clock.now(now);
     this.#environment(serverNow, dt, now);
     this.#remotes.update(serverNow, dt);
     if (this.#ready) {
       this.#phaseC(now, serverNow, dt, yaw, prevX, prevZ);
+      this.#phaseD(now, serverNow, yaw);
       this.#maybeSend(now, yaw);
       this.#updateHud(false);
       this.#radarTick(now, yaw);
@@ -548,7 +684,7 @@ export class SweepersGame {
     }
     this.#inAcid = inAcid;
     if (!this.#debrisOn) return;
-    if (this.#controls.isLocked) this.#useTools(now, yaw, stench);
+    if (this.#controls.isLocked && this.#build === null && this.#carry === 0) this.#useTools(now, yaw, stench);
     if (dt > 0) this.#kicks(now, (this.#body.x - prevX) / dt, (this.#body.z - prevZ) / dt);
     if (this.#tools.tool === 6) {
       const interval = detectorInterval(nearestBuriedCopper(this.#debris.store, this.#body.x, this.#body.z, 6));
@@ -595,6 +731,7 @@ export class SweepersGame {
       return;
     }
     this.#lastUseAt = now;
+    this.#tie.cancel(); // a tool use cancels the tie (D.7)
     this.#rig.use(alt);
     this.#useEffects(use.tool, alt, x, z, yaw, prediction);
   }
@@ -672,12 +809,17 @@ export class SweepersGame {
     if (this.#kicked.size > 256) for (const [id, at] of this.#kicked) if (now - at >= KICK_COOLDOWN_MS) this.#kicked.delete(id);
   }
 
-  /** Hotbar keys (60) and G (dump). */
+  /** Hotbar keys (60), G (dump) and the Phase D keys (Q, E, B, R, PgUp/PgDn, wheel, Esc, LMB/RMB in build mode). */
   #toolAction(action: InputAction): void {
-    if (!this.#ready || !this.#debrisOn) return;
+    if (!this.#ready) return;
+    if (action === 'interact') {
+      this.#interact();
+      return;
+    }
+    if (this.#logisticsAction(action) || !this.#debrisOn) return;
     if (action === 'dumpPack') {
       this.#cb.sendAction({ kind: 'dump' }, (ack) => {
-        if (ack.ok) this.#cb.onToast('Kiborítottad a hátizsákot.');
+        if (ack.ok) this.#cb.onToast(ack.hopperKg === undefined ? 'Kiborítottad a hátizsákot.' : `Garatba ürítve: ${formatKg(ack.hopperKg)} kg`);
         else if (isToastable(ack, false)) this.#cb.onToast(ack.error);
       });
       return;
@@ -685,6 +827,16 @@ export class SweepersGame {
     const slot = hotbarSlot(action);
     if (slot === null) return;
     const p = this.#tools.personal;
+    if (slot === BAG_SLOT) {
+      this.#bagTier = nextBagTier(p.bags, shownBagTier(p.bags, this.#bagTier));
+      this.#emitPlayerHud(performance.now(), true);
+      return;
+    }
+    if (this.#carry !== 0) {
+      this.#cb.onToast(SWEEPERS_ERRORS.handsFull); // tools are locked while carrying (D.7)
+      return;
+    }
+    this.#tie.cancel();
     const choice = chooseSlot(slot, p.owned, this.#tools.tool);
     if (choice.kind === 'unowned') {
       this.#cb.onToast(SWEEPERS_ERRORS.notOwned);
@@ -724,6 +876,258 @@ export class SweepersGame {
     this.#selectRetry = null;
   }
 
+  #applyLogisticsInit(init: LogisticsInit | null, serverTime: number): void {
+    this.#logisticsOn = init !== null;
+    this.#logistics.applyInit(init, this.#world.layout?.landmarks.hopper ?? null, serverTime);
+    this.#structVersion = -1;
+  }
+
+  /** Bags, belts, ties, throws, the build ghost and the jam buzzer, once per frame (Phase D). */
+  #phaseD(now: number, serverNow: number, yaw: number): void {
+    // the combined collider index follows the structure set (D.2); the crane legs only when the server runs logistics
+    if (this.#structVersion !== this.#logistics.version) {
+      this.#structVersion = this.#logistics.version;
+      const layout = this.#world.layout;
+      this.#world.collision.setStructureColliders(layout && this.#logisticsOn ? structureColliders(this.#logistics.structures.values(), (x, z) => this.#world.groundAt(x, z)) : []);
+    }
+    this.#rig.root.visible = this.#carry === 0;
+    if (!this.#logisticsOn) return;
+    const { x, z } = this.#body;
+    const tie = this.#tie.update(x, z, now);
+    if (tie !== null && tie !== 'cancelled') this.#sendTie(tie);
+    const charging = this.#carry !== 0 && this.#build === null && this.input.isDown('primaryUse');
+    this.#logi.setArc(charging ? simulateThrow(this.#throwWorld(), this.#body, yaw, chargePower(this.input.heldFor('primaryUse')), this.#pitch()).points : null);
+    if (this.#build) this.#updateGhost();
+    const jam = nearestJam(this.#logistics, x, z);
+    if (jam && jam.d <= BUZZER_RANGE_M && now - this.#lastBuzzer >= BUZZER_MS) {
+      this.#lastBuzzer = now;
+      this.audio.sfx('sfx_buzzer_alarm', this.#logistics.structures.get(jam.id));
+    }
+    this.#logi.update({ serverNow, ground: (gx, gz) => this.#world.groundAt(gx, gz), carried: this.#carried(yaw) }, this.#elapsed);
+  }
+
+  /** Bags in hands: this player's in front of the camera, the others' at their figure. */
+  #carried(yaw: number): CarriedBag[] {
+    const out: CarriedBag[] = [];
+    const { x, y, z } = this.#body;
+    if (this.#carry !== 0) out.push({ id: this.#carry, x: x - Math.sin(yaw) * 0.45, y: y + 0.75, z: z - Math.cos(yaw) * 0.45, rotY: yaw });
+    for (const pin of this.#remotes.pins()) {
+      const id = this.#carriers.get(pin.id);
+      if (id !== undefined) out.push({ id, x: pin.x - Math.sin(pin.rotY) * 0.35, y: this.#world.groundAt(pin.x, pin.z) + 0.7, z: pin.z - Math.cos(pin.rotY) * 0.35, rotY: pin.rotY });
+    }
+    return out;
+  }
+
+  #pitch(): number {
+    return this.#euler.setFromQuaternion(this.#controls.camera.quaternion, 'YXZ').x;
+  }
+
+  #throwWorld(): ReturnType<typeof throwWorld> {
+    const collision = this.#world.collision;
+    return throwWorld({
+      store: this.#logistics,
+      ground: (x, z) => this.#world.groundAt(x, z),
+      isLocked: (x, z) => collision.isLocked(x, z),
+      collidersAt: (x, z) => collision.collidersAt(x, z)
+    });
+  }
+
+  #sendTie(tier: number): void {
+    this.#cb.tieBag(tier, (ack) => {
+      if (ack.ok) this.#cb.onToast(`Bezsákolva: ${formatKg(ack.kg)} kg (${BAG_TIERS[ack.tier]?.name ?? ''})`);
+      else if (isToastable(ack, false)) this.#cb.onToast(ack.error);
+    });
+  }
+
+  /** LMB released while carrying: the throw (a hold < 0.2 s drops, D.7). */
+  #primaryUp(heldMs: number): void {
+    if (!this.#ready || !this.#logisticsOn || this.#build || this.#carry === 0) return;
+    const pitch = Math.min(1.2, Math.max(-0.6, this.#pitch()));
+    const sent = this.#cb.logisticsAction({ kind: 'throw', power: chargePower(heldMs), pitch, rotY: this.#controls.yaw }, parseThrowAck, (ack) => {
+      if (!ack.ok) {
+        if (isToastable(ack, false)) this.#cb.onToast(ack.error);
+      } else if (ack.burst) this.#cb.onToast('Kiszakadt a zsák!');
+    });
+    if (sent && heldMs >= THROW_TAP_MS) this.audio.sfx('sfx_bag_throw');
+  }
+
+  /** E (D.7): jam with a broom → bag → crane console → office → kiosk. */
+  #interact(): void {
+    if (this.#build) return;
+    const { x, z } = this.#body;
+    const store = this.#logistics;
+    const on = this.#logisticsOn;
+    const office = this.#world.layout?.landmarks.office;
+    const pathAt = (node: number, s: number, route: number, input: number): { x: number; y: number; z: number } | null => {
+      const row = store.structures.get(node);
+      return row ? pathPoint(row, s, route, input) : null;
+    };
+    const choice = chooseInteraction({
+      jam: on ? nearestJam(store, x, z) : null,
+      broom: isBroom(this.#tools.tool),
+      bag: on && this.#carry === 0 ? nearestPickableBag(store, store.cargoS(this.#clock.now(performance.now())), pathAt, x, z, this.#world.groundAt(x, z)) : null,
+      craneD: on ? Math.hypot(CRANE.console.x - x, CRANE.console.z - z) : Infinity,
+      officeD: this.#debrisOn && office ? Math.hypot(office.x - x, office.z - z) : Infinity,
+      kiosk: this.shopAccess.kiosk
+    });
+    if (!choice) return;
+    const toastRefusal = (ack: OkAck): void => {
+      if (!ack.ok && isToastable(ack, false)) this.#cb.onToast(ack.error);
+    };
+    if (choice.kind === 'clearJam') this.#cb.logisticsAction({ kind: 'clearJam', id: choice.id }, parseOkAck, toastRefusal);
+    else if (choice.kind === 'pickup') this.#cb.logisticsAction({ kind: 'pickup', id: choice.id }, parseOkAck, toastRefusal);
+    else this.#cb.onPanel(choice.kind);
+  }
+
+  /** Phase D keys; true when the action was taken. */
+  #logisticsAction(action: InputAction): boolean {
+    const build = this.#build;
+    const now = performance.now();
+    switch (action) {
+      case 'tieBag':
+        if (!this.#logisticsOn || this.#tie.active || this.#build) return true;
+        if (this.#carry !== 0) this.#cb.onToast(SWEEPERS_ERRORS.handsFull);
+        else {
+          this.#tie.start(this.#body.x, this.#body.z, shownBagTier(this.#tools.personal.bags, this.#bagTier) ?? 0, now);
+          this.audio.sfx('sfx_bag_tie');
+        }
+        return true;
+      case 'toggleBuild':
+        if (this.#logisticsOn && this.#world.layout) this.#setBuild(build ? null : { type: 2, rot: 0, lvl: 0 });
+        return true;
+      case 'exitBuild':
+        if (build) this.#setBuild(null);
+        return true;
+      case 'rotateBuild':
+        if (build) build.rot = (build.rot + 1) % 4;
+        return true;
+      case 'buildLevelUp':
+      case 'buildLevelDown':
+        if (build) build.lvl = Math.min(2, Math.max(0, build.lvl + (action === 'buildLevelUp' ? 1 : -1)));
+        return true;
+      case 'paletteNext':
+      case 'palettePrev':
+        if (build) build.type = (build.type + (action === 'paletteNext' ? 1 : STRUCT_TYPES.length - 1)) % STRUCT_TYPES.length;
+        return true;
+      case 'primaryUse':
+        if (build) this.#place();
+        return build !== null;
+      case 'secondaryUse':
+        if (build) this.#demolish();
+        return build !== null;
+      default:
+        return false;
+    }
+  }
+
+  #setBuild(next: { type: number; rot: number; lvl: number } | null): void {
+    const was = this.#build !== null;
+    this.#build = next;
+    if (next && !was) {
+      this.#tie.cancel();
+      this.input.gameplayEnabled = true;
+      this.#controls.unlock(); // the cursor aims the ghost (D.7)
+      this.#cb.onToast('Építő mód – R: forgatás, PgUp/PgDn: szint, jobb klikk: bontás');
+    } else if (!next && was) {
+      this.#ghost = null;
+      this.#hover = null;
+      this.#logi.setGhost(null, null);
+      this.#euler.set(0, this.#controls.yaw, 0, 'YXZ');
+      this.#controls.camera.quaternion.setFromEuler(this.#euler);
+      this.input.gameplayEnabled = this.#controls.isLocked;
+      this.#cb.onToast('Építő mód kikapcsolva');
+      this.lock();
+    }
+    if (!next && this.#buildHud !== null) {
+      this.#buildHud = null;
+      this.#cb.onBuild(null);
+    }
+  }
+
+  /** Overhead build camera (65): 45° down, 18 m from the player, facing the player's yaw. */
+  #buildCamera(yaw: number): void {
+    const cam = this.#controls.camera;
+    this.#euler.set(BUILD_PITCH, yaw, 0, 'YXZ');
+    cam.quaternion.setFromEuler(this.#euler);
+    const k = BUILD_CAM_M * Math.SQRT1_2;
+    cam.position.set(this.#body.x + Math.sin(yaw) * k, this.#body.y + k, this.#body.z + Math.cos(yaw) * k);
+  }
+
+  /** The ghost under the cursor: snapped, coloured by the client D.3 copy (the server decides). */
+  #updateGhost(): void {
+    const build = this.#build;
+    const layout = this.#world.layout;
+    if (!build || !layout) return;
+    const cam = this.#controls.camera;
+    const ptr = this.input.pointer;
+    let hover = { x: this.#body.x - Math.sin(this.#controls.yaw) * 4, z: this.#body.z - Math.cos(this.#controls.yaw) * 4 };
+    if (ptr) {
+      this.#ray.setFromCamera(this.#rayNdc.set(ptr.x, ptr.y), cam);
+      const { origin: o, direction: d } = this.#ray.ray;
+      if (d.y < -1e-3) {
+        const t = (this.#body.y - o.y) / d.y;
+        hover = { x: o.x + d.x * t, z: o.z + d.z * t };
+      }
+    }
+    this.#hover = hover;
+    const store = this.#logistics;
+    const lm = { ...landmarkOutPort(layout.landmarks.hopper, (x, z) => this.#world.groundAt(x, z)), lvl: 0, baseY: 0 };
+    // the landmark out port is offered only while no in port sits on it
+    const lmTaken = [...store.structures.values()].some((r) => inPorts(r).some((p) => Math.abs(p.x - lm.x) < 1e-3 && Math.abs(p.z - lm.z) < 1e-3));
+    const free = [...freeOutPorts(store.structures.values(), store.links), ...(lmTaken ? [] : [lm])];
+    const ghost = ghostAt(build.type, build.rot, build.lvl, hover, free);
+    const check = checkPlacement({
+      layout,
+      ground: (x, z) => this.#world.groundAt(x, z),
+      isLocked: (x, z) => this.#world.collision.isLocked(x, z),
+      structures: store.structures.values(),
+      groundBags: [...store.bags.values()].filter((b) => b.st === 0),
+      players: [this.#body, ...this.#remotes.pins()],
+      pose: this.#body
+    }, ghost);
+    this.#ghost = { type: ghost.type, x: ghost.x, z: ghost.z, rot: ghost.rot, lvl: ghost.lvl, check };
+    const ground = this.#world.groundAt(ghost.x, ghost.z);
+    this.#logi.setGhost({ type: ghost.type, x: ghost.x, z: ghost.z, rot: ghost.rot, y: check.ok ? check.baseY : ground, ok: check.ok }, { x: ghost.x, y: ground, z: ghost.z });
+    const hud: SweepersBuildHud = { type: ghost.type, rot: ghost.rot, lvl: ghost.lvl, reason: refusalText(check, SWEEPERS_ERRORS) };
+    const h = this.#buildHud;
+    if (h && h.type === hud.type && h.rot === hud.rot && h.lvl === hud.lvl && h.reason === hud.reason) return;
+    this.#buildHud = hud;
+    this.#cb.onBuild(hud);
+  }
+
+  /** LMB in build mode: the server checks D.3 again and answers. */
+  #place(): void {
+    const g = this.#ghost;
+    if (!g) return;
+    const name = structName(g.type);
+    this.#cb.placeStructure({ type: g.type, x: g.x, z: g.z, rot: g.rot, lvl: g.lvl }, (ack) => {
+      if (ack.ok) {
+        this.#cb.onToast(`Megépítve: ${name}`);
+        this.audio.sfx('sfx_build_place', g);
+      } else if (isToastable(ack, false)) this.#cb.onToast(ack.error);
+    });
+  }
+
+  /** RMB in build mode: deletes the hovered structure (a piece on top before its foundation). */
+  #demolish(): void {
+    const h = this.#hover;
+    if (!h) return;
+    const hit = [...this.#logistics.structures.values()]
+      .filter((r) => {
+        const f = footprint(r.type, r.x, r.z, r.rot);
+        return h.x >= f.x0 && h.x <= f.x1 && h.z >= f.z0 && h.z <= f.z1;
+      })
+      .sort((a, b) => Number(a.type <= 1) - Number(b.type <= 1))[0];
+    if (!hit) return;
+    const name = structName(hit.type);
+    this.#cb.deleteStructure(hit.id, (ack) => {
+      if (ack.ok) {
+        this.#cb.onToast(`Lebontva: ${name}`);
+        this.audio.sfx('sfx_build_delete', hit);
+      } else if (isToastable(ack, false)) this.#cb.onToast(ack.error);
+    });
+  }
+
   #emitPlayerHud(now: number, force: boolean): void {
     if (!force && now - this.#lastPlayerHud < PLAYER_HUD_INTERVAL_MS) return;
     this.#lastPlayerHud = now;
@@ -736,10 +1140,14 @@ export class SweepersGame {
       stamina: Math.round(this.#tools.stamina(now, this.#mode) * 10) / 10,
       fx,
       shop: this.shopAccess,
-      debris: this.#debrisOn
+      debris: this.#debrisOn,
+      carrying: this.#carry !== 0,
+      bagTier: shownBagTier(p.bags, this.#bagTier),
+      tie: Math.round(this.#tie.progress(now) * 20) / 20
     };
     const h = this.#playerHud;
     if (!force && h && h.personal === hud.personal && h.tool === hud.tool && h.stamina === hud.stamina && h.debris === hud.debris
+      && h.carrying === hud.carrying && h.bagTier === hud.bagTier && h.tie === hud.tie
       && h.fx.stench === fx.stench && h.fx.beer === fx.beer && h.fx.kofola === fx.kofola
       && h.shop.workbench === hud.shop.workbench && h.shop.kiosk === hud.shop.kiosk) return;
     this.#playerHud = hud;
@@ -748,6 +1156,7 @@ export class SweepersGame {
 
   /** The animation state sent to the server: the tool's while it is in use, else the locomotion mode. */
   #sendState(now: number): PlayerAnimState {
+    if (this.#carry !== 0) return 'HOLDING_BAG';
     if (now - this.#lastUseAt >= USE_STATE_MS) return this.#mode;
     const tool = this.#tools.tool;
     if (tool === 4 || tool === 5) return 'OPERATING_VACUUM';
@@ -827,7 +1236,7 @@ export class SweepersGame {
     const info = this.#renderer.renderer.info;
     const plan = this.#world.plan;
     const players = this.#remotes.count;
-    const budget = plan ? drawBudget(plan, players * FIGURE_DRAW_CALLS + PHASE_C_DRAW_CALLS, players * FIGURE_SHADOW_CASTERS) : null;
+    const budget = plan ? drawBudget(plan, players * FIGURE_DRAW_CALLS + PHASE_C_DRAW_CALLS + PHASE_D_DRAW_CALLS, players * FIGURE_SHADOW_CASTERS) : null;
     const lod = this.#world.lodStats;
     this.#cb.onDebug({
       fps: this.#fps,
@@ -839,7 +1248,7 @@ export class SweepersGame {
       plannedDrawCalls: budget?.total ?? null,
       lod: lod ? { ...lod } : null,
       debris: this.#debris.renderer.stats.rendered,
-      conveyors: 0,
+      conveyors: this.#logi.stats.conveyors,
       rttMs: this.#rttMs,
       x: this.#body.x,
       y: this.#body.y,

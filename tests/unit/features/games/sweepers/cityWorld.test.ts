@@ -14,7 +14,7 @@ import { districtBanner } from '../../../../../src/features/games/sweepers/compo
 import { realInit, smallInit } from './fixtures';
 import { DebrisWorld } from '../../../../../src/features/games/sweepers/lib/debris/DebrisWorld';
 import { ToolRig } from '../../../../../src/features/games/sweepers/lib/tools/ToolRig';
-import { PHASE_C_DRAW_CALLS } from '../../../../../src/features/games/sweepers/lib/engine/SweepersGame';
+import { PHASE_C_DRAW_CALLS, PHASE_D_DRAW_CALLS } from '../../../../../src/features/games/sweepers/lib/engine/SweepersGame';
 
 const camera = (x: number, z: number, yaw = 0): THREE.PerspectiveCamera => {
   const cam = new THREE.PerspectiveCamera(75, 16 / 9, 0.1, 900);
@@ -63,10 +63,10 @@ describe('draw-call budget (spec 11)', () => {
     vi.unstubAllGlobals();
   });
 
-  it('the plan worst case (every kind visible at once, 16 remote players, night shadows) stays under 400', () => {
+  it('the plan worst case (every kind visible at once, 16 remote players, night shadows, Phase C + D draws) stays under 400', () => {
     const plan = planDraws(worstCaseInput());
     const players = 16;
-    const budget = drawBudget(plan, players * FIGURE_DRAW_CALLS + PHASE_C_DRAW_CALLS, players * FIGURE_SHADOW_CASTERS);
+    const budget = drawBudget(plan, players * FIGURE_DRAW_CALLS + PHASE_C_DRAW_CALLS + PHASE_D_DRAW_CALLS, players * FIGURE_SHADOW_CASTERS);
     expect(budget.total).toBeLessThanOrEqual(DRAW_CALL_LIMIT);
     expect(budget.main + budget.sunShadow + budget.spotShadow).toBe(budget.total);
   });
@@ -82,7 +82,7 @@ describe('draw-call budget (spec 11)', () => {
     const remotes = new RemotePlayers(scene);
     const players = 16;
     for (let id = 1; id <= players; id++) {
-      remotes.add({ id, accountId: null, username: `p${id}`, avatarColor: '#FF7A1A', x: id, y: 0, z: 0, rotY: 0, state: 'IDLE', tool: 0 }, 0);
+      remotes.add({ id, accountId: null, username: `p${id}`, avatarColor: '#FF7A1A', x: id, y: 0, z: 0, rotY: 0, state: 'IDLE', tool: 0, carry: 0 }, 0);
     }
     const rain = new WeatherFx();
     const cam = camera(0, 0);
@@ -140,7 +140,7 @@ describe('draw-call budget (spec 11)', () => {
     const world = new WorldBuilder(scene);
     world.load(init.layout, init.hexes, init.unlockedDistricts);
     const remotes = new RemotePlayers(scene);
-    remotes.add({ id: 1, accountId: null, username: 'p', avatarColor: '#FF7A1A', x: 0, y: 0, z: 0, rotY: 0, state: 'IDLE', tool: 3 }, 0);
+    remotes.add({ id: 1, accountId: null, username: 'p', avatarColor: '#FF7A1A', x: 0, y: 0, z: 0, rotY: 0, state: 'IDLE', tool: 3, carry: 0 }, 0);
     const rain = new WeatherFx();
     const debris = new DebrisWorld(() => 0);
     const rig = new ToolRig();

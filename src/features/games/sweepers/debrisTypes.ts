@@ -3,6 +3,7 @@
 import { isRecord, isString } from '../../../shared/lib/guards';
 import { CELLS_PER_CHUNK, CHUNK_COUNT, FLAG_BURIED, FLAG_STUCK, ITEM_KINDS, type ItemKind } from './lib/debris/tables';
 import { FUEL_TANK_ML, PACK_LEVELS, TOOLS, HAND_TOOL } from './lib/tools/catalog';
+import { parseBagStock } from './logisticsTypes';
 
 const isFiniteNumber = (value: unknown): value is number => typeof value === 'number' && Number.isFinite(value);
 const isInt = (value: unknown): value is number => Number.isInteger(value);
@@ -59,6 +60,8 @@ export interface PersonalState {
   readonly caps: { readonly bufKg: number; readonly packKg: number; readonly packL: number };
   /** Effects, each until a server time (ms). */
   readonly fx: PersonalFx;
+  /** Bag stock per tier [kék, fekete, Big-Bag] (Phase D). */
+  readonly bags: readonly [number, number, number];
 }
 
 export const EMPTY_LOAD: Load = { dustG: 0, seedG: 0, cans: 0, crushed: 0, ironG: 0, copperG: 0, jackpots: [], kg: 0, l: 0 };
@@ -80,7 +83,8 @@ export const DEFAULT_PERSONAL: PersonalState = {
   buf: EMPTY_LOAD,
   pack: EMPTY_LOAD,
   caps: { bufKg: TOOLS[0]?.bufKg ?? 0.5, packKg: PACK_LEVELS[0]?.kg ?? 10, packL: PACK_LEVELS[0]?.l ?? 8 },
-  fx: {}
+  fx: {},
+  bags: [0, 0, 0]
 };
 
 export function parseLoad(value: unknown): Load {
@@ -141,7 +145,8 @@ export function parsePersonalState(value: unknown): PersonalState | null {
       packKg: numberIn(caps.packKg, 0, 1e6, d.caps.packKg),
       packL: numberIn(caps.packL, 0, 1e6, d.caps.packL)
     },
-    fx: parseFx(value.fx)
+    fx: parseFx(value.fx),
+    bags: parseBagStock(value.bags)
   };
 }
 
@@ -319,7 +324,8 @@ export interface Refusal {
 }
 
 export type SweepAck = { readonly ok: true; readonly seq: number; readonly kg: number; readonly items: readonly number[]; readonly pushed: boolean } | Refusal;
-export type ActionAck = { readonly ok: true } | Refusal;
+/** `player_action` ack; a `dump` into a hopper intake carries the hopper's kg (D.4). */
+export type ActionAck = { readonly ok: true; readonly hopperKg?: number } | Refusal;
 export type BuyAck = { readonly ok: true; readonly cash: number } | Refusal;
 
 /** Codes the client never toasts (C.8): cadence refusals, and a rate-limited sweep_hit. */
@@ -350,7 +356,8 @@ export function parseSweepAck(value: unknown): SweepAck {
 
 export function parseActionAck(value: unknown): ActionAck {
   if (!isRecord(value) || typeof value.ok !== 'boolean') return MALFORMED;
-  return value.ok ? { ok: true } : parseRefusal(value);
+  if (!value.ok) return parseRefusal(value);
+  return isFiniteNumber(value.hopperKg) ? { ok: true, hopperKg: value.hopperKg } : { ok: true };
 }
 
 export function parseBuyAck(value: unknown): BuyAck {
