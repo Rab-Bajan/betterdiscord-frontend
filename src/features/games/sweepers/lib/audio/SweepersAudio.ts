@@ -44,7 +44,16 @@ export const SFX_IDS = [
   'sfx_build_place',
   'sfx_build_delete',
   'sfx_crane_motor',
-  'sfx_packager_cycle'
+  'sfx_packager_cycle',
+  // Phase E (E.7)
+  'sfx_scale_ding',
+  'sfx_printer_chatter',
+  'sfx_generator_sputter',
+  'sfx_power_down',
+  'sfx_baler_crunch',
+  'sfx_stripper_whirr',
+  'sfx_coin_drop',
+  'sfx_car_arrive'
 ] as const;
 export type SfxId = (typeof SFX_IDS)[number];
 
@@ -109,7 +118,16 @@ const SFX: Readonly<Record<SfxId, readonly SfxLayer[]>> = {
   sfx_packager_cycle: [
     { src: 'noise', filter: { type: 'bandpass', freq: 500, q: 2 }, gain: 0.2, attack: 0.02, decay: 0.3 },
     { src: 'sine', freq: 140, gain: 0.2, attack: 0.005, decay: 0.2, delay: 0.35 }
-  ]
+  ],
+  sfx_scale_ding: [{ src: 'sine', freq: 1320, gain: 0.25, attack: 0.002, decay: 0.9 }, { src: 'sine', freq: 1980, gain: 0.1, attack: 0.002, decay: 0.6 }],
+  sfx_printer_chatter: [{ src: 'square', freq: 90, gain: 0.06, attack: 0.01, decay: 1.4, tremolo: 32 }, { src: 'noise', filter: { type: 'bandpass', freq: 3000, q: 2 }, gain: 0.08, attack: 0.01, decay: 1.4, tremolo: 16 }],
+  sfx_generator_sputter: [0, 0.18, 0.31, 0.55].map((delay, i) => ({ src: 'sawtooth' as const, freq: 60 - i * 6, gain: 0.14, attack: 0.01, decay: 0.12, delay })),
+  sfx_power_down: [{ src: 'sawtooth', freq: 220, freqEnd: 30, gain: 0.18, attack: 0.01, decay: 1.6 }],
+  // the press crunch plus its hydraulic hiss
+  sfx_baler_crunch: [{ src: 'noise', filter: { type: 'lowpass', freq: 700 }, gain: 0.35, attack: 0.01, decay: 0.5 }, { src: 'noise', filter: { type: 'highpass', freq: 5000 }, gain: 0.12, attack: 0.1, decay: 0.9, delay: 0.4 }],
+  sfx_stripper_whirr: [{ src: 'sawtooth', freq: 180, freqEnd: 260, gain: 0.08, attack: 0.08, decay: 1.2, tremolo: 40 }],
+  sfx_coin_drop: [0, 0.09, 0.16].map((delay, i) => ({ src: 'triangle' as const, freq: 3200 + i * 400, gain: 0.12, attack: 0.001, decay: 0.12, delay })),
+  sfx_car_arrive: [{ src: 'sawtooth', freq: 45, freqEnd: 70, gain: 0.12, attack: 0.6, decay: 2.5, tremolo: 12 }]
 };
 
 /** Beyond this distance a positioned sound is not played (the full mix is Phase H). */

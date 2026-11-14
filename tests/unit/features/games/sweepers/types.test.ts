@@ -77,6 +77,7 @@ describe('sweepers init_state guard', () => {
       personal: { ...DEFAULT_PERSONAL, cash: 120, toolTier: 0, backpackTier: 0, totalKg: 3.5 },
       debris: null,
       logistics: null,
+      economy: null,
       layout: null,
       unlockedDistricts: [0],
       lifetimeEarned: 0,

@@ -67,6 +67,8 @@ export interface WorldFrame {
   readonly now: number;
   readonly night: number;
   readonly lampsOn: boolean;
+  /** Office floodlight power 0..1 (Phase E grid: 0 in a blackout, flickers in a brownout); default 1. */
+  readonly flood?: number;
 }
 
 export class WorldBuilder {
@@ -205,7 +207,7 @@ export class WorldBuilder {
     if (!city) return;
     city.instanced.update(frame.camera);
     city.beacons.update(frame.timeSec);
-    city.lights.update(frame.camera.position.x, frame.camera.position.z, frame.night, frame.lampsOn, frame.now);
+    city.lights.update(frame.camera.position.x, frame.camera.position.z, frame.night, frame.lampsOn, frame.now, frame.flood ?? 1);
   }
 
   /** Off-screen passes that must run before the main render (cleanliness mask). */

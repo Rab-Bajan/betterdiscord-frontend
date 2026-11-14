@@ -64,7 +64,7 @@ describe('Phase D backend fixture: tables (D.1)', () => {
     expect(arr(tables.bagTiers).map((t) => {
       const r = rec(t, 'bagTier');
       return { key: r.key, name: r.name, l: r.l, kg: r.kg, cost: r.cost, rupture: r.rupture, carry: r.carry, r: r.r, h: r.h, color: r.colour, cap: r.stockCap };
-    })).toEqual(BAG_TIERS);
+    })).toEqual(BAG_TIERS.slice(0, 3)); // the D fixture pins tiers 0–2; E pins 3–4
     expect(arr(tables.tints).map((t) => (t === 'tier' ? null : t))).toEqual(TINT_COLORS);
     expect(tables.lotGroups).toEqual(LOT_GROUPS);
   });
@@ -75,12 +75,15 @@ describe('Phase D backend fixture: tables (D.1)', () => {
       expect(r.index).toBe(i);
       expect(r.rotY).toEqual(tables.rotY);
       return { key: r.key, name: r.name, w: r.w, d: r.d, lvlMin: r.lvlMin, lvlMax: r.lvlMax, ins: r.ins, outs: r.outs, len: r.len, collider: collider(rec(r.collider, 'collider')) };
-    })).toEqual(STRUCT_TYPES.map((t) => ({ key: t.key, name: t.name, w: t.w, d: t.d, lvlMin: t.lvlMin, lvlMax: t.lvlMax, ins: t.ins, outs: t.outs, len: t.len ?? 0, collider: t.collider })));
+    })).toEqual(STRUCT_TYPES.slice(0, 14).map((t) => ({ key: t.key, name: t.name, w: t.w, d: t.d, lvlMin: t.lvlMin, lvlMax: t.lvlMax, ins: t.ins, outs: t.outs, len: t.len ?? 0, collider: t.collider })));
   });
   it('rotation, caps and their names', () => {
     expect([0, 1, 2, 3].map(rotYOf)).toEqual(tables.rotY);
-    expect(tables.caps).toEqual(ROOM_CAPS);
-    expect(tables.capNames).toEqual(BUILD_LIMIT_WHAT);
+    // E adds the `machines` cap; the rest is D's
+    const { machines: _cap, ...dCaps } = ROOM_CAPS;
+    const { machines: _name, ...dNames } = BUILD_LIMIT_WHAT;
+    expect(tables.caps).toEqual(dCaps);
+    expect(tables.capNames).toEqual(dNames);
   });
   it('constants', () => {
     const c = rec(tables.constants, 'constants');

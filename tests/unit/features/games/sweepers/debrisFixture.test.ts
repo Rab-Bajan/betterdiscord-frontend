@@ -66,7 +66,7 @@ describe('Phase C backend fixture: init_state', () => {
   const init = section('initState');
   it('personal, debris and the player tool parse with nothing changed', () => {
     // Phase D adds `bags` and `carry`; a Phase C payload gets their defaults
-    expect(parsePersonalState(init.personal)).toEqual({ ...(isRecord(init.personal) ? init.personal : {}), bags: [0, 0, 0] });
+    expect(parsePersonalState(init.personal)).toEqual({ ...(isRecord(init.personal) ? init.personal : {}), bags: [0, 0, 0], greaseGun: false });
     expect(parseDebrisInit(init.debris)).toEqual(init.debris);
     for (const p of list(init, 'players')) expect(parsePlayerSnapshot(p)).toEqual({ ...(isRecord(p) ? p : {}), carry: 0 });
   });
@@ -104,7 +104,7 @@ describe('Phase C backend fixture: events parse with nothing dropped', () => {
   it('personal updates, acks and the tick row with tool', () => {
     for (const name of ['personalAfterSweep', 'personalAfterBuy']) {
       const raw = event(name);
-      expect(parsePersonalState(raw)).toEqual({ ...(isRecord(raw) ? raw : {}), bags: [0, 0, 0] });
+      expect(parsePersonalState(raw)).toEqual({ ...(isRecord(raw) ? raw : {}), bags: [0, 0, 0], greaseGun: false });
     }
     expect(parseSweepAck(event('sweepAck'))).toEqual(event('sweepAck'));
     expect(parseSweepAck(event('handAck'))).toEqual(event('handAck'));

@@ -85,8 +85,8 @@ export class LightingRig {
     }
   }
 
-  /** `night` 0..1 scales the lamps; `now` in ms. */
-  update(px: number, pz: number, night: number, lampsOn: boolean, now: number): void {
+  /** `night` 0..1 scales the lamps; `now` in ms; `flood` 0..1 scales the office floodlight (E grid). */
+  update(px: number, pz: number, night: number, lampsOn: boolean, now: number, flood = 1): void {
     const k = lampsOn ? Math.max(0.35, night) : 0;
     if (lampsOn !== this.#on) {
       this.#on = lampsOn;
@@ -115,7 +115,7 @@ export class LightingRig {
       this.#flood.shadow.needsUpdate = true;
     }
     this.#spot.intensity = this.#heads.length > 0 ? 38 * k : 0;
-    this.#flood.intensity = 120 * k;
+    this.#flood.intensity = 120 * k * flood;
     for (const light of this.#points) light.intensity = 22 * k;
   }
 

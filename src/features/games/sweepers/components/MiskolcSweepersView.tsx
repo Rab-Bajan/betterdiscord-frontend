@@ -16,6 +16,7 @@ import { isToastable } from '../debrisTypes';
 import BuildPalette from './BuildPalette';
 import CranePanel from './CranePanel';
 import LogisticsPanel from './LogisticsPanel';
+import ReceiptPrinter from './ReceiptPrinter';
 import type { BagRow, Telemetry } from '../logisticsTypes';
 import { SWEEPERS_THEME as T } from '../theme';
 
@@ -75,6 +76,8 @@ export default function MiskolcSweepersView({ socket, channelId, voice, onClose 
   const [logiGen, setLogiGen] = useState(0);
   const [craneBags, setCraneBags] = useState<readonly BagRow[]>([]);
   const [craneBusy, setCraneBusy] = useState(false);
+  /** The weigher's receipt strip (E.7), null when none is printing. */
+  const [receipt, setReceipt] = useState<readonly string[] | null>(null);
   const netRef = useRef<SweepersNet | null>(null);
   const toastId = useRef(0);
 
@@ -115,6 +118,7 @@ export default function MiskolcSweepersView({ socket, channelId, voice, onClose 
     setPlayerHud(null);
     setPanel(null);
     setBuildHud(null);
+    setReceipt(null);
     if (!channelId) {
       setError(NO_ROOM_MESSAGE);
       return undefined;
@@ -152,6 +156,7 @@ export default function MiskolcSweepersView({ socket, channelId, voice, onClose 
           gameRef.current?.unlock();
         },
         onBuild: setBuildHud,
+        onReceipt: setReceipt,
         tieBag: (tier, onAck) => net?.tieBag(tier, onAck) ?? false,
         placeStructure: (req, onAck) => net?.placeStructure(req, onAck) ?? false,
         deleteStructure: (id, onAck) => net?.deleteStructure(id, onAck) ?? false,
@@ -193,6 +198,9 @@ export default function MiskolcSweepersView({ socket, channelId, voice, onClose 
       onStructureSpawned: (row) => game.applyStructureSpawned(row),
       onLogistics: (update) => game.applyLogistics(update),
       onTelemetry: setTelemetry,
+      onEconomy: (update) => game.applyEconomy(update),
+      onScaleWeighed: (event) => game.applyScaleWeighed(event),
+      onInspection: (event) => game.applyInspection(event),
       onKicked: (reason) => {
         game.unlock();
         setKickedReason(reason); // re-runs this effect: the cleanup stops the net (no leave_room) and disposes the game
@@ -221,11 +229,13 @@ export default function MiskolcSweepersView({ socket, channelId, voice, onClose 
   const buy = useCallback((offer: ShopOffer) => {
     if (!offer.buy) return;
     const sent = netRef.current?.buyUpgrade(offer.buy, (ack) => {
-      if (ack.ok) pushToast(offer.repair ? `Megjavítva: ${offer.toastName}` : `Megvetted: ${offer.toastName}`);
+      if (ack.ok) pushToast(offer.toast ?? (offer.repair ? `Megjavítva: ${offer.toastName}` : `Megvetted: ${offer.toastName}`));
       else if (isToastable(ack, false)) pushToast(ack.error);
     });
     if (!sent) pushToast('Nincs kapcsolat a szerverrel.');
   }, [pushToast]);
+
+  const closeReceipt = useCallback(() => setReceipt(null), []);
 
   const closeShop = useCallback(() => {
     setPanel(null);
@@ -288,11 +298,13 @@ export default function MiskolcSweepersView({ socket, channelId, voice, onClose 
           access={panel === 'kiosk' ? { workbench: false, kiosk: true } : playerHud.shop}
           onBuy={buy}
           onClose={closeShop}
-          logistics={panel === 'office' && logiGen > 0 ? <LogisticsPanel key={logiGen} telemetry={telemetry} onSubscribe={subscribeTelemetry} /> : undefined}
+          logistics={panel === 'office' && logiGen > 0 ? <LogisticsPanel key={logiGen} telemetry={telemetry} onSubscribe={subscribeTelemetry} grid={hud.economy?.grid ?? null} /> : undefined}
+          team={panel === 'office' && hud.economy ? { funds: hud.teamFunds, bp: hud.economy.bp, dieselL: hud.economy.grid.dieselL, unlocked: hud.economy.unlocked } : undefined}
         />
       )}
       {ready && panel === 'crane' && !error && <CranePanel bags={craneBags} busy={craneBusy} onSend={sendCrane} onClose={closeShop} />}
-      {ready && buildHud && !error && <BuildPalette hud={buildHud} />}
+      {ready && buildHud && !error && <BuildPalette hud={buildHud} bp={hud.economy?.bp ?? 0} />}
+      {ready && receipt && !error && <ReceiptPrinter lines={receipt} onDone={closeReceipt} />}
 
       {ready && !locked && !error && !shopOpen && !buildHud && (
         <div className="absolute inset-0 z-30 flex items-center justify-center p-4" style={{ background: 'rgba(9, 10, 24, 0.55)' }}>

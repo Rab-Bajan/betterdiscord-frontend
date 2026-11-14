@@ -43,7 +43,17 @@ export const SWEEPERS_ERRORS = {
   craneTargetBusy: 'A célhely foglalt.',
   notInCraneArea: 'Ez a zsák nincs a daru hatókörében.',
   hopperFull: 'Tele a garat.',
-  notAtTerminal: 'A logisztikai terminál a MÉH irodánál van.'
+  notAtTerminal: 'A logisztikai terminál a MÉH irodánál van.',
+  // Phase E (E.8)
+  notEnoughTeamFunds: 'Nincs elég pénz a csapatkasszában: {price} Ft kell.',
+  noBlueprint: 'Ehhez a géphez előbb meg kell venni a tervrajzot.',
+  alreadyUnlocked: 'Ez a kerület már nyitva van.',
+  notAtGenerator: 'A generátort csak mellette tudod kapcsolni.',
+  noDiesel: 'Kifogyott a gázolaj – vegyél kannát a MÉH irodában.',
+  noGreaseGun: 'Kell egy zsírzóprés (MÉH műhely).',
+  noGreaseNeeded: 'Ez a gép most nem szorul zsírzásra.',
+  notAtServicePoint: 'Menj közelebb egy kenési ponthoz.',
+  alreadyGreased: 'Ezt a pontot már megzsíroztad.'
 } as const;
 
 export type SweepersErrorKey = keyof typeof SWEEPERS_ERRORS;
@@ -56,5 +66,6 @@ export const BUILD_LIMIT_WHAT = {
   junctions: 'elágazás/idom',
   hoppers: 'garat',
   packagers: 'zsákoló',
-  fences: 'kerítés'
+  fences: 'kerítés',
+  machines: 'gép'
 } as const;

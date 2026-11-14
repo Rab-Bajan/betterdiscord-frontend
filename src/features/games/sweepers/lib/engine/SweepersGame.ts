@@ -54,6 +54,11 @@ import { nextBagTier, shownBagTier } from '../tools/hotbar';
 import type { LogisticsActionPayload, PlaceStructurePayload } from '../net/SweepersNet';
 import { parseCraneAck, parseOkAck, parseThrowAck, type LogisticsInit, type LogisticsUpdate, type OkAck, type PlaceAck, type StructRow, type TieAck } from '../../logisticsTypes';
 import { DEFAULT_CLOCK, type ClockState, type DistrictUnlocked, type WeatherKind, type WeatherState } from '../../worldTypes';
+import { ECONOMY_DRAW_CALLS, EconomyRenderer } from '../economy/EconomyRenderer';
+import { LED_SHOW_MS } from '../economy/tables';
+import { SCALE_PROMPT, SMOKE_TOAST, coinToast, copperChip, gridToast, gridVisual, inspectionToast, inspectorChip, receiptLines, tickerText, weighedToast } from '../economy/format';
+import { ScaleWatch, inZone, nearestGreasePoint, scaleAt, scaleZones, type ScaleZone } from '../economy/world';
+import { parseGeneratorAck, parseGreaseAck, type EconomyInit, type EconomyUpdate, type GridRow, type Inspection, type LmeRow, type ScaleWeighed } from '../../economyTypes';
 
 export interface SweepersHud {
   readonly district: number | null;
@@ -67,6 +72,25 @@ export interface SweepersHud {
   readonly night: boolean;
   readonly weather: WeatherKind;
   readonly districtLocked: boolean;
+  /** Phase E; null on a server without the economy. */
+  readonly economy: SweepersEconomyHud | null;
+}
+
+/** Phase E HUD state (E.7). */
+export interface SweepersEconomyHud {
+  /** Blueprint mask (bit i = machine 14 + i). */
+  readonly bp: number;
+  readonly grid: GridRow;
+  readonly lme: LmeRow;
+  /** `Réz +15 %`. */
+  readonly copper: string;
+  /** Countdown chip with the worst district. */
+  readonly inspector: string;
+  /** Scale ring progress 0..1 (null: not on a scale with goods). */
+  readonly scale: number | null;
+  /** `Állj meg 2 mp-re a mérlegen` / `Zsírzás (E)`. */
+  readonly prompt: string | null;
+  readonly unlocked: readonly number[];
 }
 
 export interface SweepersDebugStats {
@@ -81,6 +105,8 @@ export interface SweepersDebugStats {
   readonly lod: { readonly near: number; readonly mid: number; readonly far: number; readonly culled: number } | null;
   readonly debris: number;
   readonly conveyors: number;
+  /** Grid state 0 ok / 1 brownout / 2 blackout and demand kW (Phase E), null without the economy. */
+  readonly grid: { readonly st: number; readonly kW: number } | null;
   readonly rttMs: number | null;
   readonly x: number;
   readonly y: number;
@@ -118,8 +144,10 @@ export type SweepersPanel = 'crane' | 'office' | 'kiosk';
 
 /** Main-pass draws Phase C adds on top of the city plan and the figures (≤ 16, C.7). */
 export const PHASE_C_DRAW_CALLS = DEBRIS_DRAW_CALLS + RIG_DRAW_CALLS + REMOTE_PROP_DRAW_CALLS + PARTICLE_DRAW_CALLS;
-/** Main-pass draws Phase D adds (≤ 18, D.7). */
+/** Main-pass draws Phase D adds, plus E's machines (4) and processed bag tiers (2) that ride its renderer. */
 export const PHASE_D_DRAW_CALLS = LOGISTICS_DRAW_CALLS;
+/** Main-pass draws of the Phase E economy renderer (LED, ticker, car, smoke, grease markers). */
+export const PHASE_E_DRAW_CALLS = ECONOMY_DRAW_CALLS;
 
 /** Radar snapshot (spec 30), ~10 Hz. */
 export interface SweepersRadar {
@@ -158,6 +186,8 @@ export interface SweepersGameCallbacks {
   onPanel(panel: SweepersPanel): void;
   /** Build mode state, null when it is off. */
   onBuild(hud: SweepersBuildHud | null): void;
+  /** Phase E: the weigher's receipt strip (88), one string per printed line. */
+  onReceipt(lines: readonly string[]): void;
 }
 
 const KEEPALIVE_MS = 1000;
@@ -193,6 +223,8 @@ const BUZZER_RANGE_M = 25;
 const KG_FORMAT = new Intl.NumberFormat('hu-HU', { maximumFractionDigits: 2 });
 const formatKg = (kg: number): string => KG_FORMAT.format(kg);
 const JAM_TOAST = 'Elakadt a szalag! Üsd meg a vészgombot seprűvel (E).';
+/** The smoke toast only for machines this close (as the jam buzzer). */
+const SMOKE_RANGE_M = 25;
 
 export const EMPTY_HUD: SweepersHud = {
   district: null,
@@ -203,7 +235,8 @@ export const EMPTY_HUD: SweepersHud = {
   day: 1,
   night: false,
   weather: 'clear',
-  districtLocked: false
+  districtLocked: false,
+  economy: null
 };
 
 export class SweepersGame {
@@ -276,6 +309,15 @@ export class SweepersGame {
   #ghost: (PlaceStructurePayload & { check: PlaceCheck }) | null = null;
   #hover: { x: number; z: number } | null = null;
   #lastBuzzer = -Infinity;
+  readonly #econ = new EconomyRenderer();
+  /** Phase E mirror (init_state.economy + `miskolc:economy`); null without the economy. */
+  #economy: { funds: number; bp: number; grid: GridRow; lme: LmeRow; insp: EconomyInit['insp'] } | null = null;
+  #scales: readonly ScaleZone[] = [];
+  readonly #scaleWatch = new ScaleWatch();
+  #scaleRing: number | null = null;
+  #greaseNear = false;
+  /** Machines seen smoking (the toast fires once per start). */
+  #smoking = new Set<number>();
   readonly #euler = new THREE.Euler(0, 0, 0, 'YXZ');
   readonly #ray = new THREE.Raycaster();
   readonly #rayNdc = new THREE.Vector2();
@@ -306,7 +348,7 @@ export class SweepersGame {
       this.#rain = new WeatherFx();
       this.#debris = new DebrisWorld((x, z) => this.#world.groundAt(x, z));
       controls.camera.add(this.#rig.root);
-      this.#scene.add(controls.camera, this.#rain.root, this.#debris.root, this.#logi.root);
+      this.#scene.add(controls.camera, this.#rain.root, this.#debris.root, this.#logi.root, this.#econ.root);
       resetWorldUniforms();
 
       this.input.attach(window, canvas);
@@ -365,6 +407,7 @@ export class SweepersGame {
     this.#world.load(state.layout, state.hexes, state.unlockedDistricts);
     this.#tools.reset(state.personal, now);
     this.#applyLogisticsInit(state.logistics, state.serverTime);
+    this.#applyEconomyInit(state.economy);
     this.#carry = state.players.find((p) => p.id === state.selfId)?.carry ?? 0;
     this.#carriers.clear();
     for (const p of state.players) if (p.id !== state.selfId && p.carry !== 0) this.#carriers.set(p.id, p.carry);
@@ -387,7 +430,7 @@ export class SweepersGame {
     this.#weather = state.weather;
     this.#weatherBlend = { from: state.weather.kind, to: state.weather.kind, t: 1 };
     this.#wetness = state.weather.kind === 'drizzle' ? 1 : 0;
-    this.#hud = { ...this.#hud, teamFunds: state.teamFunds, cash: state.personal.cash, district: null, cleanliness: null, weather: state.weather.kind };
+    this.#hud = { ...this.#hud, teamFunds: state.economy?.funds ?? state.teamFunds, cash: state.personal.cash, district: null, cleanliness: null, weather: state.weather.kind, economy: null };
     this.#updateHud(true);
     this.#emitPlayerHud(now, true);
     if (!this.#ready) {
@@ -452,8 +495,58 @@ export class SweepersGame {
       this.#debris.particles.puff({ x: b.x, y: this.#world.groundAt(b.x, b.z) + 0.2, z: b.z }, 14);
     }
     if (events.jammed.some((r) => Math.hypot(r.x - x, r.z - z) <= BUZZER_RANGE_M)) this.#cb.onToast(JAM_TOAST);
-    if (events.packing.length > 0) this.audio.sfx('sfx_packager_cycle', events.packing[0]);
+    for (const r of events.packing.slice(0, 3)) this.audio.sfx(r.type === 15 ? 'sfx_baler_crunch' : r.type === 14 ? 'sfx_stripper_whirr' : 'sfx_packager_cycle', r);
     if (update.crane) this.audio.sfx('sfx_crane_motor', { x: update.crane.fx, z: update.crane.fz });
+  }
+
+  /** `miskolc:economy` (E.5): funds, blueprints, grid, LME, inspector and trommel coins. */
+  applyEconomy(u: EconomyUpdate): void {
+    const e = this.#economy;
+    if (!e) return;
+    if (u.funds !== undefined) {
+      e.funds = u.funds;
+      this.#hud = { ...this.#hud, teamFunds: u.funds };
+    }
+    if (u.bp !== undefined) e.bp = u.bp;
+    if (u.grid) {
+      const toast = gridToast(e.grid, u.grid);
+      if (toast) this.#cb.onToast(toast);
+      if (u.grid.st === 2 && e.grid.st !== 2) this.audio.sfx('sfx_power_down');
+      if (u.grid.st === 1 && e.grid.st !== 1) this.audio.sfx('sfx_generator_sputter', this.#world.layout?.landmarks.generator);
+      e.grid = u.grid;
+      this.#logistics.pf = u.grid.pf;
+    }
+    if (u.lme) {
+      e.lme = u.lme;
+      this.#econ.setTicker(tickerText(u.lme));
+    }
+    if (u.insp) e.insp = u.insp;
+    for (const c of u.coins) {
+      this.#cb.onToast(coinToast(c.ft));
+      this.audio.sfx('sfx_coin_drop', this.#logistics.structures.get(c.node));
+    }
+    this.#updateHud(true);
+  }
+
+  /** `miskolc:scale_weighed` (E.5): LED, ding, and the receipt (weigher) or a toast (everyone else). */
+  applyScaleWeighed(w: ScaleWeighed): void {
+    this.audio.sfx('sfx_scale_ding', this.#scales[w.scale]);
+    this.#econ.showLed(w.kgDg, performance.now() + LED_SHOW_MS);
+    if (w.by === this.#selfId) {
+      this.#scaleWatch.weighed();
+      this.#cb.onReceipt(receiptLines(w, this.#economy?.lme ?? null));
+      this.audio.sfx('sfx_printer_chatter');
+    } else this.#cb.onToast(weighedToast(w));
+  }
+
+  /** `miskolc:inspection` (E.5): the fine toast, the funds and the black car. */
+  applyInspection(ev: Inspection): void {
+    this.#cb.onToast(inspectionToast(ev.fine));
+    if (this.#economy) this.#economy.funds = ev.funds;
+    this.#hud = { ...this.#hud, teamFunds: ev.funds };
+    this.#econ.startCar(performance.now());
+    this.audio.sfx('sfx_car_arrive', this.#world.layout?.landmarks.office);
+    this.#updateHud(true);
   }
 
   /** Telemetry subscription for the Logisztika tab (D.7: on while it is open). */
@@ -594,6 +687,7 @@ export class SweepersGame {
     this.#rain.dispose();
     this.#debris.dispose();
     this.#logi.dispose();
+    this.#econ.dispose();
     this.#rig.dispose();
     this.#world.dispose();
     this.#env.dispose();
@@ -631,6 +725,7 @@ export class SweepersGame {
     if (this.#ready) {
       this.#phaseC(now, serverNow, dt, yaw, prevX, prevZ);
       this.#phaseD(now, serverNow, yaw);
+      this.#phaseE(now, dt);
       this.#maybeSend(now, yaw);
       this.#updateHud(false);
       this.#radarTick(now, yaw);
@@ -659,7 +754,7 @@ export class SweepersGame {
     this.#env.follow(this.#body.x, this.#body.y, this.#body.z);
     this.#env.apply(light, this.#weatherBlend);
     const camera = this.#controls.camera;
-    this.#world.update({ camera, timeSec: this.#elapsed, now, night: 1 - light.daylight, lampsOn: light.lampsOn });
+    this.#world.update({ camera, timeSec: this.#elapsed, now, night: 1 - light.daylight, lampsOn: light.lampsOn, flood: this.#floodPower() });
     this.#rain.update(this.#elapsed, camera.position, raining);
   }
 
@@ -882,6 +977,50 @@ export class SweepersGame {
     this.#structVersion = -1;
   }
 
+  #applyEconomyInit(init: EconomyInit | null): void {
+    this.#economy = init ? { ...init } : null;
+    this.#logistics.pf = init?.grid.pf ?? 1;
+    const layout = this.#world.layout;
+    this.#scales = layout ? scaleZones(layout.landmarks.weighbridge) : [];
+    this.#econ.setLayout(init ? layout : null, (x, z) => this.#world.groundAt(x, z));
+    if (init) this.#econ.setTicker(tickerText(init.lme));
+    this.#scaleRing = null;
+    this.#greaseNear = false;
+    this.#smoking = new Set([...this.#logistics.structures.values()].filter((r) => r.smoking).map((r) => r.id));
+  }
+
+  /** The scale ring, smoke toasts and the economy visuals, once per frame (Phase E). */
+  #phaseE(now: number, dt: number): void {
+    const e = this.#economy;
+    if (!e) return;
+    const { x, z } = this.#body;
+    const p = this.#tools.personal;
+    const scale = scaleAt(this.#scales, x, z);
+    const zone = scale === null ? undefined : this.#scales[scale];
+    const goods = p.pack.kg + p.buf.kg > 0 || p.pack.jackpots.length > 0 || this.#carry !== 0
+      || (zone !== undefined && [...this.#logistics.bags.values()].some((b) => b.st === 0 && inZone(zone, b.x, b.z)));
+    const ring = this.#scaleWatch.update(scale, x, z, now, goods);
+    this.#scaleRing = ring === null ? null : Math.round(ring * 20) / 20;
+    this.#greaseNear = nearestGreasePoint(this.#logistics.structures.values(), x, z) !== null;
+    const smoking = new Set<number>();
+    for (const r of this.#logistics.structures.values()) {
+      if (!r.smoking) continue;
+      smoking.add(r.id);
+      if (!this.#smoking.has(r.id) && Math.hypot(r.x - x, r.z - z) <= SMOKE_RANGE_M) this.#cb.onToast(SMOKE_TOAST);
+    }
+    this.#smoking = smoking;
+    this.#econ.update({ now, dt, timeSec: this.#elapsed, ground: (gx, gz) => this.#world.groundAt(gx, gz), structures: this.#logistics.structures.values(), genOn: e.grid.genOn });
+  }
+
+  /** Office floodlight power from the grid (84): off in a blackout, flickering in a brownout. */
+  #floodPower(): number {
+    const grid = this.#economy?.grid;
+    if (!grid) return 1;
+    const v = gridVisual(grid);
+    if (!v.floodlights) return 0;
+    return v.flicker && Math.sin(this.#elapsed * 23) * Math.sin(this.#elapsed * 7.3) > 0.35 ? 0.2 : 1;
+  }
+
   /** Bags, belts, ties, throws, the build ghost and the jam buzzer, once per frame (Phase D). */
   #phaseD(now: number, serverNow: number, yaw: number): void {
     // the combined collider index follows the structure set (D.2); the crane legs only when the server runs logistics
@@ -903,7 +1042,7 @@ export class SweepersGame {
       this.#lastBuzzer = now;
       this.audio.sfx('sfx_buzzer_alarm', this.#logistics.structures.get(jam.id));
     }
-    this.#logi.update({ serverNow, ground: (gx, gz) => this.#world.groundAt(gx, gz), carried: this.#carried(yaw) }, this.#elapsed);
+    this.#logi.update({ serverNow, ground: (gx, gz) => this.#world.groundAt(gx, gz), carried: this.#carried(yaw), pf: this.#logistics.pf }, this.#elapsed);
   }
 
   /** Bags in hands: this player's in front of the camera, the others' at their figure. */
@@ -962,9 +1101,13 @@ export class SweepersGame {
       const row = store.structures.get(node);
       return row ? pathPoint(row, s, route, input) : null;
     };
+    const econ = this.#economy;
+    const generator = this.#world.layout?.landmarks.generator;
     const choice = chooseInteraction({
       jam: on ? nearestJam(store, x, z) : null,
       broom: isBroom(this.#tools.tool),
+      grease: econ ? nearestGreasePoint(store.structures.values(), x, z) : null,
+      generatorD: econ && generator ? Math.hypot(generator.x - x, generator.z - z) : Infinity,
       bag: on && this.#carry === 0 ? nearestPickableBag(store, store.cargoS(this.#clock.now(performance.now())), pathAt, x, z, this.#world.groundAt(x, z)) : null,
       craneD: on ? Math.hypot(CRANE.console.x - x, CRANE.console.z - z) : Infinity,
       officeD: this.#debrisOn && office ? Math.hypot(office.x - x, office.z - z) : Infinity,
@@ -976,7 +1119,18 @@ export class SweepersGame {
     };
     if (choice.kind === 'clearJam') this.#cb.logisticsAction({ kind: 'clearJam', id: choice.id }, parseOkAck, toastRefusal);
     else if (choice.kind === 'pickup') this.#cb.logisticsAction({ kind: 'pickup', id: choice.id }, parseOkAck, toastRefusal);
-    else this.#cb.onPanel(choice.kind);
+    else if (choice.kind === 'grease') {
+      this.#cb.logisticsAction({ kind: 'grease', id: choice.id, point: choice.point }, parseGreaseAck, (ack) => {
+        if (!ack.ok) toastRefusal(ack);
+        else this.#cb.onToast(ack.done ? 'Kenés kész – a gép újra rendesen jár.' : `Megzsírozva (${[0, 1, 2, 3].filter((i) => ((ack.mask >> i) & 1) === 1).length}/4)`);
+      });
+    } else if (choice.kind === 'generator') {
+      const on = !(econ?.grid.genOn ?? false);
+      this.#cb.logisticsAction({ kind: 'generator', on }, parseGeneratorAck, (ack) => {
+        if (!ack.ok) toastRefusal(ack);
+        else this.#cb.onToast(ack.on ? 'A generátor beindult.' : 'A generátor leállt.');
+      });
+    } else this.#cb.onPanel(choice.kind);
   }
 
   /** Phase D keys; true when the action was taken. */
@@ -1083,7 +1237,8 @@ export class SweepersGame {
       structures: store.structures.values(),
       groundBags: [...store.bags.values()].filter((b) => b.st === 0),
       players: [this.#body, ...this.#remotes.pins()],
-      pose: this.#body
+      pose: this.#body,
+      bp: this.#economy?.bp ?? 0
     }, ghost);
     this.#ghost = { type: ghost.type, x: ghost.x, z: ghost.z, rot: ghost.rot, lvl: ghost.lvl, check };
     const ground = this.#world.groundAt(ghost.x, ghost.z);
@@ -1221,9 +1376,30 @@ export class SweepersGame {
     // outside the grid the lock follows the sector of the outskirts hex (as the movement rules)
     const districtLocked = district === null ? this.#world.collision.isLocked(this.#body.x, this.#body.z) : !this.#world.unlocked.has(district);
     const h = this.#hud;
-    if (!force && district === h.district && cleanliness === h.cleanliness && clock === h.clock && clockNow.day === h.day && districtLocked === h.districtLocked) return;
-    this.#hud = { ...h, district, cleanliness, clock, day: clockNow.day, night, weather: this.#weather.kind, districtLocked };
+    const economy = this.#economyHud();
+    const he = h.economy;
+    const econSame = economy === null ? he === null
+      : he !== null && he.bp === economy.bp && he.grid === economy.grid && he.lme === economy.lme && he.inspector === economy.inspector
+        && he.scale === economy.scale && he.prompt === economy.prompt && he.unlocked.length === economy.unlocked.length;
+    if (!force && econSame && district === h.district && cleanliness === h.cleanliness && clock === h.clock && clockNow.day === h.day && districtLocked === h.districtLocked) return;
+    this.#hud = { ...h, district, cleanliness, clock, day: clockNow.day, night, weather: this.#weather.kind, districtLocked, economy };
     this.#cb.onHud(this.#hud);
+  }
+
+  #economyHud(): SweepersEconomyHud | null {
+    const e = this.#economy;
+    if (!e) return null;
+    const prompt = this.#greaseNear ? 'Zsírzás (E)' : this.#scaleRing !== null && this.#scaleRing < 1 ? SCALE_PROMPT : null;
+    return {
+      bp: e.bp,
+      grid: e.grid,
+      lme: e.lme,
+      copper: copperChip(e.lme),
+      inspector: inspectorChip(e.insp, this.#clock.now(performance.now()), this.#world.unlocked),
+      scale: this.#scaleRing,
+      prompt,
+      unlocked: [...this.#world.unlocked].sort((a, b) => a - b)
+    };
   }
 
   #debugTick(now: number): void {
@@ -1236,7 +1412,7 @@ export class SweepersGame {
     const info = this.#renderer.renderer.info;
     const plan = this.#world.plan;
     const players = this.#remotes.count;
-    const budget = plan ? drawBudget(plan, players * FIGURE_DRAW_CALLS + PHASE_C_DRAW_CALLS + PHASE_D_DRAW_CALLS, players * FIGURE_SHADOW_CASTERS) : null;
+    const budget = plan ? drawBudget(plan, players * FIGURE_DRAW_CALLS + PHASE_C_DRAW_CALLS + PHASE_D_DRAW_CALLS + PHASE_E_DRAW_CALLS, players * FIGURE_SHADOW_CASTERS) : null;
     const lod = this.#world.lodStats;
     this.#cb.onDebug({
       fps: this.#fps,
@@ -1249,6 +1425,7 @@ export class SweepersGame {
       lod: lod ? { ...lod } : null,
       debris: this.#debris.renderer.stats.rendered,
       conveyors: this.#logi.stats.conveyors,
+      grid: this.#economy ? { st: this.#economy.grid.st, kW: this.#economy.grid.demandW / 1000 } : null,
       rttMs: this.#rttMs,
       x: this.#body.x,
       y: this.#body.y,

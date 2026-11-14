@@ -5,15 +5,18 @@
 import * as THREE from 'three';
 import { AssetCache } from '../engine/AssetCache';
 import { PartsBuilder, uploadInstances } from '../world/geometryKit';
-import { WORLD_UNIFORMS, litMaterial } from '../world/materials';
-import { BAG_TIERS, CRANE, STRUCT_TYPES, T_HOPPER, bagColor, deckY, footprintSize, isBeltLike, lotColor, rotYOf, type StructFamily } from './tables';
+import { litMaterial } from '../world/materials';
+import { BAG_TIERS, BELT_MPS, CRANE, STRUCT_TYPES, T_BALER, T_HOPPER, T_MAGNET, T_STRIPPER, T_TROMMEL, bagColor, deckY, footprintSize, isBeltLike, isMachine, lotColor, rotYOf, type StructFamily } from './tables';
 import { pathPoint } from './network';
 import type { LogisticsStore } from './LogisticsStore';
 import type { ActiveArc } from './LogisticsStore';
 import type { StructRow } from '../../logisticsTypes';
 
-export const STRUCT_FAMILIES: readonly StructFamily[] = ['foundation', 'belt', 'bend', 'ramp', 'junction', 'hopper', 'packager', 'fence'];
-/** Main-pass draws Phase D adds (D.7: ≤ 18): structures 8, bags 3, lots 1, crane 2, strobe 1, ghost 1, grid 1, arc 1. */
+export const STRUCT_FAMILIES: readonly StructFamily[] = ['foundation', 'belt', 'bend', 'ramp', 'junction', 'hopper', 'packager', 'fence', 'stripper', 'baler', 'magnet', 'trommel'];
+/**
+ * Main-pass draws: structures 12 (D 8 + E machines 4), bags 5 (D 3 + E bala / köteg 2), lots 1, crane 2,
+ * strobe 1, ghost 1, grid 1, arc 1.
+ */
 export const LOGISTICS_DRAW_CALLS = STRUCT_FAMILIES.length + BAG_TIERS.length + 1 + 2 + 1 + 1 + 1 + 1;
 export const MAX_STRUCT_INSTANCES = 256;
 export const MAX_BAG_INSTANCES = 512;
@@ -24,8 +27,11 @@ export const ARC_POINTS = 64;
 /** Belt legs reach this far below the deck (lvl 2 deck is 2.15 m above its base). */
 const LEG_M = 2.2;
 
+/** Metres the belts have rolled: integrated on the CPU at 1.4 m/s × the grid's pf (E.2), so a brownout slows the stripes. */
+const BELT_RUN = { value: 0 };
+
 const ROLL_GLSL_V = /* glsl */ `
-uniform float uTime;
+uniform float uBeltRun;
 attribute float aRun;
 varying float vRoll;
 `;
@@ -38,11 +44,11 @@ function rollerMaterial(): THREE.Material {
   return AssetCache.get().material('logistics.rollers', () => {
     const m = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.6, metalness: 0.4 });
     m.onBeforeCompile = (shader) => {
-      shader.uniforms.uTime = WORLD_UNIFORMS.uTime;
+      shader.uniforms.uBeltRun = BELT_RUN;
       shader.vertexShader = shader.vertexShader
         .replace('#include <common>', `#include <common>\n${ROLL_GLSL_V}`)
         // local z of the deck (metres along the piece; instances scale z by the length)
-        .replace('#include <begin_vertex>', '#include <begin_vertex>\nvRoll = position.z * length(instanceMatrix[2].xyz) * 4.0 + uTime * 1.4 * 4.0 * aRun;');
+        .replace('#include <begin_vertex>', '#include <begin_vertex>\nvRoll = position.z * length(instanceMatrix[2].xyz) * 4.0 + uBeltRun * 4.0 * aRun;');
       shader.fragmentShader = shader.fragmentShader
         .replace('#include <common>', `#include <common>\n${ROLL_GLSL_F}`)
         .replace('#include <color_fragment>', '#include <color_fragment>\ndiffuseColor.rgb *= 0.75 + 0.25 * step(0.5, fract(vRoll));');
@@ -90,6 +96,19 @@ function familyGeometry(family: StructFamily): THREE.BufferGeometry {
       case 'fence':
         b.box(2, 1.1, 0.06, 0x8a8f96, { y: 0.55 }).box(0.08, 1.15, 0.12, 0x5a5f66, { x: -0.96, y: 0.575 }).box(0.08, 1.15, 0.12, 0x5a5f66, { x: 0.96, y: 0.575 });
         break;
+      // Phase E machines, base at y = 0 (the trommel is only its drum: it spins about local z, centred on the axis)
+      case 'stripper':
+        b.box(2, 1.2, 2, 0x8a2c2c, { y: 0.6 }).box(1.4, 0.4, 1.4, 0xd9822b, { y: 1.4 }).box(0.4, 0.4, 2.05, 0x1c1c1c, { y: 0.5 });
+        break;
+      case 'baler':
+        b.box(2, 1.4, 2, 0x2f6e4a, { y: 0.7 }).box(1.6, 1, 1.6, 0x9c9a94, { y: 1.9 });
+        break;
+      case 'magnet':
+        b.box(2, 0.9, 2, 0x3a3e45, { y: 0.45 }).add(new THREE.CylinderGeometry(0.6, 0.6, 1.8, 16).rotateZ(Math.PI / 2), 0xb5452c, { y: 1.3 });
+        break;
+      case 'trommel':
+        b.add(new THREE.CylinderGeometry(0.8, 0.8, 4, 12, 1).rotateX(Math.PI / 2), 0x6b7078).box(0.12, 1.62, 3.9, 0xd6a21e);
+        break;
     }
     return b.build();
   });
@@ -101,6 +120,8 @@ function bagGeometry(tier: number): THREE.BufferGeometry {
     const r = spec?.r ?? 0.28;
     const h = spec?.h ?? 0.6;
     if (tier === 2) return new THREE.BoxGeometry(1.2, 1.2, 1.2).translate(0, 0.6, 0);
+    if (tier === 3) return new THREE.BoxGeometry(0.6, 0.6, 0.6).translate(0, 0.3, 0); // bála (E.1)
+    if (tier === 4) return new THREE.TorusGeometry(0.22, 0.08, 6, 14).rotateX(Math.PI / 2).scale(1, 2.5, 1).translate(0, 0.2, 0); // köteg
     // lathe: a rounded sack with a tied neck
     const pts = [[0, 0], [r * 0.8, 0.02], [r, h * 0.2], [r, h * 0.6], [r * 0.7, h * 0.85], [r * 0.15, h * 0.93], [r * 0.2, h], [0, h]].map(([x = 0, y = 0]) => new THREE.Vector2(x, y));
     return new THREE.LatheGeometry(pts, 10);
@@ -160,6 +181,8 @@ export interface LogisticsFrame {
   readonly ground: (x: number, z: number) => number;
   /** Bags in someone's hands, already placed at the hand. */
   readonly carried: readonly CarriedBag[];
+  /** Grid power factor (E.2): belt stripes and machine animation run × pf; default 1. */
+  readonly pf?: number;
 }
 
 export interface LogisticsRenderStats {
@@ -201,10 +224,15 @@ export class LogisticsRenderer {
   readonly #s = new THREE.Vector3();
   readonly #c = new THREE.Color();
   readonly #up = new THREE.Vector3(0, 1, 0);
+  readonly #zAxis = new THREE.Vector3(0, 0, 1);
+  readonly #roll = new THREE.Quaternion();
   readonly #arcPositions = new Float32Array(ARC_POINTS * 3);
   #builtVersion = -1;
   #builtJams = '';
+  #lastTime: number | null = null;
   #jammed: StructRow[] = [];
+  /** Busy machine instances, re-posed per frame (drum spin / press stroke). */
+  #animated: { readonly row: StructRow; readonly mesh: THREE.InstancedMesh; readonly i: number }[] = [];
   #stats: LogisticsRenderStats = { structures: 0, conveyors: 0, bags: 0, lots: 0, strobes: 0 };
 
   constructor(store: LogisticsStore) {
@@ -260,6 +288,10 @@ export class LogisticsRenderer {
       this.#builtJams = jams;
       this.#rebuildStructures(frame.ground);
     }
+    const dt = this.#lastTime === null ? 0 : Math.max(0, timeSec - this.#lastTime);
+    this.#lastTime = timeSec;
+    BELT_RUN.value += BELT_MPS * (frame.pf ?? 1) * dt;
+    this.#animateMachines();
     const bags = this.#drawBags(frame);
     const lots = this.#drawLots(frame);
     this.#drawCrane(frame);
@@ -304,9 +336,35 @@ export class LogisticsRenderer {
     mesh.setMatrixAt(i, this.#m);
   }
 
+  /** Busy flags arrive without a relink, so the busy machines are posed every frame. */
+  #animateMachines(): void {
+    const run = BELT_RUN.value / BELT_MPS;
+    const touched = new Set<THREE.InstancedMesh>();
+    for (const a of this.#animated) {
+      const row = this.#store.structures.get(a.row.id);
+      if (!row) continue;
+      this.#poseMachine(a.mesh, a.i, row, row.busy && !row.jammed ? run : 0);
+      touched.add(a.mesh);
+    }
+    for (const mesh of touched) uploadInstances(mesh, mesh.count);
+  }
+
+  #poseMachine(mesh: THREE.InstancedMesh, i: number, r: StructRow, run: number): void {
+    const rotY = rotYOf(r.rot);
+    if (r.type === T_TROMMEL) {
+      // drum about its own (local z) axis
+      this.#q.setFromAxisAngle(this.#up, rotY).multiply(this.#roll.setFromAxisAngle(this.#zAxis, run * 2));
+      this.#m.compose(this.#p.set(r.x, r.baseY + 1.1, r.z), this.#q, this.#s.set(1, 1, 1));
+      mesh.setMatrixAt(i, this.#m);
+    } else if (r.type === T_BALER) this.#compose(mesh, i, r.x, r.baseY, r.z, rotY, 1, 1 - 0.12 * (0.5 - 0.5 * Math.cos(run * 2.5)), 1);
+    else if (r.type === T_STRIPPER) this.#compose(mesh, i, r.x + Math.sin(run * 40) * 0.01 * Math.sign(run), r.baseY, r.z, rotY, 1, 1, 1);
+    else this.#compose(mesh, i, r.x, r.baseY, r.z, rotY, 1, 1, 1);
+  }
+
   #rebuildStructures(ground: (x: number, z: number) => number): void {
     const counts = new Map<StructFamily, number>();
     this.#jammed = [];
+    this.#animated = [];
     let conveyors = 0;
     let total = 0;
     for (const r of this.#store.structures.values()) {
@@ -323,6 +381,9 @@ export class LogisticsRenderer {
         // rampDown is the rampUp mesh turned around, placed at its lower deck
         const down = r.type === 8;
         this.#compose(mesh, i, r.x, down ? deckY(r.baseY, r.lvl - 1) : deck, r.z, down ? rotY + Math.PI : rotY, 1, 1, 1);
+      } else if (isMachine(r.type)) {
+        this.#poseMachine(mesh, i, r, 0);
+        if (r.type !== T_MAGNET) this.#animated.push({ row: r, mesh, i });
       } else this.#compose(mesh, i, r.x, t.family === 'hopper' || t.family === 'packager' || t.family === 'fence' ? r.baseY : deck, r.z, rotY, 1, 1, 1);
       if (t.family === 'junction') mesh.setColorAt(i, this.#c.set(r.type === 9 ? '#F5A623' : '#28C997'));
       const run = mesh.geometry.getAttribute('aRun');
@@ -355,7 +416,7 @@ export class LogisticsRenderer {
   }
 
   #drawBags(frame: LogisticsFrame): number {
-    const counts = [0, 0, 0];
+    const counts = BAG_TIERS.map(() => 0);
     const put = (tier: number, tint: number, x: number, y: number, z: number, rot: number): void => {
       const mesh = this.bags[tier];
       const n = counts[tier] ?? 0;

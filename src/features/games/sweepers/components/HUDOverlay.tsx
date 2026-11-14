@@ -38,15 +38,24 @@ export default function HUDOverlay({ hud, radar, unlockToast, isFullscreen, onTo
   const tone = hud.districtLocked ? T.muted : hud.cleanliness === null ? T.text : cleanlinessTone(hud.cleanliness);
   return (
     <div className="absolute inset-0 pointer-events-none z-20" style={{ fontFamily: T.font, color: T.text }}>
-      <div className="absolute top-3 left-3 rounded-lg px-3 py-2 text-xs space-y-0.5" style={panel}>
-        <div>
-          <span style={{ color: T.muted }}>Csapatkassza: </span>
-          <strong className="tabular-nums">{formatFt(hud.teamFunds)}</strong>
+      <div className="absolute top-3 left-3 flex flex-col items-start gap-1">
+        <div className="rounded-lg px-3 py-2 text-xs space-y-0.5" style={panel}>
+          <div>
+            <span style={{ color: T.muted }}>{hud.economy ? 'Csapat: ' : 'Csapatkassza: '}</span>
+            <strong className="tabular-nums" style={hud.teamFunds < 0 ? { color: T.red } : undefined}>{formatFt(hud.teamFunds)}</strong>
+          </div>
+          <div>
+            <span style={{ color: T.muted }}>{hud.economy ? 'Pénztárca: ' : 'Saját pénz: '}</span>
+            <strong className="tabular-nums" style={{ color: T.green }}>{formatFt(hud.cash)}</strong>
+          </div>
         </div>
-        <div>
-          <span style={{ color: T.muted }}>Saját pénz: </span>
-          <strong className="tabular-nums" style={{ color: T.green }}>{formatFt(hud.cash)}</strong>
-        </div>
+        {hud.economy && (
+          <div className="flex flex-wrap gap-1 text-[11px] font-semibold tabular-nums">
+            <span className="rounded-md px-2 py-0.5" style={{ ...panel, color: (hud.economy.lme.pct[2] ?? 0) >= 0 ? T.green : T.red }}>{hud.economy.copper}</span>
+            <span className="rounded-md px-2 py-0.5" style={panel}>{hud.economy.inspector}</span>
+            {hud.economy.grid.st > 0 && <span className="rounded-md px-2 py-0.5" style={{ ...panel, color: T.orange }}>{hud.economy.grid.st === 2 ? 'Áramszünet' : 'Feszültségesés'}</span>}
+          </div>
+        )}
       </div>
 
       <div className="absolute top-3 left-1/2 -translate-x-1/2 flex flex-col items-center gap-1 max-w-[56vw]">
@@ -85,6 +94,16 @@ export default function HUDOverlay({ hud, radar, unlockToast, isFullscreen, onTo
       </div>
 
       <div className="absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 w-1.5 h-1.5 rounded-full" style={{ background: 'rgba(226, 232, 240, 0.85)' }} />
+      {hud.economy && hud.economy.scale !== null && (
+        // the 2 s stillness ring (E.7): the server weighs, this only shows the wait
+        <svg className="absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2" width="56" height="56" viewBox="0 0 56 56" aria-hidden="true">
+          <circle cx="28" cy="28" r="24" fill="none" stroke="rgba(226, 232, 240, 0.25)" strokeWidth="4" />
+          <circle cx="28" cy="28" r="24" fill="none" stroke={T.green} strokeWidth="4" strokeDasharray={`${2 * Math.PI * 24}`} strokeDashoffset={`${2 * Math.PI * 24 * (1 - hud.economy.scale)}`} transform="rotate(-90 28 28)" />
+        </svg>
+      )}
+      {hud.economy?.prompt && (
+        <div className="absolute left-1/2 top-[58%] -translate-x-1/2 rounded-md px-3 py-1 text-xs font-bold" style={panel}>{hud.economy.prompt}</div>
+      )}
     </div>
   );
 }

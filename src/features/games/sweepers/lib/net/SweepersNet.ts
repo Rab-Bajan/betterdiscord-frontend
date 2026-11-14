@@ -49,6 +49,14 @@ import {
   type Telemetry,
   type TieAck
 } from '../../logisticsTypes';
+import {
+  parseEconomyUpdate,
+  parseInspection,
+  parseScaleWeighed,
+  type EconomyUpdate,
+  type Inspection,
+  type ScaleWeighed
+} from '../../economyTypes';
 
 export interface PlayerInputPayload {
   readonly seq: number;
@@ -75,9 +83,9 @@ export type PlayerActionPayload =
   | { readonly kind: 'kick'; readonly id: number; readonly vx: number; readonly vz: number }
   | { readonly kind: 'dump' };
 
-/** `miskolc:buy_upgrade` without the channel (C.4; D.4 adds `item: 'bag'` with `tier` and `qty`). */
+/** `miskolc:buy_upgrade` without the channel (C.4; D.4 adds `bag` with `tier` and `qty`; E.4 the team items). */
 export interface BuyUpgradePayload {
-  readonly item: UpgradeItem | 'bag';
+  readonly item: UpgradeItem | 'bag' | 'grease' | 'blueprint' | 'diesel' | 'license';
   readonly tier?: number;
   readonly level?: number;
   readonly qty?: 1 | 5 | 10;
@@ -98,7 +106,9 @@ export type LogisticsActionPayload =
   | { readonly kind: 'throw'; readonly power: number; readonly pitch: number; readonly rotY: number }
   | { readonly kind: 'clearJam'; readonly id: number }
   | { readonly kind: 'crane'; readonly bag: number; readonly to: number }
-  | { readonly kind: 'telemetry'; readonly on: boolean };
+  | { readonly kind: 'telemetry'; readonly on: boolean }
+  | { readonly kind: 'grease'; readonly id: number; readonly point: number }
+  | { readonly kind: 'generator'; readonly on: boolean };
 
 /** Sweep payloads go out with at most 3 decimals (C intro: floats ≤ 3 decimals). */
 const r3 = (v: number): number => Math.round(v * 1000) / 1000;
@@ -125,6 +135,12 @@ export interface SweepersNetHandlers {
   onLogistics(update: LogisticsUpdate): void;
   /** `miskolc:logistics_telemetry` (1 Hz while subscribed). */
   onTelemetry(telemetry: Telemetry): void;
+  /** `miskolc:economy` (E.5). */
+  onEconomy(update: EconomyUpdate): void;
+  /** `miskolc:scale_weighed` (E.5). */
+  onScaleWeighed(event: ScaleWeighed): void;
+  /** `miskolc:inspection` (E.5). */
+  onInspection(event: Inspection): void;
 }
 
 /** One RTT probe rides on a player_input ack this often. */
@@ -230,6 +246,18 @@ export class SweepersNet {
       ['miskolc:logistics_telemetry', route((v) => {
         const telemetry = parseTelemetry(v);
         if (telemetry && this.#worldEventsOpen) handlers.onTelemetry(telemetry);
+      })],
+      ['miskolc:economy', route((v) => {
+        const update = parseEconomyUpdate(v);
+        if (update && this.#worldEventsOpen) handlers.onEconomy(update);
+      })],
+      ['miskolc:scale_weighed', route((v) => {
+        const event = parseScaleWeighed(v);
+        if (event && this.#worldEventsOpen) handlers.onScaleWeighed(event);
+      })],
+      ['miskolc:inspection', route((v) => {
+        const event = parseInspection(v);
+        if (event && this.#worldEventsOpen) handlers.onInspection(event);
       })]
     ];
   }

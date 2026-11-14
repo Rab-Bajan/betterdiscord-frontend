@@ -2,7 +2,7 @@
 // az index; a szerver ugyanezt kódolja be, a D fixture rögzíti. Tiszta kód (three nélkül).
 
 export interface BagTier {
-  readonly key: 'kek' | 'fekete' | 'bigbag';
+  readonly key: 'kek' | 'fekete' | 'bigbag' | 'bala' | 'rez';
   readonly name: string;
   readonly l: number;
   readonly kg: number;
@@ -15,15 +15,20 @@ export interface BagTier {
   readonly r: number;
   readonly h: number;
   readonly color: string;
-  /** Stock cap in `PersonalState.bags`. */
+  /** Stock cap in `PersonalState.bags` (processed tiers 3–4: 0, never in stock). */
   readonly cap: number;
 }
 
 export const BAG_TIERS: readonly BagTier[] = [
   { key: 'kek', name: 'Standard Kék Szemeteszsák', l: 30, kg: 20, cost: 50, rupture: true, carry: true, r: 0.28, h: 0.6, color: '#2F6FD6', cap: 99 },
   { key: 'fekete', name: 'Erősített Fekete Építési Zsák', l: 60, kg: 50, cost: 150, rupture: false, carry: true, r: 0.35, h: 0.8, color: '#1C1C1C', cap: 99 },
-  { key: 'bigbag', name: 'Nagyüzemi Big-Bag Konténer', l: 1000, kg: 1000, cost: 2500, rupture: false, carry: false, r: 0.6, h: 1.2, color: '#E8E2CF', cap: 9 }
+  { key: 'bigbag', name: 'Nagyüzemi Big-Bag Konténer', l: 1000, kg: 1000, cost: 2500, rupture: false, carry: false, r: 0.6, h: 1.2, color: '#E8E2CF', cap: 9 },
+  // Phase E processed goods (E.1): machine output only; not buyable, not tie-able
+  { key: 'bala', name: 'Fémbála', l: 50, kg: 50, cost: 0, rupture: false, carry: true, r: 0.3, h: 0.6, color: '#6E6A64', cap: 0 },
+  { key: 'rez', name: 'Fényes vörösréz köteg', l: 8, kg: 20, cost: 0, rupture: false, carry: true, r: 0.3, h: 0.4, color: '#C8743A', cap: 0 }
 ];
+/** Bag tiers a player can buy, stock and tie (0..2). */
+export const STOCK_TIERS = 3;
 
 /** Bag tint 1..3 (packager bags, by dominant group); 0 = the tier colour. */
 export const TINT_COLORS: readonly (string | null)[] = [null, '#8A8F96', '#B5452C', '#D9822B'];
@@ -34,7 +39,7 @@ export const LOT_GROUPS = ['bulk', 'ferrous', 'copper'] as const;
 export const lotColor = (group: number): string => TINT_COLORS[group + 1] ?? '#8A8F96';
 
 /** Building families the renderer instances (D.7: 8). */
-export type StructFamily = 'foundation' | 'belt' | 'bend' | 'ramp' | 'junction' | 'hopper' | 'packager' | 'fence';
+export type StructFamily = 'foundation' | 'belt' | 'bend' | 'ramp' | 'junction' | 'hopper' | 'packager' | 'fence' | 'stripper' | 'baler' | 'magnet' | 'trommel';
 
 /** A port in the structure's local frame: point, heading (unit, local) and level offset of its deck. */
 export interface Port {
@@ -82,7 +87,12 @@ export const STRUCT_TYPES: readonly StructType[] = [
   { key: 'merger', name: 'Összefolyó idom', w: 1, d: 1, ...BELT, ins: [p(-0.5, 0, 1, 0), p(0.5, 0, -1, 0)], outs: [p(0, -0.5, 0, -1)], len: 1, family: 'junction' },
   { key: 'hopper', name: 'Garat', w: 4, d: 4, lvlMin: 0, lvlMax: 0, ins: [], outs: [p(0, -2, 0, -1)], len: null, family: 'hopper', collider: null },
   { key: 'packager', name: 'Zsákoló automata', w: 2, d: 2, lvlMin: 0, lvlMax: 0, ins: [p(0, 1, 0, -1)], outs: [p(0, -1, 0, -1)], len: 2, family: 'packager', collider: 2.2 },
-  { key: 'fence', name: 'Kerítéselem 2 m', w: 2, d: 0.2, lvlMin: 0, lvlMax: 0, ins: [], outs: [], len: null, family: 'fence', collider: 1.1 }
+  { key: 'fence', name: 'Kerítéselem 2 m', w: 2, d: 0.2, lvlMin: 0, lvlMax: 0, ins: [], outs: [], len: null, family: 'fence', collider: 1.1 },
+  // Phase E machines (E.1): lvl 0, outs in route order 0 straight, 1 side (+x)
+  { key: 'stripper', name: 'Kábelnyúzó masina', w: 2, d: 2, lvlMin: 0, lvlMax: 0, ins: [p(0, 1, 0, -1)], outs: [p(0, -1, 0, -1)], len: 2, family: 'stripper', collider: 1.6 },
+  { key: 'baler', name: 'Hidraulikus hulladékbálázó', w: 2, d: 2, lvlMin: 0, lvlMax: 0, ins: [p(0, 1, 0, -1)], outs: [p(0, -1, 0, -1)], len: 2, family: 'baler', collider: 2.4 },
+  { key: 'magnet', name: 'Mágneses dobosztályozó', w: 2, d: 2, lvlMin: 0, lvlMax: 0, ins: [p(0, 1, 0, -1)], outs: [p(0, -1, 0, -1), p(1, 0, 1, 0)], len: 2, family: 'magnet', collider: 1.8 },
+  { key: 'trommel', name: 'Forgódobos salakrostáló', w: 2, d: 4, lvlMin: 0, lvlMax: 0, ins: [p(0, 2, 0, -1)], outs: [p(0, -2, 0, -1), p(1, 0, 1, 0)], len: 4, family: 'trommel', collider: 2.2 }
 ];
 
 export const T_FOUND2 = 0;
@@ -92,11 +102,21 @@ export const T_MERGER = 10;
 export const T_HOPPER = 11;
 export const T_PACKAGER = 12;
 export const T_FENCE = 13;
+export const T_STRIPPER = 14;
+export const T_BALER = 15;
+export const T_MAGNET = 16;
+export const T_TROMMEL = 17;
+/** Machines 14–17 (E.1): need a blueprint, share the `machines` cap. */
+export const isMachine = (type: number): boolean => type >= T_STRIPPER && type <= T_TROMMEL;
+/** Stripper / baler wear and smoke (89). */
+export const wearsOut = (type: number): boolean => type === T_STRIPPER || type === T_BALER;
+/** Sorting machines route like a splitter (route 0 straight, 1 side). */
+export const isSorter = (type: number): boolean => type === T_MAGNET || type === T_TROMMEL;
 export const isFoundation = (type: number): boolean => type === T_FOUND2 || type === T_FOUND4;
 /** Belt-like: has a cargo path on a deck (types 2–10). */
 export const isBeltLike = (type: number): boolean => type >= 2 && type <= 10;
-/** Junctions jam (72). */
-export const isJunction = (type: number): boolean => type === T_SPLITTER || type === T_MERGER || type === T_PACKAGER;
+/** Junctions jam (72); so do the machines (E.2). */
+export const isJunction = (type: number): boolean => type === T_SPLITTER || type === T_MERGER || type === T_PACKAGER || isMachine(type);
 
 // Constants (D.1).
 export const BELT_MPS = 1.4;
@@ -108,7 +128,7 @@ export const W_PER_M = 12;
 export const deckY = (base: number, lvl: number): number => base + DECK_M + LEVEL_M * lvl;
 
 /** Room limits (D.1) and the `{what}` of `buildLimit` (D.8). */
-export const ROOM_CAPS = { structures: 256, foundations: 96, beltM: 300, junctions: 24, hoppers: 4, packagers: 4, fences: 64, bags: 300, lots: 150 } as const;
+export const ROOM_CAPS = { structures: 256, foundations: 96, beltM: 300, junctions: 24, hoppers: 4, packagers: 4, fences: 64, machines: 8, bags: 300, lots: 150 } as const;
 
 /** Landmark hopper: node 0; its intake zone is the footprint expanded by 1.5 m. */
 export const LANDMARK_NODE = 0;

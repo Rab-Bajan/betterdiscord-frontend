@@ -1,6 +1,6 @@
 // Szalaghálózat geometriája (D.1/D.2/D.5): világ-portok, pályapontok, összeköttetések a port-szabállyal, és a
 // rakomány mozgásának kliensoldali becslése két szerversor között. Tiszta kód (three nélkül).
-import { BELT_MPS, LANDMARK_INTAKE_PAD_M, LANDMARK_NODE, PITCH_M, STRUCT_TYPES, T_HOPPER, T_MERGER, T_SPLITTER, deckY, toWorld, type Port } from './tables';
+import { BELT_MPS, LANDMARK_INTAKE_PAD_M, LANDMARK_NODE, PITCH_M, STRUCT_TYPES, T_HOPPER, T_MERGER, T_SPLITTER, deckY, isSorter, toWorld, type Port } from './tables';
 import type { CargoRow, StructRow } from '../../logisticsTypes';
 import type { Placement } from '../../worldTypes';
 
@@ -71,9 +71,9 @@ export function pathPoint(row: StructRow, s: number, route = 0, input = 0): Poin
     const a = u * (Math.PI / 2);
     return at(-sx * 0.5 + sx * 0.5 * Math.cos(a), 0.5 - 0.5 * Math.sin(a), deck);
   }
-  if (row.type === T_SPLITTER || row.type === T_MERGER) {
+  if (row.type === T_SPLITTER || row.type === T_MERGER || isSorter(row.type)) {
     const from = row.type === T_MERGER ? ins[input] ?? ins[0] : ins[0];
-    const to = row.type === T_SPLITTER ? outs[route] ?? outs[0] : outs[0];
+    const to = row.type === T_MERGER ? outs[0] : outs[route] ?? outs[0];
     if (!from || !to) return at(0, 0, deck);
     return u <= 0.5 ? at(lerp(from.x, 0, u * 2), lerp(from.z, 0, u * 2), deck) : at(lerp(0, to.x, u * 2 - 1), lerp(0, to.z, u * 2 - 1), deck);
   }

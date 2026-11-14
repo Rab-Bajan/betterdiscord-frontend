@@ -60,7 +60,8 @@ const start = (): Harness => {
     deleteStructure: () => false,
     logisticsAction: () => false,
     onPanel: () => undefined,
-    onBuild: () => undefined
+    onBuild: () => undefined,
+    onReceipt: () => undefined
   };
   const game = new SweepersGame(mount, callbacks);
   const out: Harness = Object.assign(h, { game });

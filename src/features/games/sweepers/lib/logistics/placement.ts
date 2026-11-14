@@ -2,7 +2,7 @@
 // ugyanezt ellenőrzi és mindig ő dönt. Plusz: a szellem rácsra illesztése egy szabad kimeneti portra. Tiszta kód.
 import { GRID_RADIUS, hexDistance, worldToHex } from '../world/hexGrid';
 import { BUILD_LIMIT_WHAT, type SweepersErrorKey } from '../../errors';
-import { CRANE, CRANE_LEGS, DECK_M, LEVEL_M, ROOM_CAPS, STRUCT_TYPES, T_FENCE, T_HOPPER, T_PACKAGER, BAG_TIERS, footprintSize, isBeltLike, isFoundation, toWorld } from './tables';
+import { CRANE, CRANE_LEGS, DECK_M, LEVEL_M, ROOM_CAPS, STRUCT_TYPES, T_FENCE, T_HOPPER, T_PACKAGER, T_STRIPPER, BAG_TIERS, footprintSize, isBeltLike, isFoundation, isMachine, toWorld } from './tables';
 import { outPorts, type LinkTarget, type WorldPort } from './network';
 import type { BagRow, StructRow } from '../../logisticsTypes';
 import type { Collider, WorldLayout } from '../../worldTypes';
@@ -52,7 +52,12 @@ export interface PlacementWorld {
   readonly players: readonly { readonly x: number; readonly z: number }[];
   /** The builder's authoritative pose. */
   readonly pose: { readonly x: number; readonly z: number };
+  /** Room blueprint mask (E.2 rule 5b: bit i = machine 14 + i); undefined = no economy (every machine refused). */
+  readonly bp?: number;
 }
+
+/** E.2 rule 5b: a machine needs its blueprint bit. */
+export const hasBlueprint = (bp: number, type: number): boolean => !isMachine(type) || ((bp >> (type - T_STRIPPER)) & 1) === 1;
 
 export function footprint(type: number, x: number, z: number, rot: number, pad = 0): Rect {
   const { w, d } = footprintSize(type, rot);
@@ -142,6 +147,7 @@ function limit(req: PlaceRequest, rows: readonly StructRow[]): keyof typeof BUIL
   if (req.type === T_HOPPER && count((t) => t === T_HOPPER) > ROOM_CAPS.hoppers) return 'hoppers';
   if (req.type === T_PACKAGER && count((t) => t === T_PACKAGER) > ROOM_CAPS.packagers) return 'packagers';
   if (req.type === T_FENCE && count((t) => t === T_FENCE) > ROOM_CAPS.fences) return 'fences';
+  if (isMachine(req.type) && count(isMachine) > ROOM_CAPS.machines) return 'machines';
   return null;
 }
 
@@ -167,6 +173,8 @@ export function checkPlacement(world: PlacementWorld, req: PlaceRequest): PlaceC
   const rows = [...world.structures];
   const capped = limit(req, rows);
   if (capped) return { ok: false, reason: 'buildLimit', what: BUILD_LIMIT_WHAT[capped] };
+  // 5b. machines need the room's blueprint (E.2)
+  if (!hasBlueprint(world.bp ?? 0, req.type)) return { ok: false, reason: 'noBlueprint' };
   // 7's base first: rule 6 needs the collider height
   const grounds = samples.map((s) => world.ground(s.x, s.z));
   const gMax = Math.max(...grounds);

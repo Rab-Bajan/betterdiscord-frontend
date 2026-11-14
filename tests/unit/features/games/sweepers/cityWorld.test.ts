@@ -14,7 +14,7 @@ import { districtBanner } from '../../../../../src/features/games/sweepers/compo
 import { realInit, smallInit } from './fixtures';
 import { DebrisWorld } from '../../../../../src/features/games/sweepers/lib/debris/DebrisWorld';
 import { ToolRig } from '../../../../../src/features/games/sweepers/lib/tools/ToolRig';
-import { PHASE_C_DRAW_CALLS, PHASE_D_DRAW_CALLS } from '../../../../../src/features/games/sweepers/lib/engine/SweepersGame';
+import { PHASE_C_DRAW_CALLS, PHASE_D_DRAW_CALLS, PHASE_E_DRAW_CALLS } from '../../../../../src/features/games/sweepers/lib/engine/SweepersGame';
 
 const camera = (x: number, z: number, yaw = 0): THREE.PerspectiveCamera => {
   const cam = new THREE.PerspectiveCamera(75, 16 / 9, 0.1, 900);
@@ -63,10 +63,10 @@ describe('draw-call budget (spec 11)', () => {
     vi.unstubAllGlobals();
   });
 
-  it('the plan worst case (every kind visible at once, 16 remote players, night shadows, Phase C + D draws) stays under 400', () => {
+  it('the plan worst case (every kind visible at once, 16 remote players, night shadows, Phase C + D + E draws) stays under 400', () => {
     const plan = planDraws(worstCaseInput());
     const players = 16;
-    const budget = drawBudget(plan, players * FIGURE_DRAW_CALLS + PHASE_C_DRAW_CALLS + PHASE_D_DRAW_CALLS, players * FIGURE_SHADOW_CASTERS);
+    const budget = drawBudget(plan, players * FIGURE_DRAW_CALLS + PHASE_C_DRAW_CALLS + PHASE_D_DRAW_CALLS + PHASE_E_DRAW_CALLS, players * FIGURE_SHADOW_CASTERS);
     expect(budget.total).toBeLessThanOrEqual(DRAW_CALL_LIMIT);
     expect(budget.main + budget.sunShadow + budget.spotShadow).toBe(budget.total);
   });

@@ -17,6 +17,7 @@ export default function DebugOverlay({ stats }: { stats: SweepersDebugStats }) {
     ['Kivágva', stats.lod ? String(stats.lod.culled) : '–'],
     ['Törmelék', String(stats.debris)],
     ['Szalagszakaszok', String(stats.conveyors)],
+    ['Áramhálózat', stats.grid === null ? '–' : `${['rendben', 'feszültségesés', 'áramszünet'][stats.grid.st] ?? '?'} · ${stats.grid.kW.toFixed(1)} kW`],
     ['Ping (RTT)', stats.rttMs === null ? '–' : `${Math.round(stats.rttMs)} ms`],
     ['X / Y / Z', `${stats.x.toFixed(2)} / ${stats.y.toFixed(2)} / ${stats.z.toFixed(2)}`]
   ];

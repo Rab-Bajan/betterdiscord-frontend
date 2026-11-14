@@ -62,6 +62,8 @@ export interface PersonalState {
   readonly fx: PersonalFx;
   /** Bag stock per tier [kék, fekete, Big-Bag] (Phase D). */
   readonly bags: readonly [number, number, number];
+  /** Zsírzóprés owned (Phase E, 89). */
+  readonly greaseGun: boolean;
 }
 
 export const EMPTY_LOAD: Load = { dustG: 0, seedG: 0, cans: 0, crushed: 0, ironG: 0, copperG: 0, jackpots: [], kg: 0, l: 0 };
@@ -84,7 +86,8 @@ export const DEFAULT_PERSONAL: PersonalState = {
   pack: EMPTY_LOAD,
   caps: { bufKg: TOOLS[0]?.bufKg ?? 0.5, packKg: PACK_LEVELS[0]?.kg ?? 10, packL: PACK_LEVELS[0]?.l ?? 8 },
   fx: {},
-  bags: [0, 0, 0]
+  bags: [0, 0, 0],
+  greaseGun: false
 };
 
 export function parseLoad(value: unknown): Load {
@@ -146,7 +149,8 @@ export function parsePersonalState(value: unknown): PersonalState | null {
       packL: numberIn(caps.packL, 0, 1e6, d.caps.packL)
     },
     fx: parseFx(value.fx),
-    bags: parseBagStock(value.bags)
+    bags: parseBagStock(value.bags),
+    greaseGun: value.greaseGun === true
   };
 }
 
@@ -326,7 +330,8 @@ export interface Refusal {
 export type SweepAck = { readonly ok: true; readonly seq: number; readonly kg: number; readonly items: readonly number[]; readonly pushed: boolean } | Refusal;
 /** `player_action` ack; a `dump` into a hopper intake carries the hopper's kg (D.4). */
 export type ActionAck = { readonly ok: true; readonly hopperKg?: number } | Refusal;
-export type BuyAck = { readonly ok: true; readonly cash: number } | Refusal;
+/** E.4 adds `teamFunds` (team purchases); absent from a pre-E server. */
+export type BuyAck = { readonly ok: true; readonly cash: number; readonly teamFunds?: number } | Refusal;
 
 /** Codes the client never toasts (C.8): cadence refusals, and a rate-limited sweep_hit. */
 export const TOO_FAST_CODE = 'SWEEPERS_TOO_FAST';
@@ -363,7 +368,8 @@ export function parseActionAck(value: unknown): ActionAck {
 export function parseBuyAck(value: unknown): BuyAck {
   if (!isRecord(value) || typeof value.ok !== 'boolean') return MALFORMED;
   if (!value.ok) return parseRefusal(value);
-  return isFiniteNumber(value.cash) ? { ok: true, cash: value.cash } : MALFORMED;
+  if (!isFiniteNumber(value.cash)) return MALFORMED;
+  return isFiniteNumber(value.teamFunds) ? { ok: true, cash: value.cash, teamFunds: value.teamFunds } : { ok: true, cash: value.cash };
 }
 
 /** True when a refusal should be shown to the player (C.8: cadence and rate limits are silent). */

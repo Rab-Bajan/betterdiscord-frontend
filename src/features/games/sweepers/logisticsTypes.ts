@@ -13,7 +13,7 @@ const isNodeId = (value: unknown): value is number => intIn(value, 0, 65535);
 /** Allocation caps (the room caps are 256 structures, 300 bags, 150 lots; slack for a burst). */
 const MAX_ROWS = 2048;
 
-/** `StructRow = [id, type, xCm, zCm, baseYCm, rot, lvl, flags]` (flags: bit 0 jammed, bit 1 packager busy). */
+/** `StructRow = [id, type, xCm, zCm, baseYCm, rot, lvl, flags]` (flags: bit 0 jammed, 1 busy, 2 smoking, 3–6 grease mask; E.3). */
 export interface StructRow {
   readonly id: number;
   readonly type: number;
@@ -24,6 +24,10 @@ export interface StructRow {
   readonly lvl: number;
   readonly jammed: boolean;
   readonly busy: boolean;
+  /** Stripper / baler past its maintenance interval (E.3 bit 2). */
+  readonly smoking: boolean;
+  /** Service points greased so far, bits 0..3 (E.3 bits 3–6). */
+  readonly grease: number;
 }
 
 /** `BagRow = [id, tier, tint, st, xCm, yCm, zCm, rot8, kgDg]`; st 0 ground, 1 carried, 2 crane. */
@@ -128,7 +132,7 @@ export function decodeStructRow(value: unknown): StructRow | null {
   if (!isId(id) || !intIn(type, 0, STRUCT_TYPES.length - 1) || !isInt(xCm) || !isInt(zCm) || !isInt(baseYCm) || !intIn(rot, 0, 3) || !isInt(lvl) || !isInt(flags)) return null;
   const spec = STRUCT_TYPES[type];
   if (!spec || lvl < spec.lvlMin || lvl > spec.lvlMax) return null;
-  return { id, type, x: xCm / 100, z: zCm / 100, baseY: baseYCm / 100, rot, lvl, jammed: (flags & 1) !== 0, busy: (flags & 2) !== 0 };
+  return { id, type, x: xCm / 100, z: zCm / 100, baseY: baseYCm / 100, rot, lvl, jammed: (flags & 1) !== 0, busy: (flags & 2) !== 0, smoking: (flags & 4) !== 0, grease: (flags >> 3) & 15 };
 }
 
 export function decodeBagRow(value: unknown): BagRow | null {
@@ -144,7 +148,7 @@ export function decodeCargoRow(value: unknown): CargoRow | null {
   const a = tuple(value, 9);
   if (!a) return null;
   const [id, kind, sub, tint, node, sMm, route, mv, kgDg] = a;
-  if (!isId(id) || !(kind === 0 || kind === 1) || !intIn(sub, 0, 2) || !intIn(tint, 0, 3) || !isNodeId(node)) return null;
+  if (!isId(id) || !(kind === 0 || kind === 1) || !intIn(sub, 0, kind === 0 ? 2 : BAG_TIERS.length - 1) || !intIn(tint, 0, 3) || !isNodeId(node)) return null;
   if (!intIn(sMm, 0, 1e6) || !intIn(route, 0, 2) || !(mv === 0 || mv === 1) || !intIn(kgDg, 0, 1e8)) return null;
   return { id, kind, sub, tint, node, s: sMm / 1000, route, mv: mv === 1, kg: dgToKg(kgDg) };
 }

@@ -30,6 +30,8 @@ export class LogisticsStore {
   hook = { x: -8.5, z: 0 };
   job: CraneJob | null = null;
   speed = BELT_MPS;
+  /** Grid power factor (E.2): the server ticks the belts × pf, so the extrapolation does too. */
+  pf = 1;
   #landmark: Landmark | null = null;
   #links = new Map<string, LinkTarget>();
   #zones: IntakeZone[] = [];
@@ -124,7 +126,7 @@ export class LogisticsStore {
     for (const [node, list] of byNode) {
       const row = this.structures.get(node);
       const len = row ? pathLen(row) : 0;
-      for (const [id, s] of extrapolateNode(list, len, serverNow, this.speed)) out.set(id, s);
+      for (const [id, s] of extrapolateNode(list, len, serverNow, this.speed * this.pf)) out.set(id, s);
     }
     return out;
   }

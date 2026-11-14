@@ -1,9 +1,11 @@
-// E sorrendje (D.7) és a zsákkötés 1,2 s-os animációja (Q). Tiszta kód.
+// E sorrendje (D.7, E.7) és a zsákkötés 1,2 s-os animációja (Q). Tiszta kód.
 
 export type Interaction =
   | { readonly kind: 'clearJam'; readonly id: number }
+  | { readonly kind: 'grease'; readonly id: number; readonly point: number }
   | { readonly kind: 'pickup'; readonly id: number }
   | { readonly kind: 'crane' }
+  | { readonly kind: 'generator' }
   | { readonly kind: 'office' }
   | { readonly kind: 'kiosk' }
   | null;
@@ -12,24 +14,31 @@ export const JAM_REACH_M = 2;
 export const BAG_REACH_M = 2;
 export const CRANE_REACH_M = 2.5;
 export const OFFICE_REACH_M = 8;
+export const GENERATOR_REACH_M = 3;
 
 export interface InteractCandidates {
   /** Nearest jammed junction (distance to its footprint). */
   readonly jam: { readonly id: number; readonly d: number } | null;
   /** A broom (tools 0–3) is in hand. */
   readonly broom: boolean;
+  /** Nearest ungreased service point of a smoking machine within reach (E.7), or null. */
+  readonly grease?: { readonly id: number; readonly point: number } | null;
   /** Nearest pickable bag. */
   readonly bag: { readonly id: number; readonly d: number } | null;
   readonly craneD: number;
+  /** Distance to the generator landmark (Infinity without the economy). */
+  readonly generatorD?: number;
   readonly officeD: number;
   readonly kiosk: boolean;
 }
 
-/** D.7: jam (with a broom) → bag → crane console → office → kiosk. */
+/** E.7: jam (with a broom) → grease point → bag → crane console → generator → office → kiosk. */
 export function chooseInteraction(c: InteractCandidates): Interaction {
   if (c.jam && c.broom && c.jam.d <= JAM_REACH_M) return { kind: 'clearJam', id: c.jam.id };
+  if (c.grease) return { kind: 'grease', id: c.grease.id, point: c.grease.point };
   if (c.bag && c.bag.d <= BAG_REACH_M) return { kind: 'pickup', id: c.bag.id };
   if (c.craneD <= CRANE_REACH_M) return { kind: 'crane' };
+  if ((c.generatorD ?? Infinity) <= GENERATOR_REACH_M) return { kind: 'generator' };
   if (c.officeD <= OFFICE_REACH_M) return { kind: 'office' };
   return c.kiosk ? { kind: 'kiosk' } : null;
 }

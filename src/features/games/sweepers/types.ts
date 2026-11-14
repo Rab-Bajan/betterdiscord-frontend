@@ -12,6 +12,7 @@ import {
 } from './worldTypes';
 import { DEFAULT_PERSONAL, parseDebrisInit, parsePersonalState, type DebrisInit, type PersonalState } from './debrisTypes';
 import { parseLogisticsInit, type LogisticsInit } from './logisticsTypes';
+import { parseEconomyInit, type EconomyInit } from './economyTypes';
 
 /** Index order is protocol: `stateIdx` in tick_sync is an index into this list. */
 export const PLAYER_ANIM_STATES = [
@@ -101,6 +102,8 @@ export interface InitState {
   readonly debris: DebrisInit | null;
   /** Phase D network; null on a server without logistics. */
   readonly logistics: LogisticsInit | null;
+  /** Phase E economy; null on a server without it. */
+  readonly economy: EconomyInit | null;
 }
 
 /** One decoded `p` entry of tick_sync (metres / radians). */
@@ -173,7 +176,7 @@ const numberOr = (value: unknown, fallback: number): number => (isFiniteNumber(v
 /** `miskolc:init_state`; null when the core fields are missing. Malformed list entries are dropped. */
 export function parseInitState(value: unknown): InitState | null {
   if (!isRecord(value)) return null;
-  const { roomId, selfId, tickRate, serverTime, players, hexes, teamFunds, personal, layout, unlockedDistricts, lifetimeEarned, clock, weather, debris, logistics } = value;
+  const { roomId, selfId, tickRate, serverTime, players, hexes, teamFunds, personal, layout, unlockedDistricts, lifetimeEarned, clock, weather, debris, logistics, economy } = value;
   if (!isString(roomId) || !isInt(selfId) || !isFiniteNumber(serverTime)) return null;
   if (!Array.isArray(players) || !Array.isArray(hexes)) return null;
   return {
@@ -191,7 +194,8 @@ export function parseInitState(value: unknown): InitState | null {
     clock: parseClock(clock) ?? { ...DEFAULT_CLOCK, serverTime },
     weather: parseWeather(weather) ?? { kind: 'clear', untilServerTime: null },
     debris: parseDebrisInit(debris),
-    logistics: parseLogisticsInit(logistics)
+    logistics: parseLogisticsInit(logistics),
+    economy: parseEconomyInit(economy)
   };
 }
 
