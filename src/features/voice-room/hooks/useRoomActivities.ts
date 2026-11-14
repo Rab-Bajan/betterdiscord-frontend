@@ -56,6 +56,7 @@ export interface RoomActivitiesApi {
   browserSessions: RoomSessions;
   gameSessions: RoomSessions;
   phobiaSessions: RoomSessions;
+  sweepersSessions: RoomSessions;
   startCasino: () => void;
   stopCasino: () => void;
   startChess: (colorPreference?: string) => void;
@@ -89,6 +90,7 @@ export function useRoomActivities(socket: SocketLike, currentUser: CurrentUser |
   const [browserSessions, setBrowserSessions] = useState<RoomSessions>({});
   const [gameSessions, setGameSessions] = useState<RoomSessions>({});
   const [phobiaSessions, setPhobiaSessions] = useState<RoomSessions>({}); // MiskolcPhobia összefoglaló
+  const [sweepersSessions, setSweepersSessions] = useState<RoomSessions>({}); // MiskolcSweepers összefoglaló
 
   const whiteboardsRef = useRef(whiteboards);
   whiteboardsRef.current = whiteboards;
@@ -114,12 +116,14 @@ export function useRoomActivities(socket: SocketLike, currentUser: CurrentUser |
       const empire = parseRoomSessions(data.empireSessions);
       const browser = parseRoomSessions(data.browserSessions);
       const phobia = parseRoomSessions(data.phobiaSessions);
+      const sweepers = parseRoomSessions(data.sweepersSessions);
       if (casino) setCasinoSessions(casino);
       if (watch) setWatchSessions(Object.fromEntries(Object.entries(watch).map(([id, s]) => [id, stamp(s)])));
       if (chess) setChessSessions(chess);
       if (empire) setEmpireSessions(empire);
       if (browser) setBrowserSessions(browser);
       if (phobia) setPhobiaSessions(phobia);
+      if (sweepers) setSweepersSessions(sweepers);
     },
 
     'whiteboard:list': (value) => {
@@ -158,7 +162,8 @@ export function useRoomActivities(socket: SocketLike, currentUser: CurrentUser |
     'browser:session-updated': onSessionUpdated(setBrowserSessions, 'state'),
     'browser:state': onChannelState(setBrowserSessions),
     'phobia:session-updated': onSessionUpdated(setPhobiaSessions, 'state'),
-    'phobia:state': onChannelState(setPhobiaSessions)
+    'phobia:state': onChannelState(setPhobiaSessions),
+    'miskolc:session-updated': onSessionUpdated(setSweepersSessions, 'state')
   });
 
   const emitToRoom = (event: string, payload: Record<string, unknown> = {}) => {
@@ -191,6 +196,7 @@ export function useRoomActivities(socket: SocketLike, currentUser: CurrentUser |
     browserSessions,
     gameSessions,
     phobiaSessions,
+    sweepersSessions,
     // kaszinó
     startCasino: () => emitToRoom('casino:start-session', { username: currentUser?.username || 'Felhasználó' }),
     stopCasino: () => emitToRoom('casino:stop-session'),

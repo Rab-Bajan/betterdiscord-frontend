@@ -1,0 +1,37 @@
+import React from 'react';
+import { SWEEPERS_THEME as T } from '../theme';
+import { DRAW_CALL_LIMIT } from '../lib/world/drawPlan';
+import type { SweepersDebugStats } from '../lib/engine/SweepersGame';
+
+/** F3 overlay (spec 14), with renderer.info and the LOD tiers (spec 11). */
+export default function DebugOverlay({ stats }: { stats: SweepersDebugStats }) {
+  const rows: ReadonlyArray<readonly [string, string]> = [
+    ['FPS', String(stats.fps)],
+    ['Rajzolási hívások', `${stats.drawCalls} / ${DRAW_CALL_LIMIT}`],
+    ['Tervezett max.', stats.plannedDrawCalls === null ? '–' : String(stats.plannedDrawCalls)],
+    ['Háromszögek', stats.triangles.toLocaleString('hu-HU')],
+    ['Geometriák', String(stats.geometries)],
+    ['Textúrák', String(stats.textures)],
+    ['Shaderek', String(stats.programs)],
+    ['LOD közel / közép / távol', stats.lod ? `${stats.lod.near} / ${stats.lod.mid} / ${stats.lod.far}` : '–'],
+    ['Kivágva', stats.lod ? String(stats.lod.culled) : '–'],
+    ['Törmelék', String(stats.debris)],
+    ['Szalagszakaszok', String(stats.conveyors)],
+    ['Áramhálózat', stats.grid === null ? '–' : `${['rendben', 'feszültségesés', 'áramszünet'][stats.grid.st] ?? '?'} · ${stats.grid.kW.toFixed(1)} kW`],
+    ['Ping (RTT)', stats.rttMs === null ? '–' : `${Math.round(stats.rttMs)} ms`],
+    ['X / Y / Z', `${stats.x.toFixed(2)} / ${stats.y.toFixed(2)} / ${stats.z.toFixed(2)}`]
+  ];
+  return (
+    <div
+      className="absolute left-3 top-20 z-30 rounded-lg px-3 py-2 text-[11px] font-mono pointer-events-none"
+      style={{ background: 'rgba(9, 10, 24, 0.85)', border: `1px solid ${T.border}`, color: T.text }}
+    >
+      {rows.map(([label, value]) => (
+        <div key={label} className="flex justify-between gap-4">
+          <span style={{ color: T.muted }}>{label}</span>
+          <span className="tabular-nums" style={label === 'Rajzolási hívások' && stats.drawCalls > DRAW_CALL_LIMIT ? { color: T.red } : undefined}>{value}</span>
+        </div>
+      ))}
+    </div>
+  );
+}
